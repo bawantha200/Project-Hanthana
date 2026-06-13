@@ -8,6 +8,10 @@ import CustomerLayout from '../layouts/CustomerLayout';
 import Dashboard from '../pages/admin/Dashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
+import Deliveries from '../pages/admin/Deliveries';
+import Reports from '../pages/admin/Reports';
+import UserManagement from '../pages/admin/UserManagement';
+import Settings from '../pages/admin/Settings';
 
 
 // Auth pages
@@ -43,6 +47,18 @@ function AdminRoutes() {
         } />
         
         <Route path="orders" element={<Orders />
+        } />
+
+        <Route path="deliveries" element={<Deliveries />
+        } />
+
+        <Route path="reports" element={<Reports />
+        } />
+        
+        <Route path="user-management" element={<UserManagement />
+        } />
+
+        <Route path="settings" element={<Settings />
         } />
         
 

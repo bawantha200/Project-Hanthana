@@ -76,10 +76,23 @@ export const vendorData = [
 
 
 
+export const deliveryData = [
+  { id: 'DEL-001', orderId: 'ORD-2403', driver: 'Suresh Menon', vehicle: 'Truck MH-12-AB-1234', status: 'On Route', currentLocation: 'Highway 4, Near Pune', branch: 'Mumbai Central', eta: '30 mins', customer: 'Amit Kumar' },
+  { id: 'DEL-002', orderId: 'ORD-2406', driver: 'Vikram Singh', vehicle: 'Van DL-05-CD-5678', status: 'Dispatched', currentLocation: 'Warehouse, Delhi North', branch: 'Delhi North', eta: '1 hr', customer: 'Neha Gupta' },
+  { id: 'DEL-003', orderId: 'ORD-2404', driver: 'Meera Joshi', vehicle: 'Truck KA-01-EF-9012', status: 'Preparing', currentLocation: 'Warehouse, Bangalore East', branch: 'Bangalore East', eta: '2 hrs', customer: 'Priya Sharma' },
+  { id: 'DEL-004', orderId: 'ORD-2405', driver: 'Kiran Rao', vehicle: 'Van TS-08-GH-3456', status: 'Preparing', currentLocation: 'Warehouse, Hyderabad South', branch: 'Hyderabad South', eta: '3 hrs', customer: 'Vikram Singh' },
+  { id: 'DEL-005', orderId: 'ORD-2401', driver: 'Suresh Menon', vehicle: 'Truck MH-12-AB-1234', status: 'Delivered', currentLocation: 'Customer Location, Mumbai', branch: 'Mumbai Central', eta: 'Delivered', customer: 'Rahul Verma' },
+  { id: 'DEL-006', orderId: 'ORD-2402', driver: 'Suresh Menon', vehicle: 'Truck MH-12-AB-1234', status: 'Delivered', currentLocation: 'Customer Location, Pune', branch: 'Pune West', eta: 'Delivered', customer: 'Sneha Patil' },
+];
 
 
-
-
+export const branchLocations = [
+  { name: 'Mumbai Central', address: '42 Marine Drive, Mumbai 400001', phone: '+91-22-12345678', hours: 'Mon-Sat: 7AM-9PM' },
+  { name: 'Pune West', address: '15 FC Road, Pune 411004', phone: '+91-20-23456789', hours: 'Mon-Sat: 7AM-9PM' },
+  { name: 'Delhi North', address: '78 Connaught Place, New Delhi 110001', phone: '+91-11-34567890', hours: 'Mon-Sat: 7AM-9PM' },
+  { name: 'Bangalore East', address: '23 Koramangala, Bangalore 560034', phone: '+91-80-45678901', hours: 'Mon-Sat: 7AM-9PM' },
+  { name: 'Hyderabad South', address: '56 Jubilee Hills, Hyderabad 500033', phone: '+91-40-56789012', hours: 'Mon-Sat: 7AM-9PM' },
+];
 
 
 export const customerOrders = [

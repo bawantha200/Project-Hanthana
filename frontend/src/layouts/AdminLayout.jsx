@@ -30,15 +30,15 @@ const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
   { id: 'inventory', label: 'Inventory', icon: Package, path: '/admin/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
-  { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin' },
+  { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
   { id: 'customers', label: 'Customers', icon: Users, path: '/admin' },
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin' },
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin' },
-  { id: 'vendors', label: 'Vendors', icon: Store, path: '/admin' },
-  { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin' },
-  { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin' },
-  { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/' },
+  { id: 'vendors', label: 'Vendors', icon: Store, path: '/admin/' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
+  { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
+  { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
 ];
 
 const ROLE_LABELS = {
