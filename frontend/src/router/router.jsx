@@ -14,6 +14,7 @@ import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
 import Employees from '../pages/admin/Employees';
 import HRM from '../pages/admin/HRM';
+import Vendors from '../pages/admin/Vendors';
 
 
 // Auth pages
@@ -60,13 +61,18 @@ function AdminRoutes() {
         <Route path="user-management" element={<UserManagement />
         } />
 
-        <Route path="settings" element={<Settings />
+        <Route path="settings" element={<Settings />} />    
+ 
         <Route path="employees" element={<Employees />
         } />
         
         <Route path="hrm" element={<HRM />
         } />
         
+
+        <Route path="vendors" element={ 
+            <Vendors />
+        } />
 
         {/* Invalid admin paths redirect to dashboard */}
         <Route path="*" element={<Navigate to="dashboard" replace />} />

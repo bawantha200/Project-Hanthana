@@ -35,7 +35,7 @@ const NAV_ITEMS = [
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin' },
-  { id: 'vendors', label: 'Vendors', icon: Store, path: '/admin/' },
+  { id: 'vendors', label: 'Vendors', icon: Store, path: '/admin/vendors' },
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
