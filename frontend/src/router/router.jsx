@@ -8,6 +8,8 @@ import CustomerLayout from '../layouts/CustomerLayout';
 import Dashboard from '../pages/admin/Dashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
+import Employees from '../pages/admin/Employees';
+import HRM from '../pages/admin/HRM';
 
 
 // Auth pages
@@ -43,6 +45,12 @@ function AdminRoutes() {
         } />
         
         <Route path="orders" element={<Orders />
+        } />
+
+        <Route path="employees" element={<Employees />
+        } />
+        
+        <Route path="hrm" element={<HRM />
         } />
         
 
