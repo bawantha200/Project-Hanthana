@@ -12,6 +12,8 @@ import Deliveries from '../pages/admin/Deliveries';
 import Reports from '../pages/admin/Reports';
 import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
+import Employees from '../pages/admin/Employees';
+import HRM from '../pages/admin/HRM';
 
 
 // Auth pages
@@ -59,6 +61,10 @@ function AdminRoutes() {
         } />
 
         <Route path="settings" element={<Settings />
+        <Route path="employees" element={<Employees />
+        } />
+        
+        <Route path="hrm" element={<HRM />
         } />
         
 
