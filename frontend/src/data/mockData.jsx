@@ -158,3 +158,48 @@ export const expenseBreakdown = [
   { name: 'Utilities', value: 15000, color: '#06b6d4' },
   { name: 'Maintenance', value: 8500, color: '#38bdf8' },
 ];
+
+export const attendanceData = [
+  { employeeId: 1, position: 'Driver', name: 'Suresh Menon', date: '2026-05-05', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  // { employeeId: 1, name: 'Suresh Menon', date: '2026-05-06', checkIn: '09:00', checkOut: '18:30', workingHours: 9.5, otHours: 0.5 },
+  // { employeeId: 1, name: 'Suresh Menon', date: '2026-05-07', checkIn: '08:45', checkOut: '18:00', workingHours: 9.25, otHours: 0.25 },
+  // { employeeId: 1, name: 'Suresh Menon', date: '2026-05-08', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  // { employeeId: 1, name: 'Suresh Menon', date: '2026-05-09', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  { employeeId: 2, position: 'Driver', name: 'Vikram Singh', date: '2026-05-05', checkIn: '09:15', checkOut: '18:00', workingHours: 8.75, otHours: 0.5 },
+  // { employeeId: 2, name: 'Vikram Singh', date: '2026-05-06', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  // { employeeId: 2, name: 'Vikram Singh', date: '2026-05-07', checkIn: '09:00', checkOut: '19:00', workingHours: 10, otHours: 1.0 },
+  // { employeeId: 2, name: 'Vikram Singh', date: '2026-05-08', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  // { employeeId: 2, name: 'Vikram Singh', date: '2026-05-09', checkIn: '08:30', checkOut: '18:00', workingHours: 9.5, otHours: 0.5 },
+  { employeeId: 3, position: 'Delivery Staff', name: 'Anita Desai', date: '2026-05-05', checkIn: '09:00', checkOut: '17:30', workingHours: 8.5, otHours: 0 },
+  // { employeeId: 3, name: 'Anita Desai', date: '2026-05-06', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  // { employeeId: 3, name: 'Anita Desai', date: '2026-05-07', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  // { employeeId: 3, name: 'Anita Desai', date: '2026-05-08', checkIn: '08:45', checkOut: '18:00', workingHours: 9.25, otHours: 0.5 },
+  // { employeeId: 3, name: 'Anita Desai', date: '2026-05-09', checkIn: '09:00', checkOut: '18:00', workingHours: 9, otHours: 0.5 },
+  { employeeId: 5, position: 'Branch Manager', name: 'Deepak Nair', date: '2026-05-05', checkIn: '08:30', checkOut: '18:30', workingHours: 10, otHours: 1.0 },
+  // { employeeId: 5, name: 'Deepak Nair', date: '2026-05-06', checkIn: '08:30', checkOut: '19:00', workingHours: 10.5, otHours: 1.5 },
+  // { employeeId: 5, name: 'Deepak Nair', date: '2026-05-07', checkIn: '08:30', checkOut: '18:00', workingHours: 9.5, otHours: 0.5 },
+  // { employeeId: 5, name: 'Deepak Nair', date: '2026-05-08', checkIn: '08:30', checkOut: '18:30', workingHours: 10, otHours: 1.0 },
+  // { employeeId: 5, name: 'Deepak Nair', date: '2026-05-09', checkIn: '08:30', checkOut: '18:00', workingHours: 9.5, otHours: 0.5 },
+];
+
+export const employeeData = [
+  { id: 1, name: 'Suresh Menon', role: 'EMPLOYEE', position: 'Driver', phone: '+91-9123456780', email: 'suresh@Hanthana.com', branch: 'Mumbai Central', baseSalary: 18000, otRate: 150, hireDate: '2023-01-15', status: 'active', avatar: 'SM' },
+  { id: 2, name: 'Vikram Singh', role: 'EMPLOYEE', position: 'Driver', phone: '+91-9123456781', email: 'vikram@Hanthana.com', branch: 'Delhi North', baseSalary: 18000, otRate: 150, hireDate: '2023-03-20', status: 'active', avatar: 'VS' },
+  { id: 3, name: 'Anita Desai', role: 'EMPLOYEE', position: 'Warehouse Staff', phone: '+91-9123456782', email: 'anita@Hanthana.com', branch: 'Pune West', baseSalary: 15000, otRate: 120, hireDate: '2022-06-10', status: 'active', avatar: 'AD' },
+  { id: 4, name: 'Kiran Rao', role: 'EMPLOYEE', position: 'Warehouse Staff', phone: '+91-9123456783', email: 'kiran@Hanthana.com', branch: 'Bangalore East', baseSalary: 15000, otRate: 120, hireDate: '2023-08-01', status: 'active', avatar: 'KR' },
+  { id: 5, name: 'Deepak Nair', role: 'MANAGER', position: 'Branch Manager', phone: '+91-9123456784', email: 'deepak@Hanthana.com', branch: 'Mumbai Central', baseSalary: 35000, otRate: 250, hireDate: '2021-11-05', status: 'active', avatar: 'DN' },
+  { id: 6, name: 'Meera Joshi', role: 'EMPLOYEE', position: 'Delivery Staff', phone: '+91-9123456785', email: 'meera@Hanthana.com', branch: 'Hyderabad South', baseSalary: 16000, otRate: 130, hireDate: '2024-01-10', status: 'active', avatar: 'MJ' },
+  { id: 7, name: 'Raj Malhotra', role: 'MANAGER', position: 'Operations Manager', phone: '+91-9123456786', email: 'raj@Hanthana.com', branch: 'Delhi North', baseSalary: 38000, otRate: 280, hireDate: '2020-05-15', status: 'active', avatar: 'RM' },
+  { id: 8, name: 'Pooja Iyer', role: 'EMPLOYEE', position: 'Customer Support', phone: '+91-9123456787', email: 'pooja@Hanthana.com', branch: 'Pune West', baseSalary: 14000, otRate: 110, hireDate: '2024-06-01', status: 'on_leave', avatar: 'PI' },
+];
+
+export const salaryData = [
+  { employeeId: 1, name: 'Suresh Menon', month: 'April 2026', base: 18000, otHours: 12, otAmount: 1800, bonus: 500, total: 20300, paid: true },
+  { employeeId: 2, name: 'Vikram Singh', month: 'April 2026', base: 18000, otHours: 12, otAmount: 1800, bonus: 0, total: 19800, paid: true },
+  { employeeId: 3, name: 'Anita Desai', month: 'April 2026', base: 15000, otHours: 12, otAmount: 1440, bonus: 300, total: 16740, paid: true },
+  { employeeId: 4, name: 'Kiran Rao', month: 'April 2026', base: 15000, otHours: 12, otAmount: 1440, bonus: 0, total: 16440, paid: true },
+  { employeeId: 5, name: 'Deepak Nair', month: 'April 2026', base: 35000, otHours: 12, otAmount: 3000, bonus: 2000, total: 40000, paid: true },
+  { employeeId: 6, name: 'Meera Joshi', month: 'April 2026', base: 16000, otHours: 12, otAmount: 1560, bonus: 0, total: 17560, paid: true },
+  { employeeId: 7, name: 'Raj Malhotra', month: 'April 2026', base: 38000, otHours: 8, otAmount: 2240, bonus: 3000, total: 43240, paid: false },
+  { employeeId: 8, name: 'Pooja Iyer', month: 'April 2026', base: 14000, otHours: 6, otAmount: 660, bonus: 0, total: 14660, paid: false },
+];
