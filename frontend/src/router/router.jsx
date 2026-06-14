@@ -22,6 +22,7 @@ import Finance from '../pages/admin/Finance';
 // Auth pages
 import Login from '../pages/auth/Login';
 import Register from '../pages/auth/Register';
+import AuthCallback from '../pages/auth/AuthCallback';
 
 // Customer pages
 import Home from '../pages/customer/Home';
@@ -112,6 +113,7 @@ function CustomerRoutes() {
 function AppRoutes() {
   return (
     <Routes>
+      <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/admin/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
       <Route path="/login" element={<Login />} />

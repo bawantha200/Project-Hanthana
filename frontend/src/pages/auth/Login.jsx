@@ -1,52 +1,79 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, LogIn } from 'lucide-react';
-import { supabase } from '../../supabaseClient'; // Adjusted path assuming it is in src/
+import { useAuth } from '../../context/AuthContext';
 
 const Login = () => {
-  // Form and component states
+  const { login, loginWithGoogle } = useAuth();
+  
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
 
-  // Handle standard Email/Password Sign-In
-  const handleLogin = async (e) => {
+  /**
+   * Handles traditional Email/Password authentication
+   */
+  const handleLogin = useCallback(async (e) => {
     e.preventDefault();
     setLoading(true);
+    console.log("[LOGIN] Attempting email/password sign-in for:", email);
 
-    // Call Supabase auth sign-in method
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email,
-      password: password,
-    });
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-    setLoading(false);
+      const data = await response.json();
 
-    if (error) {
-      alert("Login Error: " + error.message);
-    } else {
-      console.log("Login Successful, User Session:", data.session);
-      // Redirect user directly to the dashboard page
-      navigate('/dashboard');
-    }
-  };
-
-  // Integrated Google Sign-In Handler
-  const handleGoogleSignIn = async () => {
-    console.log("Initiating Google Sign-In...");
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        // Redirect directly to dashboard upon successful external authentication
-        redirectTo: `${window.location.origin}/dashboard`,
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Login execution failed');
       }
-    });
 
-    if (error) console.error("Google Auth Error:", error.message);
-  };
+      login(data.user, data.session.access_token, data.permissions || []);
+
+      const targetRole = data.user.role?.toUpperCase();
+      if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
+        navigate('/admin/dashboard', { replace: true });
+      } else {
+        navigate('/customer/dashboard', { replace: true });
+      }
+
+    } catch (error) {
+      console.error("[LOGIN ERROR]", error);
+      alert("Login Failure: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [email, password, login, navigate]);
+
+  /**
+   * Handles Google OAuth Authentication
+   */
+  const handleGoogleLoginClick = useCallback(async (e) => {
+    // Prevent any accidental form submissions or parent bubbles
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    console.log("🔥 [CLICK TRIGGERED] The Google Button was physically clicked!");
+
+    try {
+      console.log("[CONTEXT CALL] Dispatching to loginWithGoogle()...");
+      await loginWithGoogle();
+      console.log("[CONTEXT CALL] Supabase OAuth redirect dispatched successfully.");
+    } catch (error) {
+      console.error("❌ [OAUTH CRASH] Error inside Google login sequence:", error);
+      alert("Something went wrong with Google Sign-In.");
+    }
+  }, [loginWithGoogle]);
 
   return (
     <div className="min-h-screen bg-blue-50/30 flex flex-col justify-center py-12 px-6 relative overflow-hidden">
@@ -106,7 +133,7 @@ const Login = () => {
               </div>
             </div>
 
-            {/* Submit Button with Loading Guard */}
+            {/* Submit Button */}
             <button 
               type="submit" 
               disabled={loading}
@@ -126,8 +153,9 @@ const Login = () => {
 
             {/* Google Authentication Trigger */}
             <button 
-              onClick={handleGoogleSignIn} 
-              className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center"
+              type="button"
+              onClick={handleGoogleLoginClick} 
+              className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center cursor-pointer relative z-30"
             >
               <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/smartlock/google.svg" className="w-5 h-5 mr-3" alt="Google" />
               Continue with Google
