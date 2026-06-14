@@ -5,18 +5,32 @@ const {
   initiateGoogleOAuth, 
   handleGoogleCallback, 
   getMe,
-  loginUser 
+  loginUser,
+  updateProfile,
+  updatePassword,
+  deleteAccount,
+  getUserPermissions,
+  getAllRoles,
+  getPermissionsByRoleName,
+  getProfile
 } = require('../controllers/authController');
 
-// Standard email/password customer registration flow
+const { protect } = require('../middlewares/authMiddleware');
+
+// Public Routes
 router.post('/register', registerUser);
 router.post('/login', loginUser);
-
-// OAuth flows routing via intermediate gateway
 router.post('/google', initiateGoogleOAuth);
 router.post('/google/callback', handleGoogleCallback);
 
-// Profile initialization endpoint to fetch dynamic user roles and permissions
-router.get('/me', getMe);
+// Protected Routes (ලොග් වෙලා ඉන්න අයට විතරයි)
+router.get('/me', protect, getMe);
+router.put('/profile', protect, updateProfile);
+router.put('/update-password', protect, updatePassword);
+router.delete('/account', protect, deleteAccount);
+router.get('/permissions', protect, getUserPermissions);
+router.get('/roles', protect, getAllRoles);
+router.get('/permissions/:roleName', protect, getPermissionsByRoleName);
+router.get('/profile', protect, getProfile);
 
 module.exports = router;

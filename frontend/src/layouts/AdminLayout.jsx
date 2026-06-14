@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
-import { Outlet, useNavigate, useLocation, Link } from 'react-router-dom';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
@@ -21,49 +21,67 @@ import {
   Droplets,
   LogOut,
   Check,
+  User,
+  Phone,
+  MapPin,
+  Lock,
+  Eye,
+  EyeOff,
+  Save,
+  Trash2,
+  AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { notifications } from '../data/mockData';
-import { supabase } from '../supabaseClient'; // Ensure your supabaseClient path is correct
+import { supabase } from '../supabaseClient';
 
+// ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
   { id: 'inventory', label: 'Inventory', icon: Package, path: '/admin/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
-  { id: 'customers', label: 'Customers', icon: Users, path: '/admin' },
+  { id: 'customers', label: 'Customers', icon: Users, path: '/admin/' },
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
-  { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin' },
+  { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin/' },
   { id: 'vendors', label: 'Vendors', icon: Store, path: '/admin/vendors' },
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
 ];
 
-const ROLE_LABELS = {
-  ADMIN: 'Admin',
-  MANAGER: 'Manager',
-  CUSTOMER: 'Customer',
+// Helper: get initials
+const getInitials = (name, email) => {
+  if (name?.trim()) {
+    const parts = name.trim().split(' ');
+    if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+    return parts[0][0].toUpperCase();
+  }
+  return email ? email[0].toUpperCase() : 'U';
 };
 
-const ROLE_COLORS = {
-  ADMIN: 'bg-red-100 text-red-700',
-  MANAGER: 'bg-blue-100 text-blue-700',
-  CUSTOMER: 'bg-amber-100 text-amber-700',
+// Random pastel color for role badge
+const getRandomRoleColor = (roleName) => {
+  const colors = [
+    'bg-red-100 text-red-700',
+    'bg-blue-100 text-blue-700',
+    'bg-green-100 text-green-700',
+    'bg-yellow-100 text-yellow-700',
+    'bg-purple-100 text-purple-700',
+    'bg-pink-100 text-pink-700',
+    'bg-indigo-100 text-indigo-700',
+    'bg-orange-100 text-orange-700',
+  ];
+  let hash = 0;
+  for (let i = 0; i < roleName.length; i++) {
+    hash = roleName.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
 };
 
-const NOTIFICATION_ICONS = {
-  order: ShoppingCart,
-  delivery: Truck,
-  inventory: Package,
-  payment: DollarSign,
-  system: Settings,
-};
-
-function SidebarItem({ item, isActive, onClick, collapsed }) {
+// ---------- Sidebar Item ----------
+function SidebarItem({ item, isActive, onClick }) {
   const Icon = item.icon;
-
   return (
     <button
       onClick={onClick}
@@ -80,19 +98,17 @@ function SidebarItem({ item, isActive, onClick, collapsed }) {
           transition={{ type: 'spring', bounce: 0.15, duration: 0.5 }}
         />
       )}
-      <span className={`relative z-10 flex-shrink-0 ${collapsed ? 'mx-auto' : ''}`}>
+      <span className="relative z-10">
         <Icon size={20} strokeWidth={isActive ? 2.2 : 1.8} />
       </span>
-      {!collapsed && (
-        <motion.span
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="relative z-10 whitespace-nowrap"
-        >
-          {item.label}
-        </motion.span>
-      )}
-      {isActive && !collapsed && (
+      <motion.span
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="relative z-10 whitespace-nowrap"
+      >
+        {item.label}
+      </motion.span>
+      {isActive && (
         <motion.div
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -103,19 +119,28 @@ function SidebarItem({ item, isActive, onClick, collapsed }) {
   );
 }
 
+// ---------- Notification Panel (mock) ----------
+const mockNotifications = [
+  { id: 1, message: 'New order #1234', time: '2 min ago', read: false, type: 'order' },
+  { id: 2, message: 'Delivery completed', time: '1 hour ago', read: false, type: 'delivery' },
+];
+const NOTIFICATION_ICONS = {
+  order: ShoppingCart,
+  delivery: Truck,
+  inventory: Package,
+  payment: DollarSign,
+  system: Settings,
+};
+
 function NotificationPanel({ isOpen, onClose }) {
   const panelRef = useRef(null);
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = mockNotifications.filter((n) => !n.read).length;
 
   useEffect(() => {
     function handleClickOutside(event) {
-      if (panelRef.current && !panelRef.current.contains(event.target)) {
-        onClose();
-      }
+      if (panelRef.current && !panelRef.current.contains(event.target)) onClose();
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
@@ -135,8 +160,7 @@ function NotificationPanel({ isOpen, onClose }) {
             initial={{ opacity: 0, y: -10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="absolute right-0 top-full mt-2 z-50 w-80 sm:w-96 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-200/50 overflow-hidden"
+            className="absolute right-0 top-full mt-2 z-50 w-80 sm:w-96 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl overflow-hidden"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
@@ -147,53 +171,26 @@ function NotificationPanel({ isOpen, onClose }) {
                   </span>
                 )}
               </div>
-              <button
-                onClick={onClose}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-              >
+              <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
                 <X size={16} />
               </button>
             </div>
             <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
-              {notifications.map((notification) => {
-                const NotifIcon = NOTIFICATION_ICONS[notification.type] || Bell;
+              {mockNotifications.map((n) => {
+                const Icon = NOTIFICATION_ICONS[n.type] || Bell;
                 return (
-                  <div
-                    key={notification.id}
-                    className={`flex items-start gap-3 px-4 py-3 transition-colors hover:bg-slate-50/80 ${
-                      !notification.read ? 'bg-blue-50/40' : ''
-                    }`}
-                  >
-                    <div
-                      className={`flex-shrink-0 mt-0.5 p-1.5 rounded-lg ${
-                        !notification.read
-                          ? 'bg-blue-100 text-blue-600'
-                          : 'bg-slate-100 text-slate-400'
-                      }`}
-                    >
+                  <div key={n.id} className={`flex items-start gap-3 px-4 py-3 ${!n.read ? 'bg-blue-50/40' : ''}`}>
+                    <div className={`p-1.5 rounded-lg ${!n.read ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
                       <Icon size={14} />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-sm leading-snug ${
-                          !notification.read ? 'text-slate-800 font-medium' : 'text-slate-500'
-                        }`}
-                      >
-                        {notification.message}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1">{notification.time}</p>
+                    <div className="flex-1">
+                      <p className={`text-sm ${!n.read ? 'font-medium text-slate-800' : 'text-slate-500'}`}>{n.message}</p>
+                      <p className="text-xs text-slate-400 mt-1">{n.time}</p>
                     </div>
-                    {!notification.read && (
-                      <div className="flex-shrink-0 mt-1.5 h-2 w-2 rounded-full bg-blue-500" />
-                    )}
+                    {!n.read && <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5" />}
                   </div>
                 );
               })}
-            </div>
-            <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50">
-              <button className="w-full text-center text-xs font-medium text-blue-600 hover:text-blue-700 transition-colors">
-                Mark all as read
-              </button>
             </div>
           </motion.div>
         </>
@@ -202,34 +199,435 @@ function NotificationPanel({ isOpen, onClose }) {
   );
 }
 
-// 🔐 SIGN OUT LOGIC INTEGRATED HERE
-function ProfileDropdown({ isOpen, onClose, user }) {
+// ---------- COMBINED ACCOUNT SETTINGS MODAL (Edit Profile + Change Password + Delete Account) ----------
+function AccountSettingsModal({ isOpen, onClose, user, onUpdate }) {
+  // Profile edit state
+  const [fullName, setFullName] = useState(user?.fullName || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [address, setAddress] = useState(user?.address || '');
+  const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSuccess, setPasswordSuccess] = useState('');
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+
+  // Delete account state
+  const [confirmText, setConfirmText] = useState('');
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const navigate = useNavigate();
+
+  // Reset all states when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      // Reset profile edit
+      setFullName(user?.fullName || '');
+      setPhone(user?.phone || '');
+      setAddress(user?.address || '');
+      setProfileCurrentPassword('');
+      setProfileError('');
+      setProfileSuccess('');
+      // Reset password change
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordError('');
+      setPasswordSuccess('');
+      // Reset delete account
+      setConfirmText('');
+      setDeleteError('');
+    }
+  }, [isOpen, user]);
+
+  // ---------- Update Profile ----------
+  const handleProfileSubmit = async (e) => {
+    e.preventDefault();
+    if (!profileCurrentPassword) {
+      setProfileError('Current password is required to update profile');
+      return;
+    }
+    setProfileLoading(true);
+    setProfileError('');
+    setProfileSuccess('');
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/auth/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ fullName, phone, address, currentPassword: profileCurrentPassword }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Update failed');
+      setProfileSuccess('Profile updated successfully');
+      if (onUpdate) onUpdate({ ...user, fullName, phone, address });
+      setTimeout(() => {
+        setProfileSuccess('');
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setProfileError(err.message);
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  // ---------- Change Password ----------
+  const handlePasswordSubmit = async (e) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setPasswordError('New passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      return;
+    }
+    setPasswordLoading(true);
+    setPasswordError('');
+    setPasswordSuccess('');
+    try {
+      // Verify current password
+      const loginRes = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: user.email, password: currentPassword }),
+      });
+      const loginData = await loginRes.json();
+      if (!loginRes.ok || !loginData.success) throw new Error('Current password is incorrect');
+
+      // Update password
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/auth/update-password', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Password update failed');
+      setPasswordSuccess('Password changed successfully');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setPasswordSuccess('');
+        onClose();
+      }, 1500);
+    } catch (err) {
+      setPasswordError(err.message);
+    } finally {
+      setPasswordLoading(false);
+    }
+  };
+
+  // ---------- Delete Account ----------
+  const handleDelete = async () => {
+    if (confirmText !== 'DELETE') {
+      setDeleteError('Please type DELETE to confirm');
+      return;
+    }
+    setDeleteLoading(true);
+    setDeleteError('');
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/auth/account', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Deletion failed');
+      localStorage.removeItem('token');
+      navigate('/login');
+    } catch (err) {
+      setDeleteError(err.message);
+      setDeleteLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="sticky top-0 bg-white z-10 flex justify-between items-center px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold">Account Settings</h2>
+          <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-8">
+          {/* ========== EDIT PROFILE SECTION ========== */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <User size={18} className="text-blue-600" />
+              <h3 className="text-md font-semibold text-gray-800">Edit Profile</h3>
+            </div>
+            <form onSubmit={handleProfileSubmit} className="space-y-4">
+              {profileError && <div className="p-3 text-sm text-red-600 bg-red-50 rounded-xl">{profileError}</div>}
+              {profileSuccess && <div className="p-3 text-sm text-green-600 bg-green-50 rounded-xl">{profileSuccess}</div>}
+              <div>
+                <label className="block text-sm font-medium mb-1">Full Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    required
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Phone Number</label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="tel"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Address</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                  <textarea
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    rows={2}
+                    className="w-full pl-9 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Current Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    value={profileCurrentPassword}
+                    onChange={(e) => setProfileCurrentPassword(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={profileLoading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl shadow-md flex items-center justify-center gap-2"
+              >
+                {profileLoading ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" /> : <Save size={16} />}
+                Save Profile Changes
+              </button>
+            </form>
+          </div>
+
+          <div className="border-t border-gray-200" />
+
+          {/* ========== CHANGE PASSWORD SECTION ========== */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Lock size={18} className="text-blue-600" />
+              <h3 className="text-md font-semibold text-gray-800">Change Password</h3>
+            </div>
+            <form onSubmit={handlePasswordSubmit} className="space-y-4">
+              {passwordError && <div className="p-3 text-sm text-red-600 bg-red-50 rounded-xl">{passwordError}</div>}
+              {passwordSuccess && <div className="p-3 text-sm text-green-600 bg-green-50 rounded-xl">{passwordSuccess}</div>}
+              <div>
+                <label className="block text-sm font-medium mb-1">Current Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type={showCurrent ? 'text' : 'password'}
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full pl-9 pr-10 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrent(!showCurrent)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  >
+                    {showCurrent ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type={showNew ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full pl-9 pr-10 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNew(!showNew)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  >
+                    {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Confirm New Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 border rounded-xl focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={passwordLoading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-xl shadow-md flex items-center justify-center gap-2"
+              >
+                {passwordLoading ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" /> : <Save size={16} />}
+                Update Password
+              </button>
+            </form>
+          </div>
+
+          <div className="border-t border-gray-200" />
+
+          {/* ========== DELETE ACCOUNT SECTION ========== */}
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <Trash2 size={18} className="text-red-600" />
+              <h3 className="text-md font-semibold text-red-600">Delete Account</h3>
+            </div>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 p-3 bg-red-50 rounded-xl text-red-700">
+                <AlertCircle size={20} />
+                <p className="text-sm font-medium">This action is irreversible. All your data will be permanently removed.</p>
+              </div>
+              <p className="text-sm text-slate-600">Type <span className="font-mono font-bold">DELETE</span> to confirm:</p>
+              <input
+                type="text"
+                value={confirmText}
+                onChange={(e) => setConfirmText(e.target.value)}
+                className="w-full px-4 py-2 border rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+              />
+              {deleteError && <p className="text-sm text-red-600">{deleteError}</p>}
+              <button
+                onClick={handleDelete}
+                disabled={deleteLoading}
+                className="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-xl shadow-md flex items-center justify-center gap-2"
+              >
+                {deleteLoading ? <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" /> : <Trash2 size={16} />}
+                Delete Permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ---------- Role Switcher (only for ADMIN, roles from database) ----------
+function RoleSwitcher({ isOpen, onClose, onSelectRole, currentRole, availableRoles }) {
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) onClose();
+    }
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen, onClose]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          ref={dropdownRef}
+          initial={{ opacity: 0, y: -10, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -10, scale: 0.95 }}
+          className="absolute left-0 top-full mt-2 z-50 w-56 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl overflow-hidden"
+        >
+          <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/50">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Switch Role</p>
+          </div>
+          <div className="py-1.5">
+            {availableRoles.map((role) => (
+              <button
+                key={role.id}
+                onClick={() => {
+                  onSelectRole(role.role_name);
+                  onClose();
+                }}
+                className={`flex items-center justify-between w-full px-4 py-2.5 text-sm transition-colors ${
+                  currentRole === role.role_name
+                    ? 'bg-blue-50 text-blue-700 font-medium'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${getRandomRoleColor(role.role_name)}`}>
+                  <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                  {role.role_name}
+                </span>
+                {currentRole === role.role_name && <Check size={16} className="text-blue-600" />}
+              </button>
+            ))}
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ---------- Profile Dropdown (with settings and delete) ----------
+function ProfileDropdown({ isOpen, onClose, user, onOpenSettings }) {
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        onClose();
-      }
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) onClose();
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    if (isOpen) document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
   const handleSignOut = async () => {
-    console.log("Signing out user...");
-    const { error } = await supabase.auth.signOut();
-    
-    if (error) {
-      alert("Sign Out Error: " + error.message);
-    } else {
-      onClose();
-      // Redirect back to standard login screen
-      navigate('/login');
-    }
+    await supabase.auth.signOut();
+    localStorage.removeItem('token');
+    onClose();
+    navigate('/login');
   };
 
   return (
@@ -240,44 +638,33 @@ function ProfileDropdown({ isOpen, onClose, user }) {
           initial={{ opacity: 0, y: -10, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10, scale: 0.95 }}
-          transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-200/50 overflow-hidden"
+          className="absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 to-slate-50/80">
             <div className="flex items-center gap-3">
-              <div className="flex-shrink-0 h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md shadow-blue-600/20">
-                {user.avatar}
+              <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md">
+                {getInitials(user.fullName, user.email)}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-slate-800 truncate">{user.name}</p>
+                <p className="text-sm font-semibold text-slate-800 truncate">{user.fullName || user.email}</p>
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
               </div>
             </div>
           </div>
           <div className="py-1.5">
             <div className="px-3 py-2">
-              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${ROLE_COLORS[user.role]}`}>
+              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${getRandomRoleColor(user.role)}`}>
                 <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                {ROLE_LABELS[user.role]}
+                {user.role}
               </span>
-            </div>
-            <div className="px-3 py-2">
-              <p className="text-xs text-slate-400">
-                Branch: <span className="text-slate-600 font-medium">{user.branch}</span>
-              </p>
             </div>
           </div>
           <div className="border-t border-slate-100 py-1.5">
-            <button className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors">
-              <Settings size={16} />
-              Account Settings
+            <button onClick={() => { onOpenSettings(); onClose(); }} className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
+              <User size={16} /> Account Settings
             </button>
-            <button 
-              onClick={handleSignOut}
-              className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors font-medium"
-            >
-              <LogOut size={16} />
-              Sign Out
+            <button onClick={handleSignOut} className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 border-t border-slate-100 mt-1">
+              <LogOut size={16} /> Sign Out
             </button>
           </div>
         </motion.div>
@@ -286,97 +673,119 @@ function ProfileDropdown({ isOpen, onClose, user }) {
   );
 }
 
-function RoleSwitcher({ isOpen, onClose }) {
-  const { user, switchRole, ROLES } = useAuth();
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        onClose();
-      }
-    }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen, onClose]);
-
-  const roleOptions = [
-    { key: 'admin', label: 'Admin', role: ROLES.ADMIN, color: ROLE_COLORS[ROLES.ADMIN] },
-    { key: 'manager', label: 'Manager', role: ROLES.MANAGER, color: ROLE_COLORS[ROLES.MANAGER] },
-    { key: 'customer', label: 'Customer', role: ROLES.CUSTOMER, color: ROLE_COLORS[ROLES.CUSTOMER] },
-  ];
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          ref={dropdownRef}
-          initial={{ opacity: 0, y: -10, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -10, scale: 0.95 }}
-          transition={{ duration: 0.2, ease: 'easeOut' }}
-          className="absolute left-0 top-full mt-2 z-50 w-56 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl shadow-slate-200/50 overflow-hidden"
-        >
-          <div className="px-4 py-2.5 border-b border-slate-100 bg-slate-50/50">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Switch Demo Role
-            </p>
-          </div>
-          <div className="py-1.5">
-            {roleOptions.map((option) => {
-              const isActive = user.role === option.role;
-              return (
-                <button
-                  key={option.key}
-                  onClick={() => {
-                    switchRole(option.key);
-                    onClose();
-                  }}
-                  className={`flex items-center justify-between w-full px-4 py-2.5 text-sm transition-colors ${
-                    isActive
-                      ? 'bg-blue-50 text-blue-700 font-medium'
-                      : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${option.color}`}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                      {option.label}
-                    </span>
-                  </div>
-                  {isActive && <Check size={16} className="text-blue-600" />}
-                </button>
-              );
-            })}
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
+// ---------- Main AdminLayout Component ----------
 export default function AdminLayout() {
-  const { user, hasPermission } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
+  // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false); // single modal for all account actions
 
-  const filteredNavItems = NAV_ITEMS.filter((item) => hasPermission(item.id));
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  // Permissions & roles
+  const [permissions, setPermissions] = useState([]);
+  const [allRoles, setAllRoles] = useState([]);
+  const [viewRole, setViewRole] = useState(null);
+  const [effectivePermissions, setEffectivePermissions] = useState([]);
+
+  const isAdmin = user?.role === 'ADMIN';
+
+  // Fetch current user's permissions
+  const fetchPermissions = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/auth/permissions', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setPermissions(data.permissions || []);
+    } catch (err) {
+      console.error('Failed to fetch permissions', err);
+    }
+  }, []);
+
+  // Fetch all roles (for admin switcher)
+  const fetchAllRoles = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('http://localhost:5000/api/auth/roles', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) setAllRoles(data.roles || []);
+    } catch (err) {
+      console.error('Failed to fetch roles', err);
+    }
+  }, []);
+
+  // Fetch permissions for a specific role (when admin switches)
+  const fetchPermissionsForRole = useCallback(async (roleName) => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`http://localhost:5000/api/auth/permissions/${roleName}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok) return data.permissions || [];
+      return [];
+    } catch (err) {
+      console.error(err);
+      return [];
+    }
+  }, []);
+
+  // Load initial data
+  useEffect(() => {
+    if (user) {
+      fetchPermissions();
+      if (isAdmin) fetchAllRoles();
+    }
+  }, [user, isAdmin, fetchPermissions, fetchAllRoles]);
+
+  // When admin switches viewRole, fetch permissions for that role
+  useEffect(() => {
+    if (isAdmin && viewRole && viewRole !== user.role) {
+      fetchPermissionsForRole(viewRole).then(setEffectivePermissions);
+    } else {
+      setEffectivePermissions([]);
+    }
+  }, [isAdmin, viewRole, user?.role, fetchPermissionsForRole]);
+
+  // Determine which nav items to show
+  const filteredNavItems = NAV_ITEMS.filter((item) => {
+    if (isAdmin && viewRole && viewRole !== user.role) {
+      // Admin viewing as another role
+      return effectivePermissions.includes(item.id);
+    } else {
+      // Normal user (or admin not switching)
+      return permissions.includes(item.id);
+    }
+  });
+
   const isActive = (item) => location.pathname === item.path;
-
   const handleNavClick = (item) => {
     navigate(item.path);
     setSidebarOpen(false);
   };
+
+  const handleUpdateUser = (updatedData) => {
+    // Optionally refresh user data from backend, or just reload
+    window.location.reload();
+  };
+
+  const handleClick = () => navigate('/');
+
+  if (!user) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-50">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
@@ -387,7 +796,6 @@ export default function AdminLayout() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
             className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
@@ -395,57 +803,35 @@ export default function AdminLayout() {
       </AnimatePresence>
 
       {/* Sidebar */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-white border-r border-slate-200/80 shadow-sm transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0 lg:shadow-none ${
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
-        {/* Logo area */}
-        <div className="flex-shrink-0 flex items-center justify-between h-16 px-5 border-b border-slate-100">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-72 flex flex-col bg-white border-r border-slate-200/80 shadow-sm transition-transform duration-300 lg:relative lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <div className="flex items-center justify-between h-16 px-5 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center h-9 w-9 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 shadow-md shadow-blue-600/25">
-              <Droplets size={20} className="text-white" />
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center shadow-md">
+              <Droplets size={20} className="text-white cursor-pointer transition-transform hover:scale-110" onClick={handleClick} />
             </div>
-            <div className="flex flex-col">
-              <span className="text-base font-bold text-slate-800 tracking-tight leading-none">
-                Hanthana
-              </span>
-              <span className="text-[10px] font-medium text-slate-400 uppercase tracking-widest leading-none mt-0.5">
-                ERP System
-              </span>
+            <div>
+              <span className="text-base font-bold text-slate-800">Hanthana</span>
+              <p className="text-[10px] font-medium text-slate-400 uppercase">ERP System</p>
             </div>
           </div>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-          >
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1.5 rounded-lg text-slate-400">
             <X size={20} />
           </button>
         </div>
 
-        {/* Navigation items */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1 scrollbar-thin">
+        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {filteredNavItems.map((item) => (
-            <SidebarItem
-              key={item.id}
-              item={item}
-              isActive={isActive(item)}
-              onClick={() => handleNavClick(item)}
-              collapsed={false}
-            />
+            <SidebarItem key={item.id} item={item} isActive={isActive(item)} onClick={() => handleNavClick(item)} />
           ))}
         </nav>
 
-        {/* Sidebar footer */}
         <div className="flex-shrink-0 p-3 border-t border-slate-100">
           <div className="rounded-xl bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100/60 p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <Droplets size={14} className="text-blue-600" />
               <span className="text-xs font-semibold text-blue-800">Hanthana</span>
             </div>
-            <p className="text-[11px] text-slate-500 leading-relaxed">
-              Water Management ERP v2.0
-            </p>
+            <p className="text-[11px] text-slate-500">Water Management ERP v2.0</p>
             <div className="mt-2 flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[11px] text-emerald-600 font-medium">System Online</span>
@@ -454,129 +840,80 @@ export default function AdminLayout() {
         </div>
       </aside>
 
-      {/* Main content area */}
+      {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top navbar */}
-        <header className="flex-shrink-0 sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
+        <header className="sticky top-0 z-30 h-16 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
           <div className="flex items-center justify-between h-full px-4 sm:px-6">
-            {/* Left section */}
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-              >
+              <button onClick={() => setSidebarOpen(true)} className="lg:hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100">
                 <Menu size={22} />
               </button>
 
-              {/* Role switcher */}
-              <div className="relative">
-                <button
-                  onClick={() => {
-                    setRoleSwitcherOpen(!roleSwitcherOpen);
-                    setNotificationsOpen(false);
-                    setProfileOpen(false);
-                  }}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200/80 bg-white/60 hover:bg-slate-50 transition-all duration-200 shadow-sm"
-                >
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                      ROLE_COLORS[user.role]
-                    }`}
+              {/* Role Switcher (only for ADMIN) */}
+              {isAdmin && allRoles.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setRoleSwitcherOpen(!roleSwitcherOpen);
+                      setNotificationsOpen(false);
+                      setProfileOpen(false);
+                    }}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-white/60 hover:bg-slate-50 shadow-sm"
                   >
-                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    {ROLE_LABELS[user.role]}
-                  </span>
-                  <ChevronDown
-                    size={14}
-                    className={`text-slate-400 transition-transform duration-200 ${
-                      roleSwitcherOpen ? 'rotate-180' : ''
-                    }`}
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${getRandomRoleColor(viewRole || user.role)}`}>
+                      <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                      {viewRole || user.role}
+                    </span>
+                    <ChevronDown size={14} className={`text-slate-400 transition-transform ${roleSwitcherOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  <RoleSwitcher
+                    isOpen={roleSwitcherOpen}
+                    onClose={() => setRoleSwitcherOpen(false)}
+                    onSelectRole={(role) => setViewRole(role === user.role ? null : role)}
+                    currentRole={viewRole || user.role}
+                    availableRoles={allRoles}
                   />
-                </button>
-                <RoleSwitcher
-                  isOpen={roleSwitcherOpen}
-                  onClose={() => setRoleSwitcherOpen(false)}
-                />
-              </div>
+                </div>
+              )}
 
-              {/* Breadcrumb / page title */}
               <div className="hidden md:flex items-center">
                 <div className="h-5 w-px bg-slate-200 mx-2" />
-                <p className="text-sm text-slate-400">
-                  {filteredNavItems.find((item) => isActive(item))?.label || 'Dashboard'}
-                </p>
+                <p className="text-sm text-slate-400">{filteredNavItems.find((item) => isActive(item))?.label || 'Dashboard'}</p>
               </div>
             </div>
 
-            {/* Right section */}
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-3">
               {/* Notifications */}
               <div className="relative">
-                <button
-                  onClick={() => {
-                    setNotificationsOpen(!notificationsOpen);
-                    setProfileOpen(false);
-                    setRoleSwitcherOpen(false);
-                  }}
-                  className="relative p-2 rounded-xl text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                >
+                <button onClick={() => setNotificationsOpen(!notificationsOpen)} className="p-2 rounded-xl text-slate-500 hover:bg-slate-100">
                   <Bell size={20} />
-                  {unreadCount > 0 && (
-                    <motion.span
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      className="absolute -top-0.5 -right-0.5 flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white shadow-sm shadow-red-500/30"
-                    >
-                      {unreadCount}
-                    </motion.span>
-                  )}
                 </button>
-                <NotificationPanel
-                  isOpen={notificationsOpen}
-                  onClose={() => setNotificationsOpen(false)}
-                />
+                <NotificationPanel isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
               </div>
-
-              {/* Separator */}
-              <div className="hidden sm:block h-8 w-px bg-slate-200" />
-
-              {/* User profile */}
+              <div className="h-8 w-px bg-slate-200" />
+              {/* Profile */}
               <div className="relative">
-                <button
-                  onClick={() => {
-                    setProfileOpen(!profileOpen);
-                    setNotificationsOpen(false);
-                    setRoleSwitcherOpen(false);
-                  }}
-                  className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-xl hover:bg-slate-50 transition-colors"
-                >
-                  <div className="flex-shrink-0 h-8 w-8 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-xs font-bold text-white shadow-md shadow-blue-600/20">
-                    {user.avatar}
+                <button onClick={() => setProfileOpen(!profileOpen)} className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-xl hover:bg-slate-50">
+                  <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-xs font-bold text-white shadow-md">
+                    {getInitials(user.fullName, user.email)}
                   </div>
                   <div className="hidden sm:block text-left">
-                    <p className="text-sm font-semibold text-slate-700 leading-tight">
-                      {user.name}
-                    </p>
-                    <p className="text-[11px] text-slate-400 leading-tight">{user.branch}</p>
+                    <p className="text-sm font-semibold text-slate-700">{user.fullName || user.email}</p>
                   </div>
-                  <ChevronDown
-                    size={14}
-                    className={`hidden sm:block text-slate-400 transition-transform duration-200 ${
-                      profileOpen ? 'rotate-180' : ''
-                    }`}
-                  />
+                  <ChevronDown size={14} className="hidden sm:block text-slate-400" />
                 </button>
                 <ProfileDropdown
                   isOpen={profileOpen}
                   onClose={() => setProfileOpen(false)}
                   user={user}
+                  onOpenSettings={() => setSettingsModalOpen(true)}
                 />
               </div>
             </div>
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <AnimatePresence mode="wait">
             <motion.div
@@ -584,7 +921,6 @@ export default function AdminLayout() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
               className="h-full"
             >
               <Outlet />
@@ -592,6 +928,14 @@ export default function AdminLayout() {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Single Combined Account Settings Modal */}
+      <AccountSettingsModal
+        isOpen={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        user={user}
+        onUpdate={handleUpdateUser}
+      />
     </div>
   );
 }

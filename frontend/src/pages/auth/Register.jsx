@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { User, Mail, Lock, Phone } from 'lucide-react';
-import { supabase } from '../../supabaseClient';
+import { useAuth } from '../../context/AuthContext'; // Imported the custom hook to pull context mechanisms
 
 const Register = () => {
   // Form input states
@@ -13,46 +13,57 @@ const Register = () => {
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
+  const { loginWithGoogle } = useAuth(); // Extracted global Google authentication trigger
 
-  // Handle standard Email and Password registration
-  const handleRegister = async (e) => {
+  /**
+   * Dispatches form fields down to base backend endpoints for credentials initialization
+   * @param {Event} e - Form submission synthetics handler interface 
+   */
+  const handleRegister = React.useCallback(async (e) => {
     e.preventDefault();
     setLoading(true);
 
-    // Call Supabase auth signUp and store extra fields inside user_metadata (options.data)
-    const { data, error } = await supabase.auth.signUp({
-      email: email,
-      password: password,
-      options: {
-        data: {
-          full_name: fullName,
-          phone_number: phone,
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      },
-    });
+        body: JSON.stringify({
+          email,
+          password,
+          fullName,
+          phone,
+        }),
+      });
 
-    setLoading(false);
+      const data = await response.json();
 
-    if (error) {
-      alert("Registration Error: " + error.message);
-    } else {
-      alert("Registration Successful! Please check your email for confirmation.");
-      console.log("User Created:", data.user);
-      navigate('/dashboard'); // Redirect to login page on success
-    }
-  };
-
-  // Handle Google OAuth Sign-In
-  const handleGoogleSignIn = async () => {
-    console.log("Initiating Google Sign-In...");
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin, // Dynamic redirect back to the app home root
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Registration failed');
       }
-    });
 
-    if (error) console.error("Google Auth Error:", error.message);
+      alert("Registration Successful!");
+      navigate('/login'); 
+    } catch (error) {
+      alert("Registration Error: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [email, password, fullName, phone, navigate]);
+
+  /**
+   * Invokes centralized OAuth workflow pipelines managed by structural context instances
+   */
+  const handleGoogleSignIn = async () => {
+    console.log("Initiating Google Sign-In via Context Wrapper Layer...");
+    try {
+      // Trigger the optimized context abstraction layer instead of managing direct fetch assignments here
+      await loginWithGoogle();
+    } catch (error) {
+      console.error("Google Authentication sequence error intercept:", error);
+      alert("Something went wrong with Google Sign-In.");
+    }
   };
 
   return (
@@ -69,7 +80,7 @@ const Register = () => {
         className="absolute -bottom-24 -right-24 w-96 h-96 bg-cyan-100 rounded-full blur-3xl opacity-50" 
       />
       
-      {/* Main Registration Form Container with Entrance Animation */}
+      {/* Main Registration Form Container */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
@@ -132,7 +143,7 @@ const Register = () => {
               />
             </div>
 
-            {/* Submit Button with Loading State Guard */}
+            {/* Submit Button */}
             <button 
               type="submit" 
               disabled={loading}
@@ -152,6 +163,7 @@ const Register = () => {
 
             {/* Google OAuth Trigger Button */}
             <button 
+              type="button"
               onClick={handleGoogleSignIn} 
               className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center"
             >

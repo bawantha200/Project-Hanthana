@@ -12,7 +12,9 @@ import {
   Settings,
   LogOut,
   ShoppingBag,
+  LayoutDashboard,
 } from "lucide-react";
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
 const navLinks = [
@@ -20,8 +22,6 @@ const navLinks = [
   { name: "Services", path: "/services" },
   { name: "About Us", path: "/about" },
   { name: "Contact Us", path: "/contact" },
-  // { name: "Orders", path: "/orders" },
-  // { name: "Profile", path: "/profile" },
 ];
 
 const quickLinks = [
@@ -47,45 +47,69 @@ const contactInfo = [
 
 const socialLinks = [
   { icon: Globe, href: "#", label: "Website" },
-  // { icon: Twitter, href: "#", label: "Twitter" },
 ];
 
 function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isCustomer, setIsCustomer] = useState(false);
+  const [loadingRole, setLoadingRole] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
-
-  const handleSignOut = async () => {
-  console.log("Signing out user...");
-
-  const { error } = await supabase.auth.signOut();
-
-  if (error) {
-    alert("Sign Out Error: " + error.message);
-  } else {
-    navigate("/");
-  }
-  };
-
+  
+  const { user, logout } = useAuth();
 
   useEffect(() => {
-  const getUser = async () => {
-    const { data } = await supabase.auth.getUser();
-    setUser(data.user);
+    const fetchUserRole = async () => {
+      if (!user) {
+        setIsCustomer(false);
+        setLoadingRole(false);
+        return;
+      }
+
+      setLoadingRole(true);
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('role_id')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (profileError) throw profileError;
+
+        if (profile?.role_id) {
+          const { data: role, error: roleError } = await supabase
+            .from('roles')
+            .select('role_name')
+            .eq('id', profile.role_id)
+            .single();
+
+          if (roleError) throw roleError;
+          setIsCustomer(role?.role_name === 'CUSTOMER');
+        } else {
+          setIsCustomer(false);
+        }
+      } catch (error) {
+        console.error("Error fetching user role:", error);
+        setIsCustomer(false);
+      } finally {
+        setLoadingRole(false);
+      }
+    };
+
+    fetchUserRole();
+  }, [user]);
+
+  const handleSignOut = async () => {
+    console.log("Signing out user via AuthContext...");
+    try {
+      await logout();
+      navigate("/");
+    } catch (error) {
+      console.error("Sign Out Error:", error);
+      alert("Sign Out Error: " + (error.message || "Something went wrong"));
+    }
   };
-
-  getUser();
-
-  const {
-    data: { subscription },
-  } = supabase.auth.onAuthStateChange((_event, session) => {
-    setUser(session?.user ?? null);
-  });
-
-  return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -166,18 +190,6 @@ function Navbar() {
           </div>
 
           {/* Desktop CTA */}
-          {/* <div className="hidden lg:flex items-center gap-3">
-            <Link
-              to="/orders"
-              className="px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200 hover:shadow-lg hover:shadow-blue-300 hover:-translate-y-0.5 active:translate-y-0"
-            >
-              My Orders
-            </Link>
-          </div> */}
-
-          
-
-          {/* Desktop CTA */}
           <div className="hidden lg:flex items-center gap-3">
             {!user ? (
               <>
@@ -189,7 +201,7 @@ function Navbar() {
                 </Link>
 
                 <Link
-                  to="/Register"
+                  to="/register"
                   className="px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
                 >
                   Sign Up
@@ -206,7 +218,7 @@ function Navbar() {
 
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-800 truncate">
-                        {user.user_metadata?.full_name || "User"}
+                        {user.full_name || user.user_metadata?.full_name || "User"}
                       </p>
 
                       <p className="text-xs text-slate-500 truncate">
@@ -218,23 +230,39 @@ function Navbar() {
 
                 {/* Dropdown */}
                 <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 overflow-hidden">
-                  
-                  <Link
-                    to="/orders"
-                    className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                  >
-                    <ShoppingBag size={16} />
-                    Orders
-                  </Link>
+                  {/* Dashboard - visible to all logged-in users EXCEPT customers */}
+                  {!loadingRole && !isCustomer && (
+                    <Link
+                      to="/admin/dashboard"
+                      className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                    >
+                      <LayoutDashboard size={16} />
+                      Dashboard
+                    </Link>
+                  )}
 
-                  <Link
-                    to="/profile"
-                    className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                  >
-                    <Settings size={16} />
-                    Profile
-                  </Link>
+                  {/* Orders & Profile - only for customers */}
+                  {!loadingRole && isCustomer && (
+                    <>
+                      <Link
+                        to="/orders"
+                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                      >
+                        <ShoppingBag size={16} />
+                        Orders
+                      </Link>
 
+                      <Link
+                        to="/profile"
+                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                      >
+                        <Settings size={16} />
+                        Profile
+                      </Link>
+                    </>
+                  )}
+
+                  {/* Sign Out - visible to all logged-in users */}
                   <button
                     onClick={handleSignOut}
                     className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition"
@@ -290,7 +318,6 @@ function Navbar() {
             transition={{ duration: 0.3 }}
             className="fixed inset-0 top-16 z-40 lg:hidden"
           >
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -299,7 +326,6 @@ function Navbar() {
               onClick={() => setIsMobileMenuOpen(false)}
             />
 
-            {/* Menu Panel */}
             <motion.div
               initial={{ y: -20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -340,13 +366,16 @@ function Navbar() {
                   transition={{ delay: 0.35, duration: 0.3 }}
                   className="mt-6 pt-6 border-t border-gray-100"
                 >
-                  <Link
-                    to="/orders"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="block w-full text-center px-5 py-3 bg-[#2563EB] text-white font-semibold rounded-2xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
-                  >
-                    My Orders
-                  </Link>
+                  {/* "My Orders" button shown only to customers */}
+                  {!loadingRole && isCustomer && (
+                    <Link
+                      to="/orders"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="block w-full text-center px-5 py-3 bg-[#2563EB] text-white font-semibold rounded-2xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
+                    >
+                      My Orders
+                    </Link>
+                  )}
                 </motion.div>
               </div>
             </motion.div>
@@ -360,10 +389,8 @@ function Navbar() {
 function Footer() {
   return (
     <footer className="bg-[#1E3A8A] text-white">
-      {/* Main Footer */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-          {/* Company Info */}
           <div className="sm:col-span-2 lg:col-span-1">
             <Link to="/" className="flex items-center gap-2 group mb-4">
               <Droplets className="w-7 h-7 text-[#DBEAFE] group-hover:text-white transition-colors duration-300" />
@@ -388,18 +415,12 @@ function Footer() {
             </div>
           </div>
 
-          {/* Quick Links */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">
-              Quick Links
-            </h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Quick Links</h3>
             <ul className="space-y-2.5">
               {quickLinks.map((link) => (
                 <li key={link.name}>
-                  <Link
-                    to={link.path}
-                    className="text-blue-200 text-sm hover:text-white transition-colors duration-300 flex items-center gap-2 group"
-                  >
+                  <Link to={link.path} className="text-blue-200 text-sm hover:text-white transition-colors duration-300 flex items-center gap-2 group">
                     <span className="w-1 h-1 rounded-full bg-blue-400 group-hover:bg-white group-hover:w-1.5 transition-all duration-300" />
                     {link.name}
                   </Link>
@@ -408,11 +429,8 @@ function Footer() {
             </ul>
           </div>
 
-          {/* Services */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">
-              Services
-            </h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Services</h3>
             <ul className="space-y-2.5">
               {services.map((service) => (
                 <li key={service}>
@@ -425,20 +443,15 @@ function Footer() {
             </ul>
           </div>
 
-          {/* Contact Info */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">
-              Contact Info
-            </h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Contact Info</h3>
             <ul className="space-y-3">
               {contactInfo.map((item) => (
                 <li key={item.text} className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <item.icon className="w-4 h-4 text-[#DBEAFE]" />
                   </div>
-                  <span className="text-blue-200 text-sm leading-relaxed">
-                    {item.text}
-                  </span>
+                  <span className="text-blue-200 text-sm leading-relaxed">{item.text}</span>
                 </li>
               ))}
             </ul>
@@ -446,27 +459,14 @@ function Footer() {
         </div>
       </div>
 
-      {/* Bottom Bar */}
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-blue-300 text-sm">
-              &copy; 2026 Hanthana. All rights reserved.
-            </p>
+            <p className="text-blue-300 text-sm">&copy; 2026 Hanthana. All rights reserved.</p>
             <div className="flex items-center gap-4 text-blue-300 text-sm">
-              <Link
-                to="#"
-                className="hover:text-white transition-colors duration-300"
-              >
-                Privacy Policy
-              </Link>
+              <Link to="#" className="hover:text-white transition-colors duration-300">Privacy Policy</Link>
               <span className="w-1 h-1 rounded-full bg-blue-500" />
-              <Link
-                to="#"
-                className="hover:text-white transition-colors duration-300"
-              >
-                Terms of Service
-              </Link>
+              <Link to="#" className="hover:text-white transition-colors duration-300">Terms of Service</Link>
             </div>
           </div>
         </div>
