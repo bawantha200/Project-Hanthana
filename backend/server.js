@@ -5,6 +5,7 @@ require('dotenv').config();
 
 // Import custom application routes
 const authRoutes = require('./src/routes/authRoutes');
+const customerRoutes = require('./src/routes/customerRoutes');
 
 // Initialize the Express application instance
 const app = express();
@@ -23,6 +24,7 @@ app.use(express.json());
 // This prefixes all authentication endpoints with '/api/auth'
 // Example: The register route becomes -> http://localhost:5000/api/auth/register
 app.use('/api/auth', authRoutes);
+app.use('/api/customers', customerRoutes);
 
 // Root test route to verify server operational health
 app.get('/', (req, res) => {
