@@ -1,4 +1,4 @@
-const { supabase } = require('../config/db');
+const supabase = require('../config/db');
 
 const protect = async (req, res, next) => {
   try {

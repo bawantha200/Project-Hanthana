@@ -1,6 +1,25 @@
-// app.use("/api/users", require("./routes/userRoutes"));
-// const departmentRoutes = require("./routes/departmentRoutes");
-// const positionRoutes = require("./routes/positionRoutes");
+const express = require('express');
+const cors = require('cors');
+const customerRoutes = require('./routes/customerRoutes');
 
-// app.use("/api/departments", departmentRoutes);
-// app.use("/api/positions", positionRoutes);
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Routes
+app.use('/api/customers', customerRoutes);
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Something went wrong!',
+    error: err.message
+  });
+});
+
+module.exports = app;

@@ -1,4 +1,4 @@
-const { supabase } = require('../config/db');
+const supabase  = require('../config/db');
 
 /**
  * @desc    Register a new user, create auth credentials, and provision a database profile
