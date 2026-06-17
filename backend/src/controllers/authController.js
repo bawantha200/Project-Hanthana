@@ -358,14 +358,14 @@ const getPermissionsForRole = async (req, res) => {
 };
 
 /**
- * @desc    Get current user's permissions based on their role
+ * @desc    Get current user's permissions based on POSITION (from employees table) or ROLE (fallback)
  * @route   GET /api/auth/permissions
  */
 const getUserPermissions = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Get user's role_id from profiles
+    // 1️⃣ User ගේ profile එකෙන් role_id ගන්න (profiles table)
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role_id')
@@ -376,15 +376,48 @@ const getUserPermissions = async (req, res) => {
       return res.status(200).json({ success: true, permissions: [] });
     }
 
-    // Fetch permission names from role_permissions join
-    const { data: rolePerms, error: rpError } = await supabase
-      .from('role_permissions')
-      .select('permissions ( permission_name )')
-      .eq('role_id', profile.role_id);
+    let permissions = [];
+    let positionId = null;
 
-    if (rpError) throw rpError;
+    // 2️⃣ User ගේ position_id එක employees table එකෙන් ගන්න
+    const { data: employee, error: empError } = await supabase
+      .from('employees')
+      .select('position_id')
+      .eq('profile_id', userId)
+      .maybeSingle();  // maybeSingle() නිසා Employee record එකක් නැති වුනත් Error එන්නේ නැහැ
 
-    const permissions = rolePerms.map(rp => rp.permissions.permission_name);
+    if (!empError && employee) {
+      positionId = employee.position_id;
+    }
+
+    // 3️⃣ 🆕 Position එක තියෙනවා නම්, එයින් Permissions ගන්න (Override - Role අමතක කරන්න)
+    if (positionId) {
+      const { data: posPerms, error: posError } = await supabase
+        .from('position_permissions')
+        .select('permissions ( permission_name )')
+        .eq('position_id', positionId);
+
+      // Position permissions තියෙනවා නම්, ඒවා පමණක් යවන්න
+      if (!posError && posPerms && posPerms.length > 0) {
+        permissions = posPerms.map(rp => rp.permissions.permission_name);
+        console.log(`[POSITION PERMISSIONS] User ${userId} (Position ID: ${positionId}) got ${permissions.length} permissions.`);
+        return res.status(200).json({ success: true, permissions });
+      }
+    }
+
+    // 4️⃣ ⬇️ Position නැතිනම් හෝ එහි permissions නැතිනම්, පැරණි Role permissions වෙත යන්න (Fallback)
+    if (profile.role_id) {
+      const { data: rolePerms, error: rpError } = await supabase
+        .from('role_permissions')
+        .select('permissions ( permission_name )')
+        .eq('role_id', profile.role_id);
+
+      if (!rpError) {
+        permissions = rolePerms.map(rp => rp.permissions.permission_name);
+        console.log(`[ROLE PERMISSIONS] User ${userId} fell back to role permissions.`);
+      }
+    }
+
     return res.status(200).json({ success: true, permissions });
   } catch (error) {
     console.error('Get user permissions error:', error);

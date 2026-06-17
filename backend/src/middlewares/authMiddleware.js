@@ -4,24 +4,40 @@ const protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
+    console.log("AUTH HEADER:", authHeader);
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, message: 'Not authorized, token missing.' });
+      return res.status(401).json({
+        success: false,
+        message: 'Token missing'
+      });
     }
 
     const token = authHeader.split(' ')[1];
-    
-    // Token එක Supabase එකෙන් verify කරනවා
-    const { data: { user }, error } = await supabase.auth.getUser(token);
 
-    if (error || !user) {
-      return res.status(401).json({ success: false, message: 'Not authorized, token invalid.' });
+    console.log("TOKEN:", token);
+
+    const { data, error } = await supabase.auth.getUser(token);
+
+    console.log("SUPABASE DATA:", data);
+    console.log("SUPABASE ERROR:", error);
+
+    if (error || !data.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Not authorized, token invalid.'
+      });
     }
 
-    // Request එකට user object එක ඇමිණීම (ඊළඟ function එකට පාවිච්චි කරන්න)
-    req.user = user;
+    req.user = data.user;
     next();
-  } catch (error) {
-    return res.status(401).json({ success: false, message: 'Not authorized.' });
+
+  } catch (err) {
+    console.log("PROTECT ERROR:", err);
+    return res.status(401).json({
+      success: false,
+      message: 'Not authorized.'
+    });
   }
 };
 

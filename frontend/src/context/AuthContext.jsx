@@ -34,6 +34,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
 
   /**
    * Standardizes database variations of user objects into camelCase fields used by components
@@ -207,6 +208,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{ 
       user, 
       loading, 
+      isAdmin,
       login, 
       logout, 
       updateUser,
