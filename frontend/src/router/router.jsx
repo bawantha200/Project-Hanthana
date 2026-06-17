@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
@@ -17,6 +18,7 @@ import HRM from '../pages/admin/HRM';
 import Vendors from '../pages/admin/Vendors';
 import Customers from '../pages/admin/Customers';
 import Finance from '../pages/admin/Finance';
+import Products from '../pages/admin/Products';
 
 
 // Auth pages
@@ -85,6 +87,10 @@ function AdminRoutes() {
             <Finance />
         } />
 
+        <Route path="products" element={
+            <Products />
+        } />
+
 
         {/* Invalid admin paths redirect to dashboard */}
         <Route path="*" element={<Navigate to="dashboard" replace />} />
@@ -104,6 +110,8 @@ function CustomerRoutes() {
         <Route path="orders" element={<CustomerOrders />} />
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/login" element={<Login />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -116,8 +124,6 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/admin/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
     </Routes>
   );
 }
@@ -125,6 +131,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
+    <Toaster position="top-right" />
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>

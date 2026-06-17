@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -13,6 +13,8 @@ import {
   LogOut,
   ShoppingBag,
   LayoutDashboard,
+  Lock,
+  LogIn,
 } from "lucide-react";
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -54,11 +56,18 @@ function Navbar() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
   const [loadingRole, setLoadingRole] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  
+  // Login form state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  
   const location = useLocation();
   const navigate = useNavigate();
-  
-  const { user, logout } = useAuth();
+  const { user, logout, login, loginWithGoogle } = useAuth();
 
+  // Fetch user role (unchanged)
   useEffect(() => {
     const fetchUserRole = async () => {
       if (!user) {
@@ -66,7 +75,6 @@ function Navbar() {
         setLoadingRole(false);
         return;
       }
-
       setLoadingRole(true);
       try {
         const { data: profile, error: profileError } = await supabase
@@ -74,16 +82,13 @@ function Navbar() {
           .select('role_id')
           .eq('id', user.id)
           .maybeSingle();
-
         if (profileError) throw profileError;
-
         if (profile?.role_id) {
           const { data: role, error: roleError } = await supabase
             .from('roles')
             .select('role_name')
             .eq('id', profile.role_id)
             .single();
-
           if (roleError) throw roleError;
           setIsCustomer(role?.role_name === 'CUSTOMER');
         } else {
@@ -96,7 +101,6 @@ function Navbar() {
         setLoadingRole(false);
       }
     };
-
     fetchUserRole();
   }, [user]);
 
@@ -136,253 +140,392 @@ function Navbar() {
 
   const isActive = (path) => location.pathname === path;
 
+  // ----- Built‑in login handlers -----
+  const handleLogin = useCallback(async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Login failed');
+      }
+      login(data.user, data.session.access_token, data.permissions || []);
+      setShowLoginModal(false); // close modal on success
+      // Navigate based on role
+      const targetRole = data.user.role?.toUpperCase();
+      if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
+        navigate('/admin/dashboard', { replace: true });
+      } else {
+        navigate('/customer/dashboard', { replace: true });
+      }
+    } catch (error) {
+      alert("Login Failure: " + error.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [email, password, login, navigate]);
+
+  const handleGoogleLogin = useCallback(async (e) => {
+    e?.preventDefault();
+    try {
+      await loginWithGoogle();
+      // OAuth redirects – modal will disappear on page change
+    } catch (error) {
+      alert("Google Sign-In error: " + error.message);
+    }
+  }, [loginWithGoogle]);
+
   return (
-    <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled
-          ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
-          : "bg-white shadow-sm"
-      }`}
-    >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 lg:h-18">
-          {/* Logo */}
-          <Link
-            to="/"
-            className="flex items-center gap-2 group"
-            onClick={() => setIsMobileMenuOpen(false)}
-          >
-            <div className="relative">
-              <Droplets className="w-8 h-8 text-[#2563EB] group-hover:text-[#1E3A8A] transition-colors duration-300" />
-              <div className="absolute -inset-1 bg-[#DBEAFE] rounded-full opacity-0 group-hover:opacity-50 transition-opacity duration-300 -z-10" />
-            </div>
-            <span className="text-xl font-bold bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] bg-clip-text text-transparent">
-              Hanthana
-            </span>
-          </Link>
-
-          {/* Desktop Navigation */}
-          <div className="hidden lg:flex items-center gap-1">
-            {navLinks.map((link) => (
-              <Link
-                key={link.name}
-                to={link.path}
-                className={`relative px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
-                  isActive(link.path)
-                    ? "text-[#2563EB]"
-                    : "text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50"
-                }`}
-              >
-                {link.name}
-                {isActive(link.path) && (
-                  <motion.div
-                    layoutId="activeNavIndicator"
-                    className="absolute bottom-0 left-2 right-2 h-0.5 bg-[#2563EB] rounded-full"
-                    transition={{
-                      type: "spring",
-                      stiffness: 380,
-                      damping: 30,
-                    }}
+    <>
+      <nav
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          isScrolled
+            ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
+            : "bg-white shadow-sm"
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16 lg:h-18">
+            {/* Logo */}
+            <Link
+              to="/"
+              className="flex items-center gap-2 group"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <div className="relative">
+                <img 
+                    src="/images/logo.png" 
+                    alt="Hanthana Logo" 
+                    className="w-8 h-8 rounded-full object-cover group-hover:scale-105 transition-transform duration-300" 
                   />
-                )}
-              </Link>
-            ))}
-          </div>
+                <div className="absolute -inset-1 bg-[#DBEAFE] rounded-full opacity-0 group-hover:opacity-50 transition-opacity duration-300 -z-10" />
+              </div>
+              <span className="text-xl font-bold bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] bg-clip-text text-transparent">
+                Hanthana
+              </span>
+            </Link>
 
-          {/* Desktop CTA */}
-          <div className="hidden lg:flex items-center gap-3">
-            {!user ? (
-              <>
+            {/* Desktop Navigation */}
+            <div className="hidden lg:flex items-center gap-1">
+              {navLinks.map((link) => (
                 <Link
-                  to="/login"
-                  className="px-5 py-2.5 text-sm font-semibold text-[#2563EB] border border-[#2563EB] rounded-xl hover:bg-blue-50 transition-all duration-300"
+                  key={link.name}
+                  to={link.path}
+                  className={`relative px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
+                    isActive(link.path)
+                      ? "text-[#2563EB]"
+                      : "text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50"
+                  }`}
                 >
-                  Login
+                  {link.name}
+                  {isActive(link.path) && (
+                    <motion.div
+                      layoutId="activeNavIndicator"
+                      className="absolute bottom-0 left-2 right-2 h-0.5 bg-[#2563EB] rounded-full"
+                      transition={{
+                        type: "spring",
+                        stiffness: 380,
+                        damping: 30,
+                      }}
+                    />
+                  )}
                 </Link>
+              ))}
+            </div>
 
-                <Link
-                  to="/register"
-                  className="px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
-                >
-                  Sign Up
-                </Link>
-              </>
-            ) : (
-              <div className="relative group">
-                {/* User Button */}
-                <div className="px-4 py-2 rounded-xl cursor-pointer hover:bg-gray-50 transition">
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md shadow-blue-600/20">
-                      {user.email?.charAt(0).toUpperCase()}
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {user.full_name || user.user_metadata?.full_name || "User"}
-                      </p>
-
-                      <p className="text-xs text-slate-500 truncate">
-                        {user.email}
-                      </p>
+            {/* Desktop CTA */}
+            <div className="hidden lg:flex items-center gap-3">
+              {!user ? (
+                <>
+                  <button
+                    onClick={() => setShowLoginModal(true)}
+                    className="px-5 py-2.5 text-sm font-semibold text-[#2563EB] border border-[#2563EB] rounded-xl hover:bg-blue-50 transition-all duration-300"
+                  >
+                    Login
+                  </button>
+                  <Link
+                    to="/register"
+                    className="px-5 py-2.5 bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
+                  >
+                    Sign Up
+                  </Link>
+                </>
+              ) : (
+                <div className="relative group">
+                  <div className="px-4 py-2 rounded-xl cursor-pointer hover:bg-gray-50 transition">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md shadow-blue-600/20">
+                        {user.email?.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {user.full_name || user.user_metadata?.full_name || "User"}
+                        </p>
+                        <p className="text-xs text-slate-500 truncate">
+                          {user.email}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-
-                {/* Dropdown */}
-                <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 overflow-hidden">
-                  {/* Dashboard - visible to all logged-in users EXCEPT customers */}
-                  {!loadingRole && !isCustomer && (
-                    <Link
-                      to="/admin/dashboard"
-                      className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                  <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 overflow-hidden">
+                    {!loadingRole && !isCustomer && (
+                      <Link
+                        to="/admin/dashboard"
+                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                      >
+                        <LayoutDashboard size={16} />
+                        Dashboard
+                      </Link>
+                    )}
+                    {!loadingRole && isCustomer && (
+                      <>
+                        <Link
+                          to="/orders"
+                          className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                        >
+                          <ShoppingBag size={16} />
+                          Orders
+                        </Link>
+                        <Link
+                          to="/profile"
+                          className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                        >
+                          <Settings size={16} />
+                          Profile
+                        </Link>
+                      </>
+                    )}
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition"
                     >
-                      <LayoutDashboard size={16} />
-                      Dashboard
-                    </Link>
-                  )}
-
-                  {/* Orders & Profile - only for customers */}
-                  {!loadingRole && isCustomer && (
-                    <>
-                      <Link
-                        to="/orders"
-                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                      >
-                        <ShoppingBag size={16} />
-                        Orders
-                      </Link>
-
-                      <Link
-                        to="/profile"
-                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                      >
-                        <Settings size={16} />
-                        Profile
-                      </Link>
-                    </>
-                  )}
-
-                  {/* Sign Out - visible to all logged-in users */}
-                  <button
-                    onClick={handleSignOut}
-                    className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition"
-                  >
-                    <LogOut size={16} />
-                    Sign Out
-                  </button>
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Mobile Hamburger */}
-          <button
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            className="lg:hidden relative p-2 rounded-xl text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50 transition-all duration-300"
-            aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
-          >
-            <AnimatePresence mode="wait" initial={false}>
-              {isMobileMenuOpen ? (
-                <motion.div
-                  key="close"
-                  initial={{ rotate: -90, opacity: 0 }}
-                  animate={{ rotate: 0, opacity: 1 }}
-                  exit={{ rotate: 90, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <X className="w-6 h-6" />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="menu"
-                  initial={{ rotate: 90, opacity: 0 }}
-                  animate={{ rotate: 0, opacity: 1 }}
-                  exit={{ rotate: -90, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <Menu className="w-6 h-6" />
-                </motion.div>
               )}
-            </AnimatePresence>
-          </button>
-        </div>
-      </div>
+            </div>
 
-      {/* Mobile Menu Overlay */}
-      <AnimatePresence>
-        {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-            className="fixed inset-0 top-16 z-40 lg:hidden"
-          >
+            {/* Mobile Hamburger */}
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className="lg:hidden relative p-2 rounded-xl text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50 transition-all duration-300"
+              aria-label={isMobileMenuOpen ? "Close menu" : "Open menu"}
+            >
+              <AnimatePresence mode="wait" initial={false}>
+                {isMobileMenuOpen ? (
+                  <motion.div
+                    key="close"
+                    initial={{ rotate: -90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: 90, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <X className="w-6 h-6" />
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="menu"
+                    initial={{ rotate: 90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: -90, opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <Menu className="w-6 h-6" />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Menu Overlay */}
+        <AnimatePresence>
+          {isMobileMenuOpen && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-              onClick={() => setIsMobileMenuOpen(false)}
-            />
-
-            <motion.div
-              initial={{ y: -20, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: -20, opacity: 0 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-              className="relative bg-white/95 backdrop-blur-lg shadow-2xl border-t border-blue-100/50"
+              transition={{ duration: 0.3 }}
+              className="fixed inset-0 top-16 z-40 lg:hidden"
             >
-              <div className="max-w-7xl mx-auto px-4 py-6">
-                <nav className="flex flex-col gap-1">
-                  {navLinks.map((link, index) => (
-                    <motion.div
-                      key={link.name}
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      transition={{ delay: index * 0.05, duration: 0.3 }}
-                    >
-                      <Link
-                        to={link.path}
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-base font-medium transition-all duration-300 ${
-                          isActive(link.path)
-                            ? "bg-[#2563EB] text-white shadow-md shadow-blue-200"
-                            : "text-gray-700 hover:bg-[#DBEAFE]/50 hover:text-[#2563EB]"
-                        }`}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+                onClick={() => setIsMobileMenuOpen(false)}
+              />
+              <motion.div
+                initial={{ y: -20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -20, opacity: 0 }}
+                transition={{ duration: 0.3, ease: "easeOut" }}
+                className="relative bg-white/95 backdrop-blur-lg shadow-2xl border-t border-blue-100/50"
+              >
+                <div className="max-w-7xl mx-auto px-4 py-6">
+                  <nav className="flex flex-col gap-1">
+                    {navLinks.map((link, index) => (
+                      <motion.div
+                        key={link.name}
+                        initial={{ x: -20, opacity: 0 }}
+                        animate={{ x: 0, opacity: 1 }}
+                        transition={{ delay: index * 0.05, duration: 0.3 }}
                       >
-                        {link.name}
-                        {isActive(link.path) && (
-                          <div className="ml-auto w-2 h-2 rounded-full bg-white" />
-                        )}
+                        <Link
+                          to={link.path}
+                          onClick={() => setIsMobileMenuOpen(false)}
+                          className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl text-base font-medium transition-all duration-300 ${
+                            isActive(link.path)
+                              ? "bg-[#2563EB] text-white shadow-md shadow-blue-200"
+                              : "text-gray-700 hover:bg-[#DBEAFE]/50 hover:text-[#2563EB]"
+                          }`}
+                        >
+                          {link.name}
+                          {isActive(link.path) && (
+                            <div className="ml-auto w-2 h-2 rounded-full bg-white" />
+                          )}
+                        </Link>
+                      </motion.div>
+                    ))}
+                  </nav>
+                  <motion.div
+                    initial={{ y: 10, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.35, duration: 0.3 }}
+                    className="mt-6 pt-6 border-t border-gray-100"
+                  >
+                    {!loadingRole && isCustomer && (
+                      <Link
+                        to="/orders"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="block w-full text-center px-5 py-3 bg-[#2563EB] text-white font-semibold rounded-2xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
+                      >
+                        My Orders
                       </Link>
-                    </motion.div>
-                  ))}
-                </nav>
+                    )}
+                  </motion.div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </nav>
 
-                <motion.div
-                  initial={{ y: 10, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ delay: 0.35, duration: 0.3 }}
-                  className="mt-6 pt-6 border-t border-gray-100"
-                >
-                  {/* "My Orders" button shown only to customers */}
-                  {!loadingRole && isCustomer && (
-                    <Link
-                      to="/orders"
-                      onClick={() => setIsMobileMenuOpen(false)}
-                      className="block w-full text-center px-5 py-3 bg-[#2563EB] text-white font-semibold rounded-2xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
-                    >
-                      My Orders
-                    </Link>
-                  )}
-                </motion.div>
+      {/* ========== BUILT-IN LOGIN MODAL (no external import) ========== */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowLoginModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="relative max-w-md w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setShowLoginModal(false)}
+                className="absolute -top-12 right-0 p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors z-10"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+
+              {/* Login Form – fully self-contained */}
+              <div className="bg-white backdrop-blur-sm py-8 px-10 shadow-2xl rounded-3xl border border-white">
+                <div className="text-center mb-8">
+                  <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
+                  <p className="text-gray-500 text-sm mt-2">Sign in to manage your water deliveries</p>
+                </div>
+
+                <form onSubmit={handleLogin} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 ml-1">Email</label>
+                    <div className="mt-1 relative">
+                      <Mail className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                      <input
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        placeholder="name@example.com"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 ml-1">Password</label>
+                    <div className="mt-1 relative">
+                      <Lock className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                      <input
+                        type="password"
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        placeholder="••••••••"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center disabled:bg-blue-400"
+                  >
+                    <LogIn className="w-5 h-5 mr-2" /> {loading ? "Signing In..." : "Sign In"}
+                  </button>
+                </form>
+
+                <div className="mt-6">
+                  <div className="relative flex py-3 items-center">
+                    <div className="flex-grow border-t border-gray-400"></div>
+                    <span className="flex-shrink mx-4 text-gray-600 text-sm">OR</span>
+                    <div className="flex-grow border-t border-gray-400"></div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center gap-3"
+                  >
+                    <img
+                      src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg"
+                      className="w-5 h-5"
+                      alt="Google"
+                    />
+                    Continue with Google
+                  </button>
+                </div>
+
+                <p className="mt-8 text-center text-sm text-gray-600">
+                  Don't have an account?{" "}
+                  <Link
+                    to="/register"
+                    className="text-blue-600 font-bold hover:underline"
+                    onClick={() => setShowLoginModal(false)}
+                  >
+                    Register Now
+                  </Link>
+                </p>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
-    </nav>
+    </>
   );
 }
 

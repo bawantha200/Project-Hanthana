@@ -76,23 +76,12 @@ const Orders = () => {
 
   const previousDeliveries = customerOrders.filter(o => o.status === 'Delivered');
 
-  const filters = ['All', 'Pending', 'Preparing', 'Dispatched', 'Delivered'];
+  const filters = ['All', 'Preparing', 'Dispatched', 'Delivered'];
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        {/* <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeInUp}
-          transition={{ duration: 0.5 }}
-          className="mb-8"
-        >
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Orders</h1>
-          <p className="mt-1 text-gray-500">Track and manage your water orders</p>
-        </motion.div> */}
-
         <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4 space-y-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">My Orders</h1>
@@ -241,61 +230,6 @@ const Orders = () => {
           )}
         </motion.div>
 
-        {/* Previous Deliveries Section */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeInUp}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
-        >
-          <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
-              <CheckCircle className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Previous Deliveries</h2>
-              <p className="text-sm text-gray-500">{previousDeliveries.length} completed deliveries</p>
-            </div>
-          </div>
-
-          {previousDeliveries.length > 0 ? (
-            <div className="divide-y divide-gray-50">
-              {previousDeliveries.map((order, index) => (
-                <motion.div
-                  key={order.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.08 }}
-                  className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50 transition-colors duration-150"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                      <CheckCircle className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{order.product}</p>
-                      <p className="text-xs text-gray-500">Order {order.id} &middot; {order.date}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 sm:gap-6">
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900">{formatCurrency(order.amount)}</p>
-                      <p className="text-xs text-gray-500">Qty: {order.qty}</p>
-                    </div>
-                    <StatusBadge status={order.status} />
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">No previous deliveries yet</p>
-              <p className="text-sm text-gray-400 mt-1">Your completed orders will appear here</p>
-            </div>
-          )}
-        </motion.div>
       </div>
     </div>
   );
