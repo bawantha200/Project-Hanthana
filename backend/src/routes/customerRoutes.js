@@ -1,3 +1,4 @@
+// routes/customerRoutes.js
 const express = require('express');
 const router = express.Router();
 const {
@@ -6,14 +7,12 @@ const {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  getCustomerStatistics
+  getCustomerStatistics,
 } = require('../controllers/customerController');
 
-
-router.get('/statistics', getCustomerStatistics); 
+// Order matters: more specific routes first
+router.get('/statistics', getCustomerStatistics);
 router.get('/', getAllCustomers);
-
-
 router.get('/:id', getCustomerById);
 router.post('/', createCustomer);
 router.put('/:id', updateCustomer);
