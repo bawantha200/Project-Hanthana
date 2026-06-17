@@ -10,15 +10,45 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.08 },
-  },
+  visible: { transition: { staggerChildren: 0.08 } },
 };
 
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
+const fetchVendors = async () => {
+  const res = await fetch(`${API_BASE_URL}/vendors`);
+  if (!res.ok) throw new Error('Failed to fetch vendors');
+  return res.json();
+};
+
+const createVendor = async (vendor) => {
+  const res = await fetch(`${API_BASE_URL}/vendors`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(vendor),
+  });
+  if (!res.ok) throw new Error('Failed to create vendor');
+  return res.json();
+};
+
+const updateVendor = async (id, vendor) => {
+  const res = await fetch(`${API_BASE_URL}/vendors/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(vendor),
+  });
+  if (!res.ok) throw new Error('Failed to update vendor');
+  return res.json();
+};
+
+const deleteVendor = async (id) => {
+  const res = await fetch(`${API_BASE_URL}/vendors/${id}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error('Failed to delete vendor');
 };
 
 export default function Vendors() {
@@ -166,6 +196,14 @@ export default function Vendors() {
 
   if (loading) return <div className="p-6 text-center">Loading vendors...</div>;
   if (error) return <div className="p-6 text-center text-red-600">Error: {error}</div>;
+
+  const totalVendors = vendors.length;
+  const activeVendors = vendors.filter(v => v.status === 'active').length;
+  const inactiveVendors = vendors.filter(v => v.status === 'inactive').length;
+
+  if (loading) {
+    return <div className="p-8 text-center text-gray-500">Loading vendors...</div>;
+  }
 
   return (
     <>

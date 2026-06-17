@@ -9,7 +9,6 @@ export default function VendorTable({ vendors, onEdit, onDelete }) {
         <thead>
           <tr className="border-b border-gray-100">
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Vendor</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Contact</th>
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Phone</th>
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Supply Type</th>
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Last Delivery</th>
@@ -21,7 +20,6 @@ export default function VendorTable({ vendors, onEdit, onDelete }) {
           {vendors.map((v) => (
             <tr key={v.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
               <td className="py-3 px-4 font-medium text-gray-900">{v.name}</td>
-              <td className="py-3 px-4 text-gray-600">{v.contact}</td>
               <td className="py-3 px-4 text-gray-600">{v.phone}</td>
               <td className="py-3 px-4">
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
