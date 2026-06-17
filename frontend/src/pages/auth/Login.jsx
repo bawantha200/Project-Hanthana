@@ -34,6 +34,9 @@ const Login = ({ onSuccess, isModal = false }) => {
 
       const data = await response.json();
 
+      console.log("LOGIN RESPONSE:", data);
+      console.log("ACCESS TOKEN:", data.session?.access_token);
+
       if (!response.ok || !data.success) {
         throw new Error(data.message || 'Login execution failed');
       }

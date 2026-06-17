@@ -4,6 +4,10 @@ require('dotenv').config();
 
 // Route imports
 const authRoutes = require('./src/routes/authRoutes');
+const userRoutes = require('./src/routes/userRoutes');
+const departmentRoutes = require('./src/routes/departmentRoutes');
+const positionRoutes = require('./src/routes/positionRoutes');
+
 const ordersRoutes = require('./src/routes/ordersRoutes');
 const productsRoutes = require('./src/routes/productsRoutes');
 const vendorsRoutes = require('./src/routes/vendorsRoutes');
@@ -19,6 +23,10 @@ app.use(express.json());
 
 // API route mounting
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/positions', positionRoutes);
+
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
 app.use('/api/vendors', vendorsRoutes);   

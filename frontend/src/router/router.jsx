@@ -35,6 +35,7 @@ import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
 
+
 function AdminRoutes() {
   const { user } = useAuth();
 
