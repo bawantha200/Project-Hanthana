@@ -1,32 +1,34 @@
-// Import required external modules
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-// Import custom application routes
+// Route imports
 const authRoutes = require('./src/routes/authRoutes');
-const vendorRoutes = require('./src/routes/vendorRoutes');
-const customerRoutes = require('./src/routes/customerRoutes');
+const ordersRoutes = require('./src/routes/ordersRoutes');
+const productsRoutes = require('./src/routes/productsRoutes');
+const vendorsRoutes = require('./src/routes/vendorsRoutes');
 
-// Initialize the Express application instance
 const app = express();
 
-// Global Middlewares Configuration
+// Global middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'http://localhost:5173',    // adjust to your frontend URL
   credentials: true
 }));
-
 app.use(express.json());
 
-// API routes
-app.use('/api/vendors', vendorRoutes);
+// API route mounting
 app.use('/api/auth', authRoutes);
-app.use('/api/customers', customerRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/products', productsRoutes);
+app.use('/api/vendors', vendorsRoutes);   
 
-// Root test route
+// Health check
 app.get('/', (req, res) => {
-  res.status(200).json({ status: "success", message: "Hanthana Backend API is running smoothly." });
+  res.status(200).json({
+    status: 'success',
+    message: 'Hanthana Backend API is running smoothly.'
+  });
 });
 
 const PORT = process.env.PORT || 5000;

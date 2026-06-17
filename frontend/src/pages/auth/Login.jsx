@@ -1,10 +1,12 @@
+// src/pages/auth/Login.jsx
+
 import React, { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
-const Login = () => {
+const Login = ({ onSuccess, isModal = false }) => {
   const { login, loginWithGoogle } = useAuth();
   
   const [email, setEmail] = useState('');
@@ -38,11 +40,17 @@ const Login = () => {
 
       login(data.user, data.session.access_token, data.permissions || []);
 
-      const targetRole = data.user.role?.toUpperCase();
-      if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
-        navigate('/admin/dashboard', { replace: true });
+      // If used in a modal, call onSuccess and skip navigation
+      if (isModal && onSuccess) {
+        onSuccess();
       } else {
-        navigate('/customer/dashboard', { replace: true });
+        // Standalone page navigation
+        const targetRole = data.user.role?.toUpperCase();
+        if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
+          navigate('/admin/dashboard', { replace: true });
+        } else {
+          navigate('/customer/dashboard', { replace: true });
+        }
       }
 
     } catch (error) {
@@ -51,13 +59,12 @@ const Login = () => {
     } finally {
       setLoading(false);
     }
-  }, [email, password, login, navigate]);
+  }, [email, password, login, navigate, isModal, onSuccess]);
 
   /**
    * Handles Google OAuth Authentication
    */
   const handleGoogleLoginClick = useCallback(async (e) => {
-    // Prevent any accidental form submissions or parent bubbles
     if (e) {
       e.preventDefault();
       e.stopPropagation();
@@ -68,6 +75,7 @@ const Login = () => {
     try {
       console.log("[CONTEXT CALL] Dispatching to loginWithGoogle()...");
       await loginWithGoogle();
+      // OAuth redirects away, so no onSuccess call needed here.
       console.log("[CONTEXT CALL] Supabase OAuth redirect dispatched successfully.");
     } catch (error) {
       console.error("❌ [OAUTH CRASH] Error inside Google login sequence:", error);
@@ -75,26 +83,53 @@ const Login = () => {
     }
   }, [loginWithGoogle]);
 
+  // Conditional styling: if modal, remove full-page background and centering
+  const containerClasses = isModal
+    ? "w-full max-w-md mx-auto"
+    : "min-h-screen bg-blue-50/30 flex flex-col justify-center py-12 px-6 relative overflow-hidden";
+
+  const innerCardClasses = "bg-white/70 py-8 px-10 shadow-2xl rounded-3xl border border-white";
+
   return (
-    <div className="min-h-screen bg-blue-50/30 flex flex-col justify-center py-12 px-6 relative overflow-hidden">
-      {/* Background Water Bubbles Animations */}
-      <motion.div 
-        animate={{ y: [0, -20, 0] }} 
-        transition={{ duration: 5, repeat: Infinity }} 
-        className="absolute -top-24 -left-24 w-96 h-96 bg-blue-200 rounded-full blur-3xl opacity-50" 
-      />
-      <motion.div 
-        animate={{ y: [0, 20, 0] }} 
-        transition={{ duration: 7, repeat: Infinity, delay: 1 }} 
-        className="absolute -bottom-24 -right-24 w-96 h-96 bg-cyan-100 rounded-full blur-3xl opacity-50" 
-      />
+    <div className={containerClasses}>
+      {/* Background bubbles - only show for standalone page, not modal */}
+      {/* Video Background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        <video
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="w-full h-full object-cover opacity-30"
+        >
+          <source 
+            src="/videos/bg_video.mp4" 
+            type="video/mp4" 
+          />
+          Your browser does not support the video tag.
+        </video>
+      </div>
+      {!isModal && (
+        <>
+          <motion.div 
+            animate={{ y: [0, -20, 0] }} 
+            transition={{ duration: 5, repeat: Infinity }} 
+            className="absolute -top-24 -left-24 w-96 h-96 bg-blue-200 rounded-full blur-3xl opacity-50" 
+          />
+          <motion.div 
+            animate={{ y: [0, 20, 0] }} 
+            transition={{ duration: 7, repeat: Infinity, delay: 1 }} 
+            className="absolute -bottom-24 -right-24 w-96 h-96 bg-cyan-100 rounded-full blur-3xl opacity-50" 
+          />
+        </>
+      )}
 
       <motion.div 
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
-        className="sm:mx-auto sm:w-full sm:max-w-md relative z-10"
+        className={isModal ? "" : "sm:mx-auto sm:w-full sm:max-w-md relative z-10"}
       >
-        <div className="bg-white/80 backdrop-blur-lg py-8 px-10 shadow-2xl rounded-3xl border border-white">
+        <div className={innerCardClasses}>
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
             <p className="text-gray-500 text-sm mt-2">Sign in to manage your water deliveries</p>
@@ -145,19 +180,23 @@ const Login = () => {
 
           {/* Social Divider */}
           <div className="mt-6">
-            <div className="relative flex py-3 items-center">
-              <div className="flex-grow border-t border-gray-200"></div>
-              <span className="flex-shrink mx-4 text-gray-400 text-sm">OR</span>
-              <div className="flex-grow border-t border-gray-200"></div>
+             <div className="relative flex py-3 items-center">
+              <div className="flex-grow border-t border-gray-400"></div>
+              <span className="flex-shrink mx-4 text-gray-600 text-sm">OR</span>
+              <div className="flex-grow border-t border-gray-400"></div>
             </div>
 
             {/* Google Authentication Trigger */}
             <button 
               type="button"
               onClick={handleGoogleLoginClick} 
-              className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center cursor-pointer relative z-30"
+              className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center cursor-pointer relative z-30 gap-3"
             >
-              <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/smartlock/google.svg" className="w-5 h-5 mr-3" alt="Google" />
+              <img 
+                src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg" 
+                className="w-5 h-5" 
+                alt="Google" 
+              />
               Continue with Google
             </button>
           </div>

@@ -37,6 +37,7 @@ import { supabase } from '../supabaseClient';
 // ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
+  { id: 'products', label: 'Products', icon: Package, path: '/admin/products' },
   { id: 'inventory', label: 'Inventory', icon: Package, path: '/admin/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
@@ -663,9 +664,13 @@ function ProfileDropdown({ isOpen, onClose, user, onOpenSettings }) {
             <button onClick={() => { onOpenSettings(); onClose(); }} className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
               <User size={16} /> Account Settings
             </button>
-            <button onClick={handleSignOut} className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 border-t border-slate-100 mt-1">
-              <LogOut size={16} /> Sign Out
-            </button>
+            <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition"
+                    >
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
           </div>
         </motion.div>
       )}

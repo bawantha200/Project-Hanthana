@@ -11,8 +11,6 @@ export default function InventoryTable({ data, showPredicted = true }) {
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Product</th>
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Type</th>
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Available Stock</th>
-            {showPredicted && <th className="text-left py-3 px-4 font-semibold text-gray-600">Predicted Needed</th>}
-            {/* <th className="text-left py-3 px-4 font-semibold text-gray-600">Branch</th> */}
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
             {data[0]?.price !== undefined && <th className="text-left py-3 px-4 font-semibold text-gray-600">Price</th>}
           </tr>
@@ -30,8 +28,6 @@ export default function InventoryTable({ data, showPredicted = true }) {
                   </span>
                 </td>
                 <td className="py-3 px-4 text-gray-700 font-medium">{item.stock.toLocaleString()}</td>
-                {showPredicted && <td className="py-3 px-4 text-gray-700">{item.predicted.toLocaleString()}</td>}
-                {/* <td className="py-3 px-4 text-gray-500 text-xs">{item.branch}</td> */}
                 <td className="py-3 px-4">
                   {isLow ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-rose-50 text-rose-700">
