@@ -6,6 +6,7 @@ require('dotenv').config();
 // Import custom application routes
 const authRoutes = require('./src/routes/authRoutes');
 const vendorRoutes = require('./src/routes/vendorRoutes');
+const customerRoutes = require('./src/routes/customerRoutes');
 
 // Initialize the Express application instance
 const app = express();
@@ -21,6 +22,7 @@ app.use(express.json());
 // API routes
 app.use('/api/vendors', vendorRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/customers', customerRoutes);
 
 // Root test route
 app.get('/', (req, res) => {
