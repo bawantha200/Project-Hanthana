@@ -17,6 +17,7 @@ import HRM from '../pages/admin/HRM';
 import Vendors from '../pages/admin/Vendors';
 import Customers from '../pages/admin/Customers';
 import Finance from '../pages/admin/Finance';
+import Products from '../pages/admin/Products';
 
 
 // Auth pages
@@ -84,6 +85,11 @@ function AdminRoutes() {
         <Route path="finance" element={
             <Finance />
         } />
+
+        <Route path="settings" element={<Products />} />    
+
+
+        
 
 
         {/* Invalid admin paths redirect to dashboard */}
