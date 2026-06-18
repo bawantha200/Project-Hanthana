@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { supabase } = require("../config/db");
+const supabase = require("../config/db");
 
 const createUser = async (req, res) => {
   try {
