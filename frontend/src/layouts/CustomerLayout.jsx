@@ -16,10 +16,11 @@ import {
   Lock,
   LogIn,
 } from "lucide-react";
+import FloatingOrderButton from "../components/FloatingOrderButton";
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
-const navLinks = [
+const baseNavLinks = [
   { name: "Home", path: "/" },
   { name: "Services", path: "/services" },
   { name: "About Us", path: "/about" },
@@ -31,7 +32,6 @@ const quickLinks = [
   { name: "Services", path: "/services" },
   { name: "About", path: "/about" },
   { name: "Contact", path: "/contact" },
-  { name: "Orders", path: "/orders" },
 ];
 
 const services = [
@@ -51,14 +51,12 @@ const socialLinks = [
   { icon: Globe, href: "#", label: "Website" },
 ];
 
-function Navbar() {
+function Navbar({ showLoginModal, setShowLoginModal }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
   const [loadingRole, setLoadingRole] = useState(true);
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  
-  // Login form state
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -67,7 +65,6 @@ function Navbar() {
   const navigate = useNavigate();
   const { user, logout, login, loginWithGoogle } = useAuth();
 
-  // Fetch user role (unchanged)
   useEffect(() => {
     const fetchUserRole = async () => {
       if (!user) {
@@ -105,7 +102,6 @@ function Navbar() {
   }, [user]);
 
   const handleSignOut = async () => {
-    console.log("Signing out user via AuthContext...");
     try {
       await logout();
       navigate("/");
@@ -140,7 +136,14 @@ function Navbar() {
 
   const isActive = (path) => location.pathname === path;
 
-  // ----- Built‑in login handlers -----
+  const getNavLinks = () => {
+    const links = [...baseNavLinks];
+    if (user) {
+      links.push({ name: "My Orders", path: "/orders" });
+    }
+    return links;
+  };
+
   const handleLogin = useCallback(async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -155,8 +158,7 @@ function Navbar() {
         throw new Error(data.message || 'Login failed');
       }
       login(data.user, data.session.access_token, data.permissions || []);
-      setShowLoginModal(false); // close modal on success
-      // Navigate based on role
+      setShowLoginModal(false);
       const targetRole = data.user.role?.toUpperCase();
       if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
         navigate('/admin/dashboard', { replace: true });
@@ -168,13 +170,12 @@ function Navbar() {
     } finally {
       setLoading(false);
     }
-  }, [email, password, login, navigate]);
+  }, [email, password, login, navigate, setShowLoginModal]);
 
   const handleGoogleLogin = useCallback(async (e) => {
     e?.preventDefault();
     try {
       await loginWithGoogle();
-      // OAuth redirects – modal will disappear on page change
     } catch (error) {
       alert("Google Sign-In error: " + error.message);
     }
@@ -212,7 +213,7 @@ function Navbar() {
 
             {/* Desktop Navigation */}
             <div className="hidden lg:flex items-center gap-1">
-              {navLinks.map((link) => (
+              {getNavLinks().map((link) => (
                 <Link
                   key={link.name}
                   to={link.path}
@@ -283,22 +284,13 @@ function Navbar() {
                       </Link>
                     )}
                     {!loadingRole && isCustomer && (
-                      <>
-                        <Link
-                          to="/orders"
-                          className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                        >
-                          <ShoppingBag size={16} />
-                          Orders
-                        </Link>
-                        <Link
-                          to="/profile"
-                          className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                        >
-                          <Settings size={16} />
-                          Profile
-                        </Link>
-                      </>
+                      <Link
+                        to="/profile"
+                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                      >
+                        <Settings size={16} />
+                        Profile
+                      </Link>
                     )}
                     <button
                       onClick={handleSignOut}
@@ -371,7 +363,7 @@ function Navbar() {
               >
                 <div className="max-w-7xl mx-auto px-4 py-6">
                   <nav className="flex flex-col gap-1">
-                    {navLinks.map((link, index) => (
+                    {getNavLinks().map((link, index) => (
                       <motion.div
                         key={link.name}
                         initial={{ x: -20, opacity: 0 }}
@@ -395,20 +387,79 @@ function Navbar() {
                       </motion.div>
                     ))}
                   </nav>
+
+                  {/* Mobile Auth Section - New */}
                   <motion.div
                     initial={{ y: 10, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.35, duration: 0.3 }}
-                    className="mt-6 pt-6 border-t border-gray-100"
+                    className="mt-6 pt-6 border-t border-gray-200"
                   >
-                    {!loadingRole && isCustomer && (
-                      <Link
-                        to="/orders"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="block w-full text-center px-5 py-3 bg-[#2563EB] text-white font-semibold rounded-2xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
-                      >
-                        My Orders
-                      </Link>
+                    {!user ? (
+                      <div className="flex flex-col gap-3">
+                        <button
+                          onClick={() => {
+                            setIsMobileMenuOpen(false);
+                            setShowLoginModal(true);
+                          }}
+                          className="w-full px-5 py-3 text-center text-sm font-semibold text-[#2563EB] border border-[#2563EB] rounded-xl hover:bg-blue-50 transition-all duration-300"
+                        >
+                          Login
+                        </button>
+                        <Link
+                          to="/register"
+                          onClick={() => setIsMobileMenuOpen(false)}
+                          className="w-full px-5 py-3 text-center bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
+                        >
+                          Sign Up
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 px-2 py-2 rounded-xl bg-gray-50">
+                          <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md shadow-blue-600/20">
+                            {user.email?.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-slate-800 truncate">
+                              {user.full_name || user.user_metadata?.full_name || "User"}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {user.email}
+                            </p>
+                          </div>
+                        </div>
+                        {!loadingRole && !isCustomer && (
+                          <Link
+                            to="/admin/dashboard"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className="flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] rounded-xl transition"
+                          >
+                            <LayoutDashboard size={16} />
+                            Dashboard
+                          </Link>
+                        )}
+                        {!loadingRole && isCustomer && (
+                          <Link
+                            to="/profile"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className="flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] rounded-xl transition"
+                          >
+                            <Settings size={16} />
+                            Profile
+                          </Link>
+                        )}
+                        <button
+                          onClick={() => {
+                            setIsMobileMenuOpen(false);
+                            handleSignOut();
+                          }}
+                          className="flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-xl transition w-full"
+                        >
+                          <LogOut size={16} />
+                          Sign Out
+                        </button>
+                      </div>
                     )}
                   </motion.div>
                 </div>
@@ -418,7 +469,7 @@ function Navbar() {
         </AnimatePresence>
       </nav>
 
-      {/* ========== BUILT-IN LOGIN MODAL (no external import) ========== */}
+      {/* ========== BUILT-IN LOGIN MODAL ========== */}
       <AnimatePresence>
         {showLoginModal && (
           <motion.div
@@ -442,7 +493,6 @@ function Navbar() {
                 <X className="w-5 h-5 text-white" />
               </button>
 
-              {/* Login Form – fully self-contained */}
               <div className="bg-white backdrop-blur-sm py-8 px-10 shadow-2xl rounded-3xl border border-white">
                 <div className="text-center mb-8">
                   <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
@@ -619,13 +669,86 @@ function Footer() {
 }
 
 export default function CustomerLayout() {
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleOrderClick = useCallback(() => {
+    if (user) {
+      navigate('/orders');
+    } else {
+      setShowAuthPrompt(true);
+    }
+  }, [user, navigate]);
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-      <Navbar />
+      <Navbar
+        showLoginModal={showLoginModal}
+        setShowLoginModal={setShowLoginModal}
+      />
       <main className="flex-1 pt-16 lg:pt-18">
         <Outlet />
       </main>
       <Footer />
+      <FloatingOrderButton onLoginRequired={handleOrderClick} />
+
+      <AnimatePresence>
+        {showAuthPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowAuthPrompt(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="relative max-w-md w-full bg-white rounded-3xl shadow-2xl p-8"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setShowAuthPrompt(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ShoppingBag className="w-8 h-8 text-blue-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Ready to Order?</h3>
+                <p className="text-gray-500 mt-2">
+                  Please login or create an account to place your water order.
+                </p>
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={() => {
+                      setShowAuthPrompt(false);
+                      navigate('/login');
+                    }}
+                    className="flex-1 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-200"
+                  >
+                    Login
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAuthPrompt(false);
+                      navigate('/register');
+                    }}
+                    className="flex-1 px-6 py-3 bg-gray-100 text-gray-800 font-semibold rounded-xl hover:bg-gray-200 transition"
+                  >
+                    Sign Up
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
