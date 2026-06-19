@@ -143,13 +143,13 @@ export const customerOrders = [
   { id: 'ORD-2406', product: '500ml Sealed Bottle', qty: 10, amount: 250, status: 'Preparing', date: '2026-05-09', delivery: { status: 'Dispatched', location: 'Warehouse, Delhi North', driver: 'Vikram Singh', vehicle: 'Van DL-05-CD-5678', eta: '1 hr' } },
 ];
 
-export const products = [
-  { id: 1, name: '500ml Sealed Bottle', price: 25, type: 'sealed', description: 'Pure mineral water in convenient 500ml bottles', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
-  { id: 2, name: '1L Sealed Bottle', price: 40, type: 'sealed', description: 'Premium 1-liter sealed water bottles', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
-  { id: 3, name: '5L Sealed Bottle', price: 120, type: 'sealed', description: 'Family-size 5-liter water bottles', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
-  { id: 4, name: '19L Refill', price: 60, type: 'refill', description: 'Economical 19L water refill service', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
-  { id: 5, name: '19L New Bottle', price: 350, type: 'sealed', description: 'New 19L water bottle with first fill', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
-];
+// export const products = [
+//   { id: 1, name: '500ml Sealed Bottle', price: 25, type: 'sealed', description: 'Pure mineral water in convenient 500ml bottles', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
+//   { id: 2, name: '1L Sealed Bottle', price: 40, type: 'sealed', description: 'Premium 1-liter sealed water bottles', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
+//   { id: 3, name: '5L Sealed Bottle', price: 120, type: 'sealed', description: 'Family-size 5-liter water bottles', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
+//   { id: 4, name: '19L Refill', price: 60, type: 'refill', description: 'Economical 19L water refill service', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
+//   { id: 5, name: '19L New Bottle', price: 350, type: 'sealed', description: 'New 19L water bottle with first fill', image: 'https://images.pexels.com/photos/3184180/pexels-photo-3184180.jpeg?auto=compress&cs=tinysrgb&w=400' },
+// ];
 
 export const services = [
   { id: 1, name: 'Sealed Bottle Delivery', description: 'Fresh sealed water bottles delivered to your doorstep. Available in 500ml, 1L, 5L, and 19L sizes.', icon: 'Package', features: ['Multiple sizes', 'Same-day delivery', 'Bulk discounts'] },

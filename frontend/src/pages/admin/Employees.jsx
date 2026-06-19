@@ -97,6 +97,8 @@ export default function Employees() {
     profileImage: null
   });
 
+    const [roles, setRoles] = useState([]);
+const [rolesLoading, setRolesLoading] = useState(false);
   // Fetch employees from API
   const fetchEmployees = async () => {
     try {
@@ -114,11 +116,36 @@ export default function Employees() {
     }
   };
 
+
+  // ===== FETCH ROLES =====
+const fetchRoles = async () => {
+  setRolesLoading(true);
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch('http://localhost:5000/api/roles', {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await response.json();
+    if (data.success) {
+      // ✅ ADMIN (id: 1) සහ CUSTOMER (id: 4) හැර අනෙක් සියල්ල
+      const filteredRoles = data.data.filter(role => role.id !== 1 && role.id !== 4);
+      setRoles(filteredRoles);
+    }
+  } catch (error) {
+    console.error('Fetch roles error:', error);
+  } finally {
+    setRolesLoading(false);
+  }
+};
+
+
+
   // Set today's date when component loads
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
     setFormData(prev => ({ ...prev, hiredDate: today }));
     fetchEmployees();
+    fetchRoles();
   }, []);
 
   // Auto-hide success message
@@ -727,20 +754,23 @@ const handleEditEmployee = async (e) => {
                         <BriefcaseIcon size={14} className="inline mr-1" /> Role *
                       </label>
                       <select
-                        value={formData.role}
-                        onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        required
-                        disabled={submitting}
-                      >
-                        <option value="">Select Role</option>
-                        <option value="Driver">Driver</option>
-                        <option value="Warehouse Staff">Warehouse Staff</option>
-                        <option value="Delivery Staff">Delivery Staff</option>
-                        <option value="Branch Manager">Branch Manager</option>
-                        <option value="Operations Manager">Operations Manager</option>
-                        <option value="Customer Support">Customer Support</option>
-                      </select>
+  name="role"
+  value={formData.role}
+  onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+  required
+>
+  <option value="">Select Role</option>
+  {rolesLoading ? (
+    <option disabled>Loading roles...</option>
+  ) : (
+    roles.map((role) => (
+      <option key={role.id} value={role.role_name}>
+        {role.role_name.replace('_', ' ')}
+      </option>
+    ))
+  )}
+</select>
                     </div>
 
                     <div>
