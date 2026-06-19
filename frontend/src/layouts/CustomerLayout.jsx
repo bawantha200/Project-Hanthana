@@ -26,30 +26,19 @@ const navLinks = [
   { name: "Contact Us", path: "/contact" },
 ];
 
-const quickLinks = [
-  { name: "Home", path: "/" },
-  { name: "Services", path: "/services" },
-  { name: "About", path: "/about" },
-  { name: "Contact", path: "/contact" },
-  { name: "Orders", path: "/orders" },
-];
-
-const services = [
-  "Sealed Bottle Delivery",
-  "Water Refill",
-  "Office Supply",
-  "Bulk Distribution",
-];
-
-const contactInfo = [
-  { icon: Phone, text: "+94 76 835 6860" },
-  { icon: Mail, text: "support@hanthana.com" },
-  { icon: MapPin, text: "No 01, Ja Ela, Sri Lanka" },
-];
-
-const socialLinks = [
-  { icon: Globe, href: "#", label: "Website" },
-];
+// 🆕 Default values (will be replaced by settings)
+const defaultSettings = {
+  companyName: "Hanthana",
+  contactPhone: "+94 76 835 6860",
+  contactEmail: "support@hanthana.com",
+  address: "No 01, Ja Ela, Sri Lanka",
+  services: [
+    "Sealed Bottle Delivery",
+    "Water Refill",
+    "Office Supply",
+    "Bulk Distribution",
+  ],
+};
 
 function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -57,6 +46,10 @@ function Navbar() {
   const [isCustomer, setIsCustomer] = useState(false);
   const [loadingRole, setLoadingRole] = useState(true);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  
+  // 🆕 Settings State
+  const [settings, setSettings] = useState(defaultSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   
   // Login form state
   const [email, setEmail] = useState('');
@@ -66,6 +59,37 @@ function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, login, loginWithGoogle } = useAuth();
+
+  // 🆕 Fetch Settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/settings', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            companyName: general.companyName || defaultSettings.companyName,
+            contactPhone: general.contactPhone || general.companyPhone || defaultSettings.contactPhone,
+            contactEmail: general.contactEmail || general.companyEmail || defaultSettings.contactEmail,
+            address: general.address || defaultSettings.address,
+            services: general.services || defaultSettings.services,
+          });
+        }
+      } catch (error) {
+        console.error('Fetch settings error:', error);
+        // Keep default settings
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
 
   // Fetch user role (unchanged)
   useEffect(() => {
@@ -155,8 +179,7 @@ function Navbar() {
         throw new Error(data.message || 'Login failed');
       }
       login(data.user, data.session.access_token, data.permissions || []);
-      setShowLoginModal(false); // close modal on success
-      // Navigate based on role
+      setShowLoginModal(false);
       const targetRole = data.user.role?.toUpperCase();
       if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
         navigate('/admin/dashboard', { replace: true });
@@ -174,7 +197,6 @@ function Navbar() {
     e?.preventDefault();
     try {
       await loginWithGoogle();
-      // OAuth redirects – modal will disappear on page change
     } catch (error) {
       alert("Google Sign-In error: " + error.message);
     }
@@ -191,7 +213,7 @@ function Navbar() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-18">
-            {/* Logo */}
+            {/* Logo - 🆕 Company Name Dynamic */}
             <Link
               to="/"
               className="flex items-center gap-2 group"
@@ -206,11 +228,11 @@ function Navbar() {
                 <div className="absolute -inset-1 bg-[#DBEAFE] rounded-full opacity-0 group-hover:opacity-50 transition-opacity duration-300 -z-10" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] bg-clip-text text-transparent">
-                Hanthana
+                {settings.companyName}
               </span>
             </Link>
 
-            {/* Desktop Navigation */}
+            {/* Desktop Navigation - No changes */}
             <div className="hidden lg:flex items-center gap-1">
               {navLinks.map((link) => (
                 <Link
@@ -238,7 +260,7 @@ function Navbar() {
               ))}
             </div>
 
-            {/* Desktop CTA */}
+            {/* Desktop CTA - No changes */}
             <div className="hidden lg:flex items-center gap-3">
               {!user ? (
                 <>
@@ -312,7 +334,7 @@ function Navbar() {
               )}
             </div>
 
-            {/* Mobile Hamburger */}
+            {/* Mobile Hamburger - No changes */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="lg:hidden relative p-2 rounded-xl text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50 transition-all duration-300"
@@ -345,7 +367,7 @@ function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Menu Overlay */}
+        {/* Mobile Menu Overlay - No changes */}
         <AnimatePresence>
           {isMobileMenuOpen && (
             <motion.div
@@ -418,7 +440,7 @@ function Navbar() {
         </AnimatePresence>
       </nav>
 
-      {/* ========== BUILT-IN LOGIN MODAL (no external import) ========== */}
+      {/* ========== LOGIN MODAL - No changes ========== */}
       <AnimatePresence>
         {showLoginModal && (
           <motion.div
@@ -442,7 +464,6 @@ function Navbar() {
                 <X className="w-5 h-5 text-white" />
               </button>
 
-              {/* Login Form – fully self-contained */}
               <div className="bg-white backdrop-blur-sm py-8 px-10 shadow-2xl rounded-3xl border border-white">
                 <div className="text-center mb-8">
                   <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
@@ -530,14 +551,59 @@ function Navbar() {
 }
 
 function Footer() {
+  // 🆕 Settings State for Footer
+  const [settings, setSettings] = useState(defaultSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+
+  // 🆕 Fetch Settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/settings', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            companyName: general.companyName || defaultSettings.companyName,
+            contactPhone: general.contactPhone || general.companyPhone || defaultSettings.contactPhone,
+            contactEmail: general.contactEmail || general.companyEmail || defaultSettings.contactEmail,
+            address: general.address || defaultSettings.address,
+            services: general.services || defaultSettings.services,
+          });
+        }
+      } catch (error) {
+        console.error('Fetch settings error:', error);
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  // 🆕 Build contact info from settings
+  const contactInfo = [
+    { icon: Phone, text: settings.contactPhone },
+    { icon: Mail, text: settings.contactEmail },
+    { icon: MapPin, text: settings.address },
+  ];
+
+  // 🆕 Build services from settings
+  const servicesList = settings.services || defaultSettings.services;
+
   return (
     <footer className="bg-[#1E3A8A] text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+          {/* Column 1: Brand Info - 🆕 Company Name Dynamic */}
           <div className="sm:col-span-2 lg:col-span-1">
             <Link to="/" className="flex items-center gap-2 group mb-4">
               <Droplets className="w-7 h-7 text-[#DBEAFE] group-hover:text-white transition-colors duration-300" />
-              <span className="text-xl font-bold text-white">Hanthana</span>
+              <span className="text-xl font-bold text-white">{settings.companyName}</span>
             </Link>
             <p className="text-blue-200 text-sm leading-relaxed mb-6 max-w-xs">
               Your trusted partner in water management solutions. Delivering
@@ -545,19 +611,17 @@ function Footer() {
               and care since 2010.
             </p>
             <div className="flex items-center gap-3">
-              {socialLinks.map((social) => (
-                <a
-                  key={social.label}
-                  href={social.href}
-                  aria-label={social.label}
-                  className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-[#2563EB] hover:scale-110 transition-all duration-300"
-                >
-                  <social.icon className="w-4 h-4" />
-                </a>
-              ))}
+              <a
+                href="#"
+                aria-label="Website"
+                className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-[#2563EB] hover:scale-110 transition-all duration-300"
+              >
+                <Globe className="w-4 h-4" />
+              </a>
             </div>
           </div>
 
+          {/* Column 2: Quick Links - No changes */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Quick Links</h3>
             <ul className="space-y-2.5">
@@ -572,10 +636,11 @@ function Footer() {
             </ul>
           </div>
 
+          {/* Column 3: Services - 🆕 Dynamic from Settings */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Services</h3>
             <ul className="space-y-2.5">
-              {services.map((service) => (
+              {servicesList.map((service) => (
                 <li key={service}>
                   <span className="text-blue-200 text-sm flex items-center gap-2 group">
                     <span className="w-1 h-1 rounded-full bg-blue-400 group-hover:w-1.5 transition-all duration-300" />
@@ -586,6 +651,7 @@ function Footer() {
             </ul>
           </div>
 
+          {/* Column 4: Contact Info - 🆕 Dynamic from Settings */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Contact Info</h3>
             <ul className="space-y-3">
@@ -602,10 +668,11 @@ function Footer() {
         </div>
       </div>
 
+      {/* Footer Bottom - No changes */}
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-blue-300 text-sm">&copy; 2026 Hanthana. All rights reserved.</p>
+            <p className="text-blue-300 text-sm">&copy; 2026 {settings.companyName}. All rights reserved.</p>
             <div className="flex items-center gap-4 text-blue-300 text-sm">
               <Link to="#" className="hover:text-white transition-colors duration-300">Privacy Policy</Link>
               <span className="w-1 h-1 rounded-full bg-blue-500" />
@@ -629,3 +696,12 @@ export default function CustomerLayout() {
     </div>
   );
 }
+
+// 🆕 Quick Links (used in Footer) - moved outside
+const quickLinks = [
+  { name: "Home", path: "/" },
+  { name: "Services", path: "/services" },
+  { name: "About", path: "/about" },
+  { name: "Contact", path: "/contact" },
+  { name: "Orders", path: "/orders" },
+];

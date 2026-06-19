@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -14,7 +15,6 @@ import {
   ArrowRight,
   Headphones,
 } from 'lucide-react';
-import { products, testimonials } from '../../data/mockData';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -78,27 +78,47 @@ const stats = [
   { value: '24/7', label: 'Support', icon: Headphones },
 ];
 
-const Home = () => {
+// ✅ Component එක ඇතුළේ Hooks භාවිතා කරන්න
+export default function Home() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/products');
+        const data = await response.json();
+        if (data.success) {
+          setProducts(data.data || []);
+        }
+      } catch (error) {
+        console.error('Fetch products error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProducts();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600">
-        {/* Image Background – visible and with dark overlay for text contrast */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <img 
-              src="/images/carousel0.jpeg" 
-              alt="Background" 
-              className="w-full h-full object-cover opacity-100"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-          </div>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <img 
+            src="/images/carousel0.jpeg" 
+            alt="Background" 
+            className="w-full h-full object-cover opacity-100"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+        </div>
         
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-36 min-w-full">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-36">
           <motion.div
             initial="hidden"
             animate="visible"
             variants={staggerContainer}
-            className="text-center opacity-100"
+            className="text-center"
           >
             <motion.div
               variants={fadeInUp}
@@ -143,7 +163,7 @@ const Home = () => {
                 Order Now
               </Link>
               <Link
-                to="services"
+                to="/services"
                 className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-semibold px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-200 text-lg"
               >
                 Explore Services
@@ -151,11 +171,8 @@ const Home = () => {
               </Link>
             </motion.div>
           </motion.div>
-
-          
         </div>
 
-        {/* Truly seamless infinite wave – right‑to‑left */}
         <style>
           {`
             .wave-wrap {
@@ -195,7 +212,6 @@ const Home = () => {
               0%, 100% { transform: translateX(-50%) translateY(0); }
               50% { transform: translateX(-50%) translateY(-14px); }
             }
-            /* Responsive heights */
             @media (max-width: 1024px) { .wave-wrap { height: 120px; } }
             @media (max-width: 768px) { .wave-wrap { height: 90px; } }
             @media (max-width: 480px) { .wave-wrap { height: 60px; } }
@@ -208,7 +224,7 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Product Cards Section */}
+      {/* Product Cards Section - ✅ Database Products Display */}
       <section className="py-16 sm:py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -231,65 +247,78 @@ const Home = () => {
             </p>
           </motion.div>
 
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.1 }}
-            variants={staggerContainer}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6"
-          >
-            {products.map((product) => (
-              <motion.div
-                key={product.id}
-                variants={fadeInUp}
-                transition={{ duration: 0.4 }}
-                className="group bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-100"
-              >
-                <div className="relative h-48 bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center overflow-hidden">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <span
-                    className={`absolute top-3 right-3 text-xs font-semibold px-3 py-1 rounded-full ${
-                      product.type === 'sealed'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-cyan-500 text-white'
-                    }`}
-                  >
-                    {product.type === 'sealed' ? 'Sealed' : 'Refill'}
-                  </span>
-                </div>
-
-                <div className="p-5">
-                  <h3 className="font-semibold text-gray-900 text-base">
-                    {product.name}
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500 line-clamp-2">
-                    {product.description}
-                  </p>
-
-                  <div className="mt-4 flex items-center justify-between">
-                    <span className="text-2xl font-bold text-blue-600">
-                      LKR {product.price}
-                    </span>
-                    <Link
-                      to="/customer/order"
-                      className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+          {/* ✅ Loading State */}
+          {loading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+            </div>
+          ) : products.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              No products available
+            </div>
+          ) : (
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.1 }}
+              variants={staggerContainer}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6"
+            >
+              {products.map((product) => (
+                <motion.div
+                  key={product.id}
+                  variants={fadeInUp}
+                  transition={{ duration: 0.4 }}
+                  className="group bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-100"
+                >
+                  <div className="relative h-48 bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center overflow-hidden">
+                    <img
+                      src={product.image_url || '/images/default-product.jpg'}
+                      alt={product.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span
+                      className={`absolute top-3 right-3 text-xs font-semibold px-3 py-1 rounded-full ${
+                        product.type === 'SEALED'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-cyan-500 text-white'
+                      }`}
                     >
-                      Add to Order
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                      {product.type === 'SEALED' ? 'Sealed' : 'Refill'}
+                    </span>
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
+
+                  <div className="p-5">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      {product.name}
+                    </h3>
+                    {product.description && (
+                      <p className="mt-1 text-sm text-gray-500 line-clamp-2">
+                        {product.description}
+                      </p>
+                    )}
+
+                    <div className="mt-4 flex items-center justify-between">
+                      <span className="text-2xl font-bold text-blue-600">
+                        LKR {Number(product.unit_price).toFixed(2)}
+                      </span>
+                      <Link
+                        to="/customer/order"
+                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Add to Order
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
         </div>
       </section>
 
-      {/* Refill Service Cards Section */}
+      {/* Refill Service Cards Section - No Changes */}
       <section className="py-16 sm:py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -392,7 +421,6 @@ const Home = () => {
                   transition={{ duration: 0.5 }}
                   className="relative bg-white rounded-2xl p-8 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-100"
                 >
-                  {/* Gradient accent bar */}
                   <div
                     className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${item.color}`}
                   />
@@ -416,86 +444,8 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Testimonials Section */}
-      <section className="py-16 sm:py-20 bg-gradient-to-br from-blue-50 to-cyan-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.2 }}
-            variants={fadeInUp}
-            transition={{ duration: 0.6 }}
-            className="text-center mb-12"
-          >
-            <span className="text-sm font-semibold text-blue-600 uppercase tracking-wider">
-              Testimonials
-            </span>
-            <h2 className="mt-2 text-3xl sm:text-4xl font-bold text-gray-900">
-              What Our Customers Say
-            </h2>
-          </motion.div>
-
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.1 }}
-            variants={staggerContainer}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-          >
-            {testimonials.map((testimonial) => (
-              <motion.div
-                key={testimonial.id}
-                variants={fadeInUp}
-                transition={{ duration: 0.4 }}
-                className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 flex flex-col"
-              >
-                {/* Star rating */}
-                <div className="flex gap-1 mb-4">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`w-4 h-4 ${
-                        i < testimonial.rating
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                {/* Quote */}
-                <p className="text-gray-600 text-sm leading-relaxed flex-1">
-                  &ldquo;{testimonial.text}&rdquo;
-                </p>
-
-                {/* Author */}
-                <div className="mt-5 pt-4 border-t border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
-                      {testimonial.name
-                        .split(' ')
-                        .map((n) => n[0])
-                        .join('')}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900 text-sm">
-                        {testimonial.name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {testimonial.role}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
       {/* Statistics Section */}
       <section className="py-16 sm:py-20 bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600 relative overflow-hidden">
-        {/* Decorative circles */}
         <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/5 rounded-full" />
         <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/5 rounded-full" />
 
@@ -586,6 +536,4 @@ const Home = () => {
       </section>
     </div>
   );
-};
-
-export default Home;
+}
