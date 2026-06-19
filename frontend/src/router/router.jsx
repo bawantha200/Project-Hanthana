@@ -34,7 +34,7 @@ import ContactUs from '../pages/customer/ContactUs';
 import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
-
+import OrderDetails from '../pages/customer/OrderDetails';
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -92,7 +92,6 @@ function AdminRoutes() {
             <Products />
         } />
 
-
         {/* Invalid admin paths redirect to dashboard */}
         <Route path="*" element={<Navigate to="dashboard" replace />} />
       </Route>
@@ -114,6 +113,7 @@ function CustomerRoutes() {
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="order/:id" element={<OrderDetails />} /> 
       </Route>
     </Routes>
   );
