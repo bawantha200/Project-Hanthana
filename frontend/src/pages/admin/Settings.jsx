@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Bell, Shield, Building2, Globe, Save } from 'lucide-react';
-import { branchLocations } from '../../data/mockData';
+import { Settings as SettingsIcon, Bell, Shield, Globe, Save, Loader } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -21,19 +21,19 @@ const tabs = [
   { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'security', label: 'Security', icon: Shield },
   { key: 'system', label: 'System', icon: Globe },
-  // { key: 'branches', label: 'Branches', icon: Building2 },
 ];
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('general');
-  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
+  // Settings state
   const [generalSettings, setGeneralSettings] = useState({
-    companyName: 'AquaFlow Water Management',
-    companyEmail: 'info@aquaflow.com',
-    companyPhone: '+91-22-12345678',
-    timezone: 'Asia/Kolkata',
-    currency: 'INR',
+    companyName: '',
+    companyEmail: '',
+    companyPhone: '',
+    address: '',
     language: 'en',
   });
 
@@ -66,9 +66,67 @@ export default function Settings() {
     debugMode: false,
   });
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  // ===== FETCH SETTINGS =====
+  const fetchSettings = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/settings', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        const settings = data.data;
+        if (settings.general) setGeneralSettings(settings.general);
+        if (settings.notifications) setNotificationSettings(settings.notifications);
+        if (settings.security) setSecuritySettings(settings.security);
+        if (settings.system) setSystemSettings(settings.system);
+      }
+    } catch (error) {
+      console.error('Fetch settings error:', error);
+      toast.error('Failed to load settings');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  // ===== SAVE SETTINGS =====
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          general: generalSettings,
+          notifications: notificationSettings,
+          security: securitySettings,
+          system: systemSettings,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        toast.success('Settings saved successfully!');
+      } else {
+        throw new Error(data.message || 'Failed to save');
+      }
+    } catch (error) {
+      console.error('Save settings error:', error);
+      toast.error(error.message || 'Failed to save settings');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const Toggle = ({ enabled, onToggle }) => (
@@ -86,6 +144,14 @@ export default function Settings() {
     </button>
   );
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
   return (
     <motion.div
       variants={containerVariants}
@@ -98,17 +164,27 @@ export default function Settings() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Configure system preferences, security, and branch settings
+            Configure system preferences and company settings
           </p>
         </div>
         <motion.button
           whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.97 }}
           onClick={handleSave}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+          disabled={saving}
+          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-70"
         >
-          <Save size={16} />
-          {saved ? 'Saved!' : 'Save Changes'}
+          {saving ? (
+            <>
+              <Loader size={16} className="animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save size={16} />
+              Save Changes
+            </>
+          )}
         </motion.button>
       </motion.div>
 
@@ -133,7 +209,7 @@ export default function Settings() {
         })}
       </motion.div>
 
-      {/* General Settings */}
+      {/* ===== GENERAL SETTINGS ===== */}
       {activeTab === 'general' && (
         <motion.div
           variants={itemVariants}
@@ -177,28 +253,13 @@ export default function Settings() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Timezone</label>
-              <select
-                value={generalSettings.timezone}
-                onChange={(e) => setGeneralSettings({ ...generalSettings, timezone: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-                <option value="UTC">UTC</option>
-                <option value="America/New_York">America/New_York (EST)</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Currency</label>
-              <select
-                value={generalSettings.currency}
-                onChange={(e) => setGeneralSettings({ ...generalSettings, currency: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="INR">INR (Indian Rupee)</option>
-                <option value="USD">USD (US Dollar)</option>
-                <option value="EUR">EUR (Euro)</option>
-              </select>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Address</label>
+              <input
+                type="text"
+                value={generalSettings.address}
+                onChange={(e) => setGeneralSettings({ ...generalSettings, address: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Language</label>
@@ -208,15 +269,107 @@ export default function Settings() {
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
               >
                 <option value="en">English</option>
-                <option value="hi">Hindi</option>
-                <option value="mr">Marathi</option>
+                <option value="si">Sinhala</option>
+                <option value="ta">Tamil</option>
               </select>
             </div>
+            {/* General Settings Form එකට මේවා එකතු කරන්න */}
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Contact Phone (Hotline)</label>
+  <input
+    type="tel"
+    value={generalSettings.contactPhone || ''}
+    onChange={(e) => setGeneralSettings({ ...generalSettings, contactPhone: e.target.value })}
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Support Email</label>
+  <input
+    type="email"
+    value={generalSettings.contactEmail || ''}
+    onChange={(e) => setGeneralSettings({ ...generalSettings, contactEmail: e.target.value })}
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Orders Email</label>
+  <input
+    type="email"
+    value={generalSettings.ordersEmail || ''}
+    onChange={(e) => setGeneralSettings({ ...generalSettings, ordersEmail: e.target.value })}
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Emergency Phone</label>
+  <input
+    type="tel"
+    value={generalSettings.emergencyPhone || ''}
+    onChange={(e) => setGeneralSettings({ ...generalSettings, emergencyPhone: e.target.value })}
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Business Hours (Mon-Sat)</label>
+  <input
+    type="text"
+    value={generalSettings.businessHours?.mondaySaturday || ''}
+    onChange={(e) => setGeneralSettings({
+      ...generalSettings,
+      businessHours: {
+        ...generalSettings.businessHours,
+        mondaySaturday: e.target.value
+      }
+    })}
+    placeholder="7:00 AM - 9:00 PM"
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Business Hours (Sunday)</label>
+  <input
+    type="text"
+    value={generalSettings.businessHours?.sunday || ''}
+    onChange={(e) => setGeneralSettings({
+      ...generalSettings,
+      businessHours: {
+        ...generalSettings.businessHours,
+        sunday: e.target.value
+      }
+    })}
+    placeholder="8:00 AM - 6:00 PM"
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
+
+<div>
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Emergency Hours</label>
+  <input
+    type="text"
+    value={generalSettings.businessHours?.emergency || ''}
+    onChange={(e) => setGeneralSettings({
+      ...generalSettings,
+      businessHours: {
+        ...generalSettings.businessHours,
+        emergency: e.target.value
+      }
+    })}
+    placeholder="24/7 Available"
+    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+  />
+</div>
           </div>
         </motion.div>
       )}
 
-      {/* Notification Settings */}
+      {/* ===== NOTIFICATION SETTINGS ===== */}
       {activeTab === 'notifications' && (
         <motion.div
           variants={itemVariants}
@@ -280,7 +433,7 @@ export default function Settings() {
         </motion.div>
       )}
 
-      {/* Security Settings */}
+      {/* ===== SECURITY SETTINGS ===== */}
       {activeTab === 'security' && (
         <motion.div
           variants={itemVariants}
@@ -377,7 +530,7 @@ export default function Settings() {
         </motion.div>
       )}
 
-      {/* System Preferences */}
+      {/* ===== SYSTEM SETTINGS ===== */}
       {activeTab === 'system' && (
         <motion.div
           variants={itemVariants}
@@ -474,103 +627,6 @@ export default function Settings() {
           </div>
         </motion.div>
       )}
-
-      {/* Branch Settings */}
-      {/* {activeTab === 'branches' && (
-        <motion.div
-          variants={itemVariants}
-          className="space-y-5"
-        >
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                <Building2 size={18} className="text-blue-600" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Branch Locations</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Manage operational branches across regions</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {branchLocations.map((branch) => (
-                <motion.div
-                  key={branch.name}
-                  whileHover={{ y: -2 }}
-                  className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:shadow-sm transition-all duration-200"
-                >
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
-                      <Building2 size={14} className="text-blue-600" />
-                    </div>
-                    <h3 className="font-semibold text-gray-900 text-sm">{branch.name}</h3>
-                  </div>
-                  <div className="space-y-1.5 text-xs">
-                    <p className="text-gray-500">{branch.address}</p>
-                    <p className="text-gray-500">{branch.phone}</p>
-                    <p className="text-gray-400">{branch.hours}</p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                <Building2 size={18} className="text-blue-600" />
-              </div>
-              <div>
-                <h2 className="text-base font-semibold text-gray-900">Add New Branch</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Register a new operational branch</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Branch Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Chennai South"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Address</label>
-                <input
-                  type="text"
-                  placeholder="Full address"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Phone</label>
-                <input
-                  type="tel"
-                  placeholder="+91-XX-XXXXXXX"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">Operating Hours</label>
-                <input
-                  type="text"
-                  placeholder="e.g., Mon-Sat: 7AM-9PM"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                />
-              </div>
-            </div>
-            <div className="mt-5 pt-4 border-t border-gray-100 flex justify-end">
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-              >
-                <Plus size={16} />
-                Add Branch
-              </motion.button>
-            </div>
-          </div>
-        </motion.div>
-      )} */}
     </motion.div>
   );
 }

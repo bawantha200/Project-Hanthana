@@ -21,7 +21,7 @@ const itemVariants = {
 };
 
 export default function Product() {
-  const [products, setProducts] = useState([]);
+  const [products, setProducts] = useState([]); // ✅ Array එකක් ලෙස Initialize කරන්න
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -34,7 +34,7 @@ export default function Product() {
   });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  // Lock body scroll when modal is open (like Vendor.jsx)
+  // Lock body scroll when modal is open
   useEffect(() => {
     if (showModal || deleteConfirm) {
       document.body.style.overflow = 'hidden';
@@ -46,15 +46,21 @@ export default function Product() {
     };
   }, [showModal, deleteConfirm]);
 
-  // Fetch products
+  // ✅ Fetch products – නිවැරදිව Array එකක් ලබා ගන්න
   const fetchProducts = async () => {
     setLoading(true);
     try {
       const res = await api.get('/products');
-      setProducts(res.data);
+      // ✅ Backend Response: { success: true, data: [...] }
+      if (res.data && res.data.success) {
+        setProducts(res.data.data || []); // ✅ Array එකක් සකසන්න
+      } else {
+        setProducts([]); // Data නැතිනම් හිස් Array එකක්
+      }
     } catch (error) {
       console.error('Error fetching products:', error);
       toast.error('Failed to load products');
+      setProducts([]); // Error එකක් ආවොත් හිස් Array එකක්
     } finally {
       setLoading(false);
     }
@@ -123,22 +129,31 @@ export default function Product() {
     }
 
     try {
+      let res;
       if (editingProduct) {
-        await api.put(`/products/${editingProduct.id}`, payload, {
+        res = await api.put(`/products/${editingProduct.id}`, payload, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        toast.success('Product updated successfully');
+        if (res.data && res.data.success) {
+          toast.success('Product updated successfully');
+        } else {
+          throw new Error(res.data?.message || 'Update failed');
+        }
       } else {
-        await api.post('/products', payload, {
+        res = await api.post('/products', payload, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
-        toast.success('Product added successfully');
+        if (res.data && res.data.success) {
+          toast.success('Product added successfully');
+        } else {
+          throw new Error(res.data?.message || 'Create failed');
+        }
       }
       closeModal();
       fetchProducts();
     } catch (error) {
       console.error('Error saving product:', error);
-      toast.error(error.response?.data?.error || 'Failed to save product');
+      toast.error(error.response?.data?.message || error.message || 'Failed to save product');
     }
   };
 
@@ -146,20 +161,26 @@ export default function Product() {
   const handleDelete = async () => {
     if (!deleteConfirm) return;
     try {
-      await api.delete(`/products/${deleteConfirm.id}`);
-      toast.success('Product deleted successfully');
-      setDeleteConfirm(null);
-      fetchProducts();
+      const res = await api.delete(`/products/${deleteConfirm.id}`);
+      if (res.data && res.data.success) {
+        toast.success('Product deleted successfully');
+        setDeleteConfirm(null);
+        fetchProducts();
+      } else {
+        throw new Error(res.data?.message || 'Delete failed');
+      }
     } catch (error) {
       console.error('Error deleting product:', error);
-      toast.error('Failed to delete product');
+      toast.error(error.response?.data?.message || 'Failed to delete product');
     }
   };
 
-  // Filter
-  const filteredProducts = products.filter((p) =>
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // ✅ Filter – products Array එකක් බවට සහතික වන්න
+  const filteredProducts = Array.isArray(products) 
+    ? products.filter((p) =>
+        p.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : [];
 
   return (
     <motion.div
@@ -284,7 +305,7 @@ export default function Product() {
         </div>
       </motion.div>
 
-      {/* ===== ADD / EDIT MODAL (FIXED OVERLAY) ===== */}
+      {/* ===== ADD / EDIT MODAL ===== */}
       {showModal && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -396,7 +417,7 @@ export default function Product() {
         </motion.div>
       )}
 
-      {/* ===== DELETE CONFIRMATION MODAL (FIXED OVERLAY) ===== */}
+      {/* ===== DELETE CONFIRMATION MODAL ===== */}
       {deleteConfirm && (
         <motion.div
           initial={{ opacity: 0 }}

@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
@@ -61,6 +63,21 @@ const ContactUs = () => {
     }
   };
 
+  // Business hours data for detailed section
+  const businessHoursList = [
+    { day: 'Monday - Saturday', hours: settings.businessHours.mondaySaturday || '7:00 AM - 9:00 PM' },
+    { day: 'Sunday', hours: settings.businessHours.sunday || '8:00 AM - 6:00 PM' },
+    { day: 'Emergency Delivery', hours: settings.businessHours.emergency || '24/7 Available' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero */}
@@ -114,7 +131,6 @@ const ContactUs = () => {
           </motion.div>
         </div>
 
-        {/* Truly seamless infinite wave – right‑to‑left */}
         <style>
           {`
             .wave-wrap {
@@ -154,7 +170,6 @@ const ContactUs = () => {
               0%, 100% { transform: translateX(-50%) translateY(0); }
               50% { transform: translateX(-50%) translateY(-14px); }
             }
-            /* Responsive heights */
             @media (max-width: 1024px) { .wave-wrap { height: 120px; } }
             @media (max-width: 768px) { .wave-wrap { height: 90px; } }
             @media (max-width: 480px) { .wave-wrap { height: 60px; } }
@@ -213,12 +228,8 @@ const ContactUs = () => {
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {/* Name */}
                   <div>
-                    <label
-                      htmlFor="name"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Name
                     </label>
                     <input
@@ -233,13 +244,8 @@ const ContactUs = () => {
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
-
-                  {/* Email */}
                   <div>
-                    <label
-                      htmlFor="email"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Email
                     </label>
                     <input
@@ -257,12 +263,8 @@ const ContactUs = () => {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {/* Phone */}
                   <div>
-                    <label
-                      htmlFor="phone"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Phone
                     </label>
                     <input
@@ -276,13 +278,8 @@ const ContactUs = () => {
                       className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
-
-                  {/* Subject */}
                   <div>
-                    <label
-                      htmlFor="subject"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Subject
                     </label>
                     <input
@@ -299,12 +296,8 @@ const ContactUs = () => {
                   </div>
                 </div>
 
-                {/* Message */}
                 <div>
-                  <label
-                    htmlFor="message"
-                    className="block text-sm font-medium text-gray-700 mb-1.5"
-                  >
+                  <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1.5">
                     Message
                   </label>
                   <textarea
@@ -341,7 +334,7 @@ const ContactUs = () => {
               </form>
             </motion.div>
 
-            {/* Info Cards */}
+            {/* Info Cards - 🆕 Dynamic Data */}
             <motion.div
               initial="hidden"
               whileInView="visible"
@@ -349,7 +342,7 @@ const ContactUs = () => {
               variants={staggerContainer}
               className="lg:col-span-2 space-y-6"
             >
-              {/* Hotline Card */}
+              {/* Hotline Card - 🆕 Dynamic */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -365,13 +358,13 @@ const ContactUs = () => {
                       Available 24/7 for orders and support
                     </p>
                     <p className="mt-2 text-blue-600 font-semibold text-base">
-                      +94 76 835 6860
+                      {settings.contactPhone}
                     </p>
                   </div>
                 </div>
               </motion.div>
 
-              {/* Email Card */}
+              {/* Email Card - 🆕 Dynamic */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -387,13 +380,13 @@ const ContactUs = () => {
                       We respond within 24 hours
                     </p>
                     <p className="mt-2 text-blue-600 font-semibold text-base">
-                      support@hanthana.com
+                      {settings.contactEmail}
                     </p>
                     <p className="mt-1 text-gray-500 text-sm">
                       For general inquiries
                     </p>
                     <p className="mt-2 text-blue-600 font-semibold text-base">
-                      orders@hanthana.com
+                      {settings.ordersEmail}
                     </p>
                     <p className="mt-1 text-gray-500 text-sm">
                       For order-related queries
@@ -402,7 +395,7 @@ const ContactUs = () => {
                 </div>
               </motion.div>
 
-              {/* Business Hours Card */}
+              {/* Business Hours Card - 🆕 Dynamic */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -420,19 +413,19 @@ const ContactUs = () => {
                       <div className="flex justify-between text-sm gap-2">
                         <span className="text-gray-600">Monday - Saturday</span>
                         <span className="font-semibold text-gray-900">
-                          7:00 AM - 9:00 PM
+                          {settings.businessHours.mondaySaturday || '7:00 AM - 9:00 PM'}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Sunday</span>
                         <span className="font-semibold text-gray-900">
-                          8:00 AM - 6:00 PM
+                          {settings.businessHours.sunday || '8:00 AM - 6:00 PM'}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Emergency Delivery</span>
                         <span className="font-semibold text-blue-600">
-                          24/7 Available
+                          {settings.businessHours.emergency || '24/7 Available'}
                         </span>
                       </div>
                     </div>
@@ -444,7 +437,7 @@ const ContactUs = () => {
         </div>
       </section>
 
-      {/* Business Hours Detailed Section */}
+      {/* Business Hours Detailed Section - 🆕 Dynamic */}
       <section className="py-16 sm:py-20 bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600 relative overflow-hidden">
         <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/5 rounded-full" />
         <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/5 rounded-full" />
@@ -474,15 +467,7 @@ const ContactUs = () => {
             variants={staggerContainer}
             className="grid grid-cols-1 sm:grid-cols-2 gap-5"
           >
-            {[
-              { day: 'Monday', hours: '7:00 AM - 9:00 PM' },
-              { day: 'Tuesday', hours: '7:00 AM - 9:00 PM' },
-              { day: 'Wednesday', hours: '7:00 AM - 9:00 PM' },
-              { day: 'Thursday', hours: '7:00 AM - 9:00 PM' },
-              { day: 'Friday', hours: '7:00 AM - 9:00 PM' },
-              { day: 'Saturday', hours: '7:00 AM - 9:00 PM' },
-              { day: 'Sunday', hours: '8:00 AM - 6:00 PM' },
-            ].map((schedule, index) => (
+            {businessHoursList.map((schedule, index) => (
               <motion.div
                 key={index}
                 variants={fadeInUp}
@@ -502,7 +487,7 @@ const ContactUs = () => {
             ))}
           </motion.div>
 
-          {/* Emergency note */}
+          {/* Emergency note - 🆕 Dynamic */}
           <motion.div
             initial="hidden"
             whileInView="visible"
@@ -515,7 +500,7 @@ const ContactUs = () => {
               <Phone className="w-4 h-4" />
               <span>
                 Emergency delivery available <strong>24/7</strong> -- Call{' '}
-                <strong>+94 76 835 6860</strong>
+                <strong>{settings.emergencyPhone}</strong>
               </span>
             </div>
           </motion.div>
