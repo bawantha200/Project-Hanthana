@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader2 } from 'lucide-react';
+import axios from 'axios';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -26,70 +28,39 @@ const ContactUs = () => {
   });
 
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  
-  // 🆕 Settings State
-  const [settings, setSettings] = useState({
-    contactPhone: '+94 76 835 6860',
-    contactEmail: 'support@hanthana.com',
-    ordersEmail: 'orders@hanthana.com',
-    businessHours: {
-      mondaySaturday: '7:00 AM - 9:00 PM',
-      sunday: '8:00 AM - 6:00 PM',
-      emergency: '24/7 Available'
-    },
-    emergencyPhone: '+94 76 835 6860',
-    address: 'Colombo, Sri Lanka',
-    companyName: 'Hanthana Water'
-  });
-
-  // ===== FETCH SETTINGS =====
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/settings', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json();
-
-        if (data.success && data.data.general) {
-          const general = data.data.general;
-          setSettings({
-            contactPhone: general.contactPhone || '+94 76 835 6860',
-            contactEmail: general.contactEmail || 'support@hanthana.com',
-            ordersEmail: general.ordersEmail || 'orders@hanthana.com',
-            businessHours: general.businessHours || {
-              mondaySaturday: '7:00 AM - 9:00 PM',
-              sunday: '8:00 AM - 6:00 PM',
-              emergency: '24/7 Available'
-            },
-            emergencyPhone: general.emergencyPhone || '+94 76 835 6860',
-            address: general.address || 'Colombo, Sri Lanka',
-            companyName: general.companyName || 'Hanthana Water'
-          });
-        }
-      } catch (error) {
-        console.error('Fetch settings error:', error);
-        // Fallback values already set in state
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchSettings();
-  }, []);
+  const [loading, setLoading] = useState(false); 
+  const [serverError, setServerError] = useState(''); 
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e) => {
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSubmitted(true);
-    setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
-    setTimeout(() => setSubmitted(false), 4000);
+    setLoading(true);
+    setServerError('');
+    setSubmitted(false);
+
+    try {
+      
+      const response = await axios.post('http://localhost:5000/api/contact/send-message', formData);
+
+      if (response.data.success) {
+        setSubmitted(true);
+       
+        setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
+      
+        setTimeout(() => setSubmitted(false), 5000);
+      }
+    } catch (error) {
+      console.error('Frontend Submit Error:', error);
+      
+      setServerError(error.response?.data?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Business hours data for detailed section
@@ -111,6 +82,7 @@ const ContactUs = () => {
     <div className="min-h-screen bg-gray-50">
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600">
+        {/* Image Background – visible and with dark overlay for text contrast */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img 
             src="/images/contactus.jpeg" 
@@ -231,6 +203,7 @@ const ContactUs = () => {
                 24 hours.
               </p>
 
+              {/* Success Alert */}
               {submitted && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
@@ -239,6 +212,17 @@ const ContactUs = () => {
                 >
                   Thank you! Your message has been sent successfully. We will
                   get back to you soon.
+                </motion.div>
+              )}
+
+              {/* Error Alert */}
+              {serverError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-medium"
+                >
+                  {serverError}
                 </motion.div>
               )}
 
@@ -255,8 +239,9 @@ const ContactUs = () => {
                       value={formData.name}
                       onChange={handleChange}
                       required
+                      disabled={loading}
                       placeholder="Your full name"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
                   <div>
@@ -270,8 +255,9 @@ const ContactUs = () => {
                       value={formData.email}
                       onChange={handleChange}
                       required
+                      disabled={loading}
                       placeholder="you@example.com"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -282,13 +268,14 @@ const ContactUs = () => {
                       Phone
                     </label>
                     <input
-                      type="tel"
+                      type="text"
                       id="phone"
                       name="phone"
                       value={formData.phone}
                       onChange={handleChange}
-                      placeholder="+94-XXXXXXXXX"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      disabled={loading}
+                      placeholder="+94 7X XXX XXXX"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
                   <div>
@@ -302,8 +289,9 @@ const ContactUs = () => {
                       value={formData.subject}
                       onChange={handleChange}
                       required
+                      disabled={loading}
                       placeholder="How can we help?"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -318,18 +306,30 @@ const ContactUs = () => {
                     value={formData.message}
                     onChange={handleChange}
                     required
+                    disabled={loading}
                     rows={5}
                     placeholder="Tell us more about your inquiry..."
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none disabled:opacity-60"
                   />
                 </div>
 
+                {/* Submit Button with Loading Indicator */}
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 bg-blue-600 hover:bg-[#1E3A8A] text-white font-semibold px-8 py-3.5 rounded-xl transition-colors duration-200 shadow-lg shadow-blue-600/20"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 bg-blue-600 hover:bg-[#1E3A8A] text-white font-semibold px-8 py-3.5 rounded-xl transition-all duration-200 shadow-lg shadow-blue-600/20 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
-                  <Send className="w-5 h-5" />
-                  Submit Message
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      Submit Message
+                    </>
+                  )}
                 </button>
               </form>
             </motion.div>

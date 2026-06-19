@@ -42,6 +42,7 @@ const NAV_ITEMS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
   { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
+
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin/finance' },
