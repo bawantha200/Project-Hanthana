@@ -19,7 +19,8 @@ const vendorsService = {
       .from('vendors')
       .select('*')
       .order('vendor_name', { ascending: true });
-
+      
+      // Add search filter if provided
     if (search) {
       query = query.or(
         `vendor_name.ilike.%${search}%,` +
@@ -29,7 +30,7 @@ const vendorsService = {
         `supply_type.ilike.%${search}%`
       );
     }
-
+    // Execute query and handle errors
     const { data, error } = await query;
     if (error) throw new Error(error.message);
     return data.map(toVendor);

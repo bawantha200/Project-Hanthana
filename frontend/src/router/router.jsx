@@ -19,6 +19,7 @@ import Vendors from '../pages/admin/Vendors';
 import Customers from '../pages/admin/Customers';
 import Finance from '../pages/admin/Finance';
 import Products from '../pages/admin/Products';
+import Messages from '../pages/admin/Messages';
 
 
 // Auth pages
@@ -34,7 +35,7 @@ import ContactUs from '../pages/customer/ContactUs';
 import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
-
+import OrderDetails from '../pages/customer/OrderDetails';
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -92,6 +93,10 @@ function AdminRoutes() {
             <Products />
         } />
 
+        <Route path="messages" element={
+            <Messages />
+        } />
+
 
         {/* Invalid admin paths redirect to dashboard */}
         <Route path="*" element={<Navigate to="dashboard" replace />} />
@@ -114,6 +119,7 @@ function CustomerRoutes() {
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="order/:id" element={<OrderDetails />} /> 
       </Route>
     </Routes>
   );

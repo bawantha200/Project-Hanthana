@@ -155,13 +155,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
             >
-              <Link
-                to="/orders"
-                className="inline-flex items-center gap-2 bg-white text-blue-700 font-semibold px-8 py-4 rounded-xl hover:bg-blue-50 transition-all duration-200 shadow-lg shadow-blue-900/20 text-lg"
-              >
-                <ShoppingBag className="w-5 h-5" />
-                Order Now
-              </Link>
+             
               <Link
                 to="/services"
                 className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-semibold px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-200 text-lg"
@@ -516,13 +510,7 @@ export default function Home() {
               daily water needs. Place your first order today.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link
-                to="/orders"
-                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg shadow-blue-600/20 text-lg"
-              >
-                <ShoppingBag className="w-5 h-5" />
-                Order Now
-              </Link>
+              
               <Link
                 to="/services"
                 className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-8 py-4 rounded-xl transition-colors duration-200 text-lg"
