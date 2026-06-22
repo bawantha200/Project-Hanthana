@@ -30,7 +30,7 @@ const ContactUs = () => {
   
   // 🆕 Settings State
   const [settings, setSettings] = useState({
-    contactPhone: '+94 76 835 6860',
+    contactPhone: '+94 76 835 686',
     contactEmail: 'support@hanthana.com',
     ordersEmail: 'orders@hanthana.com',
     businessHours: {

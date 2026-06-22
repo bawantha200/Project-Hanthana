@@ -101,20 +101,25 @@ export default function Employees() {
 const [rolesLoading, setRolesLoading] = useState(false);
   // Fetch employees from API
   const fetchEmployees = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(API_URL);
-      if (response.data.success) {
-        setEmployees(response.data.data);
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token'); // token eka ganna
+    const response = await axios.get(API_URL, {
+      headers: {
+        Authorization: `Bearer ${token}`
       }
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching employees:', err);
-      setError('Failed to load employees. Please try again.');
-    } finally {
-      setLoading(false);
+    });
+    if (response.data.success) {
+      setEmployees(response.data.data);
     }
-  };
+    setError(null);
+  } catch (err) {
+    console.error('Error fetching employees:', err);
+    setError('Failed to load employees. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+};
 
 
   // ===== FETCH ROLES =====
@@ -181,83 +186,97 @@ const fetchRoles = async () => {
 
   // Handle Delete
   const handleDelete = async () => {
-    if (employeeToDelete) {
-      try {
-        setSubmitting(true);
-        await axios.delete(`${API_URL}/${employeeToDelete.id}`);
-        setEmployees(employees.filter(emp => emp.id !== employeeToDelete.id));
-        setShowDeleteConfirm(false);
-        setEmployeeToDelete(null);
-        setShowDetailModal(false);
-        setSelectedEmployee(null);
-        showSuccessNotification('Employee deleted successfully!');
-      } catch (err) {
-        console.error('Error deleting employee:', err);
-        setError(err.response?.data?.message || 'Failed to delete employee. Please try again.');
-      } finally {
-        setSubmitting(false);
-      }
-    }
-  };
-
-  // Handle Add Employee
-  const handleAddEmployee = async (e) => {
-    e.preventDefault();
-    
-    // Validate required fields
-    const requiredFields = ['fullName', 'email', 'phoneNo', 'role', 'address', 'hiredDate'];
-    for (let field of requiredFields) {
-      if (!formData[field]) {
-        alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
-        return;
-      }
-    }
-
+  if (employeeToDelete) {
     try {
       setSubmitting(true);
-      setError(null);
-      
-      const employeeData = {
-        name: formData.fullName,
-        position: formData.role,
-        phone: formData.phoneNo,
-        email: formData.email,
-        hireDate: formData.hiredDate,
-        birthday: formData.birthday || null,
-        gender: formData.gender || null,
-        nic: formData.nic || null,
-        address: formData.address,
-        marriageStatus: formData.marriageStatus || null,
-        jobType: formData.jobType || null,
-        profileImage: formData.profileImage || null
-      };
-
-      const response = await axios.post(API_URL, employeeData);
-      
-      if (response.data.success) {
-        setEmployees([...employees, response.data.data]);
-        setShowCreateForm(false);
-        resetForm();
-        showSuccessNotification('Employee added successfully!');
-      }
-    } catch (err) {
-      console.error('Error adding employee:', err);
-      
-      if (err.response) {
-        if (err.response.status === 409) {
-          setError('An employee with this email already exists. Please use a different email address.');
-        } else if (err.response.status === 400) {
-          setError(err.response.data.message || 'Please check all required fields.');
-        } else {
-          setError(err.response.data?.message || 'Failed to add employee. Please try again.');
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API_URL}/${employeeToDelete.id}`, {
+        headers: {
+          Authorization: `Bearer ${token}`
         }
-      } else {
-        setError('Network error. Please check your connection.');
-      }
+      });
+      setEmployees(employees.filter(emp => emp.id !== employeeToDelete.id));
+      setShowDeleteConfirm(false);
+      setEmployeeToDelete(null);
+      setShowDetailModal(false);
+      setSelectedEmployee(null);
+      showSuccessNotification('Employee deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting employee:', err);
+      setError(err.response?.data?.message || 'Failed to delete employee. Please try again.');
     } finally {
       setSubmitting(false);
     }
-  };
+  }
+};
+
+  // Handle Add Employee
+  const handleAddEmployee = async (e) => {
+  e.preventDefault();
+  
+  // Validate required fields
+  const requiredFields = ['fullName', 'email', 'phoneNo', 'role', 'address', 'hiredDate'];
+  for (let field of requiredFields) {
+    if (!formData[field]) {
+      alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
+      return;
+    }
+  }
+
+  try {
+    setSubmitting(true);
+    setError(null);
+    
+    const employeeData = {
+      name: formData.fullName,
+      position: formData.role,
+      phone: formData.phoneNo,
+      email: formData.email,
+      hireDate: formData.hiredDate,
+      birthday: formData.birthday || null,
+      gender: formData.gender || null,
+      nic: formData.nic || null,
+      address: formData.address,
+      marriageStatus: formData.marriageStatus || null,
+      jobType: formData.jobType || null,
+      profileImage: formData.profileImage || null
+    };
+
+    const token = localStorage.getItem('token');
+    const response = await axios.post(
+      API_URL, 
+      employeeData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
+    
+    if (response.data.success) {
+      setEmployees([...employees, response.data.data]);
+      setShowCreateForm(false);
+      resetForm();
+      showSuccessNotification('Employee added successfully!');
+    }
+  } catch (err) {
+    console.error('Error adding employee:', err);
+    
+    if (err.response) {
+      if (err.response.status === 409) {
+        setError('An employee with this email already exists. Please use a different email address.');
+      } else if (err.response.status === 400) {
+        setError(err.response.data.message || 'Please check all required fields.');
+      } else {
+        setError(err.response.data?.message || 'Failed to add employee. Please try again.');
+      }
+    } else {
+      setError('Network error. Please check your connection.');
+    }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   // Handle Edit Employee
  // Handle Edit Employee - FIXED VERSION
@@ -277,7 +296,6 @@ const handleEditEmployee = async (e) => {
     setSubmitting(true);
     setError(null);
     
-    // Build update data - only include fields that have values
     const updateData = {
       name: formData.fullName,
       position: formData.role,
@@ -287,34 +305,25 @@ const handleEditEmployee = async (e) => {
       address: formData.address
     };
     
-    // Only include optional fields if they have values
-    if (formData.birthday) {
-      updateData.birthday = formData.birthday;
-    }
-    
-    if (formData.gender) {
-      updateData.gender = formData.gender;
-    }
-    
-    if (formData.nic) {
-      updateData.nic = formData.nic;
-    }
-    
-    if (formData.marriageStatus) {
-      updateData.marriageStatus = formData.marriageStatus;
-    }
-    
-    if (formData.jobType) {
-      updateData.jobType = formData.jobType;
-    }
-    
-    if (formData.profileImage) {
-      updateData.profileImage = formData.profileImage;
-    }
+    if (formData.birthday) updateData.birthday = formData.birthday;
+    if (formData.gender) updateData.gender = formData.gender;
+    if (formData.nic) updateData.nic = formData.nic;
+    if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
+    if (formData.jobType) updateData.jobType = formData.jobType;
+    if (formData.profileImage) updateData.profileImage = formData.profileImage;
 
-    console.log('Sending update data:', updateData); // Debug log
+    console.log('Sending update data:', updateData);
 
-    const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData);
+    const token = localStorage.getItem('token');
+    const response = await axios.put(
+      `${API_URL}/${selectedEmployee.id}`, 
+      updateData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      }
+    );
     
     if (response.data.success) {
       setEmployees(employees.map(emp => 
@@ -328,7 +337,7 @@ const handleEditEmployee = async (e) => {
     }
   } catch (err) {
     console.error('Error updating employee:', err);
-    console.error('Error response:', err.response?.data); // Debug log
+    console.error('Error response:', err.response?.data);
     
     if (err.response) {
       if (err.response.status === 409) {
