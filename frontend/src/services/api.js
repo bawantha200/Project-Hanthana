@@ -1,43 +1,42 @@
 import axios from 'axios';
 
+// Use environment variable or fallback to local backend
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
 
+// Create Axios instance with base URL and default headers
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach Supabase JWT token to every request
+// ─── Request interceptor: attach Supabase JWT token ───
 api.interceptors.request.use(
   (config) => {
+    // Retrieve token from storage (matches your previous code)
     const token =
       localStorage.getItem('supabase.auth.token') ||
       sessionStorage.getItem('supabase.auth.token');
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
-  headers: { 'Content-Type': 'application/json' },
-});
 
-// ─── Request interceptor: attach token ───
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token'); // adjust key if different
+    // If token exists, add Authorization header
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    return config;
+
+    return config; // Always return the config
   },
   (error) => Promise.reject(error)
 );
 
-// ─── Response interceptor: handle 401 globally ───
+// ─── Response interceptor: handle 401 (unauthorized) globally ───
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Optional: redirect to login
+      // Optional: clear expired token and redirect to login
+      // localStorage.removeItem('supabase.auth.token');
+      // sessionStorage.removeItem('supabase.auth.token');
       // window.location.href = '/login';
-      // Or you can handle it per component
     }
     return Promise.reject(error);
   }

@@ -1,23 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const employeeController = require('../controllers/employeeController');
+const { protect } = require('../middlewares/authMiddleware'); // your protect middleware
 
-// GET all employees
+// All routes require authentication
+router.use(protect);
+
+// You can add an admin middleware here if needed:
+// const { admin } = require('../middlewares/roleMiddleware');
+// router.use(admin); // if only admins can manage employees
+
 router.get('/', employeeController.getAllEmployees);
-
-// GET employee statistics
 router.get('/stats', employeeController.getEmployeeStats);
-
-// GET a single employee
 router.get('/:id', employeeController.getEmployeeById);
-
-// CREATE a new employee
 router.post('/', employeeController.createEmployee);
-
-// UPDATE an employee
 router.put('/:id', employeeController.updateEmployee);
-
-// DELETE an employee
 router.delete('/:id', employeeController.deleteEmployee);
+router.patch('/:id/status', employeeController.updateEmployeeStatus); // optional
 
 module.exports = router;

@@ -1,22 +1,30 @@
-// src/controllers/orders.controller.js
+// src/controllers/ordersController.js
 const {
   getAllOrders,
   getAllUsers,
   getAllProducts,
   createOrder,
-} = require('.././services/ordersService');
-// src/controllers/ordersController.js
-const { getOrdersByUserId, getOrderById } = require('../services/ordersService');
+  getOrdersByUserId,
+  getOrderById
+} = require('../services/ordersService');
 
 /**
  * GET /api/orders
- * Fetch all orders (admin only – add auth middleware)
+ * Fetch orders – if user is admin, return all; otherwise return user's own orders
  */
 const getOrders = async (req, res) => {
   try {
-    const orders = await getAllOrders();
     const userId = req.user.id;
-    const orders = await getOrdersByUserId(userId);
+    // If user is admin (you can adjust this condition)
+    const isAdmin = req.user.role === 'admin'; // or however you store admin flag
+
+    let orders;
+    if (isAdmin) {
+      orders = await getAllOrders();           // all orders for admin
+    } else {
+      orders = await getOrdersByUserId(userId); // user's own orders
+    }
+
     res.json({ success: true, orders });
   } catch (err) {
     console.error('Error fetching orders:', err);
@@ -25,8 +33,31 @@ const getOrders = async (req, res) => {
 };
 
 /**
+ * GET /api/orders/:id
+ * Fetch a single order by ID (with user validation)
+ */
+const getOrder = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    let idParam = req.params.id;
+    if (idParam.startsWith('ORD-')) {
+      idParam = idParam.replace('ORD-', '');
+    }
+    const orderId = parseInt(idParam, 10);
+    if (isNaN(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID' });
+    }
+    const order = await getOrderById(orderId, userId);
+    res.json({ success: true, order });
+  } catch (err) {
+    console.error('Error fetching order:', err);
+    res.status(500).json({ success: false, message: 'Failed to fetch order' });
+  }
+};
+
+/**
  * GET /api/users
- * Fetch all users (for dropdown)
+ * Fetch all users (for dropdown – admin only)
  */
 const getUsers = async (req, res) => {
   try {
@@ -60,7 +91,6 @@ const postOrder = async (req, res) => {
   try {
     const { customerId, orderType, paymentMethod, deliveryLocation, items } = req.body;
 
-    // Basic validation
     if (!customerId || !items || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -83,30 +113,11 @@ const postOrder = async (req, res) => {
   }
 };
 
+// ✅ Single export – include ALL functions
 module.exports = {
   getOrders,
+  getOrder,
   getUsers,
   getProducts,
   postOrder,
 };
-const getOrder = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    let idParam = req.params.id;
-    // If it starts with 'ORD-', strip it
-    if (idParam.startsWith('ORD-')) {
-      idParam = idParam.replace('ORD-', '');
-    }
-    const orderId = parseInt(idParam, 10);
-    if (isNaN(orderId)) {
-      return res.status(400).json({ success: false, message: 'Invalid order ID' });
-    }
-    const order = await getOrderById(orderId, userId);
-    res.json({ success: true, order });
-  } catch (err) {
-    console.error('Error fetching order:', err);
-    res.status(500).json({ success: false, message: 'Failed to fetch order' });
-  }
-};
-
-module.exports = { getOrders, getOrder };

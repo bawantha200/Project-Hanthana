@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
 const fadeInUp = {
