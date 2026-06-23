@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   TrendingUp,
   Package,
-  Calendar,
-  AlertCircle,
   CheckCircle,
-  ChevronRight,
   Zap,
   Clock,
-  BarChart3,
-  Sparkles,
+  X,
 } from 'lucide-react';
 import {
   BarChart,
@@ -23,38 +19,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from 'recharts';
-
-// --------------------------------------------
-// MOCK DATA (replace with real API calls)
-// --------------------------------------------
-
-// Products and their stock/forecast for "Tonight's Action Plan"
-const products = [
-  { id: 1, name: 'Sealed 5L Bottle', stock: 120, forecast: 162 },
-  { id: 2, name: 'Sealed 1L Bottle', stock: 300, forecast: 280 },
-  { id: 3, name: 'Sealed 500ml Bottle', stock: 80, forecast: 95 },
-  { id: 4, name: 'Refill 19L', stock: 45, forecast: 60 },
-];
-
-// Weekly production schedule (Night → Day → Units)
-const weeklySchedule = [
-  { night: 'Sunday', day: 'Monday', units: 48 },
-  { night: 'Monday', day: 'Tuesday', units: 42 },
-  { night: 'Tuesday', day: 'Wednesday', units: 65 },
-  { night: 'Wednesday', day: 'Thursday', units: 35 },
-  { night: 'Thursday', day: 'Friday', units: 72 },
-  { night: 'Friday', day: 'Saturday', units: 50 },
-  { night: 'Saturday', day: 'Sunday', units: 25 },
-];
-
-// Compute metrics
-const totalStock = products.reduce((sum, p) => sum + p.stock, 0);
-const capacity = 1000;
-const storageEfficiency = Math.max(0, Math.min(100, ((capacity - totalStock) / capacity) * 100));
-
-// --------------------------------------------
-// Dashboard Component
-// --------------------------------------------
+import api from '../services/api';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -69,44 +34,226 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// Custom tooltip for the chart
-const CustomTooltip = ({ active, payload, label }) => {
+const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
       <div className="bg-white p-3 rounded-xl shadow-lg border border-gray-100 text-sm">
-        <p className="font-medium text-gray-900">{data.night} Night</p>
-        <p className="text-gray-500 text-xs">→ {data.day}'s Orders</p>
+        <p className="font-medium text-gray-900">{data.day}'s Orders</p>
         <p className="mt-1 text-indigo-600 font-bold">{data.units} units</p>
         {data.units > 60 && (
           <span className="inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
-            Peak Night
+            Peak Day
           </span>
         )}
+        <p className="mt-1 text-xs text-gray-400">Click bar to see product breakdown</p>
       </div>
     );
   }
   return null;
 };
 
-export default function JITDashboard() {
+export default function JITDashboard({ products = [] }) {
   const [currentDay, setCurrentDay] = useState('');
+  const [weeklySchedule, setWeeklySchedule] = useState([]);
+  const [productDeficits, setProductDeficits] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  // For drill-down
+  const [selectedDay, setSelectedDay] = useState(null);
+  const [selectedDayProducts, setSelectedDayProducts] = useState([]);
+  const [showDailyModal, setShowDailyModal] = useState(false);
+  const [showWeeklyModal, setShowWeeklyModal] = useState(false);
+  const [productDailyData, setProductDailyData] = useState({});
+
+  const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
+  const capacity = 1000;
+  const storageEfficiency = Math.max(0, Math.min(100, ((capacity - totalStock) / capacity) * 100));
 
   useEffect(() => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = new Date().getDay();
     setCurrentDay(days[today]);
-  }, []);
 
-  const tonightSchedule = weeklySchedule.find((s) => s.night === currentDay);
-  const tonightUnits = tonightSchedule ? tonightSchedule.units : 0;
+    const loadForecasts = async () => {
+      try {
+        setLoading(true);
+        if (!products.length) {
+          setWeeklySchedule([]);
+          setProductDeficits([]);
+          setProductDailyData({});
+          setError(null);
+          return;
+        }
 
-  // Prepare data for the column chart – add a "peak" flag for coloring
-  const chartData = weeklySchedule.map((item) => ({
+        const forecastPromises = products.map(p =>
+          api.get(`/forecast/next-week/${p.id}`)
+            .then(res => res.data.forecast)
+            .catch(err => {
+              console.error(`❌ Failed to fetch forecast for product ${p.id}:`, err);
+              return null;
+            })
+        );
+
+        const results = await Promise.all(forecastPromises);
+
+        // Build per‑product daily data
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const perProductData = {};
+        const dailyTotals = {};
+
+        results.forEach((forecast, idx) => {
+          if (!forecast) return;
+          const product = products[idx];
+          forecast.forEach(day => {
+            const dayName = day.day;
+            if (!perProductData[dayName]) perProductData[dayName] = [];
+            perProductData[dayName].push({
+              productName: product.name,
+              forecast: day.overall || 0,
+              productId: product.id,
+            });
+            dailyTotals[dayName] = (dailyTotals[dayName] || 0) + (day.overall || 0);
+          });
+        });
+
+        setProductDailyData(perProductData);
+
+        // Build weekly schedule
+        const schedule = dayNames.map(day => ({
+          day,
+          units: dailyTotals[day] || 0,
+        }));
+        setWeeklySchedule(schedule);
+
+        // Compute per‑product deficit (tomorrow's forecast - stock)
+        const productWithForecast = products.map((p, idx) => {
+          const forecast = results[idx];
+          let tomorrowForecast = 0;
+          if (forecast && forecast.length > 0) {
+            tomorrowForecast = forecast[0].overall || 0;
+          }
+          if (tomorrowForecast === 0 && forecast && forecast.length > 0) {
+            const total = forecast.reduce((sum, d) => sum + (d.overall || 0), 0);
+            tomorrowForecast = Math.round(total / forecast.length);
+          }
+          return { ...p, forecast: tomorrowForecast };
+        });
+
+        const deficits = productWithForecast.map(p => ({
+          ...p,
+          deficit: (p.forecast || 0) - (p.stock || 0),
+        }));
+        setProductDeficits(deficits);
+
+        setError(null);
+      } catch (err) {
+        setError(err.message || 'Failed to load forecast data');
+        console.error('Error loading forecasts:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadForecasts();
+  }, [products]);
+
+  // --- Rotate schedule so today is first (for chart) ---
+  const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const currentIdx = weeklySchedule.findIndex(item => item.day === currentDay);
+  let rotatedSchedule = [...weeklySchedule];
+  if (currentIdx > 0) {
+    rotatedSchedule = [
+      ...weeklySchedule.slice(currentIdx),
+      ...weeklySchedule.slice(0, currentIdx)
+    ];
+  } else if (currentIdx === -1 && weeklySchedule.length > 0) {
+    rotatedSchedule = [...weeklySchedule];
+  }
+
+  const chartData = rotatedSchedule.map(item => ({
     ...item,
     isPeak: item.units > 60,
-    label: `${item.night.slice(0, 3)} → ${item.day.slice(0, 3)}`, // e.g., "Sun → Mon"
+    label: item.day.slice(0, 3),
   }));
+
+  const allZero = chartData.length > 0 && chartData.every(item => item.units === 0);
+
+  // --- Scheduled Production = tomorrow's forecast ---
+  const todayIndex = dayOrder.indexOf(currentDay);
+  const tomorrowDayName = dayOrder[(todayIndex + 1) % 7];
+  const tomorrowSchedule = weeklySchedule.find(s => s.day === tomorrowDayName);
+  const tomorrowUnits = tomorrowSchedule ? tomorrowSchedule.units : 0;
+
+  // Compute weekly product totals (for quick summary)
+  const weeklyProductTotals = Object.keys(productDailyData).reduce((acc, day) => {
+    productDailyData[day].forEach(p => {
+      if (!acc[p.productId]) {
+        acc[p.productId] = { name: p.productName, total: 0 };
+      }
+      acc[p.productId].total += p.forecast;
+    });
+    return acc;
+  }, {});
+
+  const weeklyTotalsArray = Object.values(weeklyProductTotals).sort((a, b) => b.total - a.total);
+
+  // Build product-day matrix for detailed weekly view
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const productDayMatrix = {};
+  const productNames = {};
+
+  Object.keys(productDailyData).forEach(day => {
+    productDailyData[day].forEach(item => {
+      const pid = item.productId;
+      if (!productDayMatrix[pid]) {
+        productDayMatrix[pid] = {};
+        productNames[pid] = item.productName;
+      }
+      productDayMatrix[pid][day] = item.forecast;
+    });
+  });
+
+  // For each product, compute total across all days
+  const productDayTotals = Object.keys(productDayMatrix).map(pid => {
+    const days = productDayMatrix[pid];
+    const total = Object.values(days).reduce((sum, v) => sum + v, 0);
+    return { productId: pid, productName: productNames[pid], days, total };
+  });
+
+  // Sort by total descending
+  productDayTotals.sort((a, b) => b.total - a.total);
+
+  // Rotate day names for the weekly modal (starting from today)
+  const rotatedDayNames = [];
+  for (let i = 0; i < 7; i++) {
+    rotatedDayNames.push(dayOrder[(todayIndex + i) % 7]);
+  }
+
+  // Handle bar click for daily breakdown
+  const handleBarClick = (data) => {
+    if (data && data.activePayload && data.activePayload.length) {
+      const day = data.activePayload[0].payload.day;
+      const productsForDay = productDailyData[day] || [];
+      setSelectedDay(day);
+      setSelectedDayProducts(productsForDay);
+      setShowDailyModal(true);
+    }
+  };
+
+  // Open weekly modal
+  const openWeeklyModal = () => {
+    setShowWeeklyModal(true);
+  };
+
+  if (loading) {
+    return <div className="text-center py-8 text-gray-500">Loading production dashboard...</div>;
+  }
+
+  if (error) {
+    return <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">Error: {error}</div>;
+  }
 
   return (
     <motion.div
@@ -115,26 +262,25 @@ export default function JITDashboard() {
       animate="visible"
       className="space-y-6"
     >
-      {/* ===== HEADER ===== */}
+      {/* Header */}
       <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">JIT Production & Demand Forecasting</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Data-driven night scheduling based on historic 30-day day-of-week trends.
+            Data-driven scheduling based on historic 30‑day day‑of‑week trends.
           </p>
         </div>
         <div className="mt-2 sm:mt-0 flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-xl border border-gray-100 shadow-sm">
           <Clock size={16} className="text-blue-500" />
-          <span>Tonight: <strong className="text-gray-900">{currentDay}</strong></span>
+          <span>Today: <strong className="text-gray-900">{currentDay}</strong></span>
         </div>
       </motion.div>
 
-      {/* ===== TOP METRICS ROW ===== */}
+      {/* Metrics Cards */}
       <motion.div
         variants={itemVariants}
         className="grid grid-cols-1 sm:grid-cols-3 gap-5"
       >
-        {/* Card 1: Storage Efficiency */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
@@ -158,25 +304,30 @@ export default function JITDashboard() {
           </p>
         </div>
 
-        {/* Card 2: Tonight's Setup */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
+        {/* Scheduled Production Card – clickable -> shows tomorrow's production */}
+        <div
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+          onClick={openWeeklyModal}
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
               <Package size={18} className="text-amber-600" />
             </div>
             <div>
-              <p className="text-xs text-gray-400 font-medium">Tonight's Setup</p>
-              <p className="text-xl font-bold text-gray-900">{tonightUnits} units</p>
+              <p className="text-xs text-gray-400 font-medium">Scheduled Production</p>
+              <p className="text-xl font-bold text-gray-900">{tomorrowUnits} units</p>
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
-            <span>Batches: {Math.ceil(tonightUnits / 12)}</span>
+            <span>Batches: {Math.ceil(tomorrowUnits / 12)}</span>
             <span className="w-1 h-1 rounded-full bg-gray-300" />
-            <span>Forecasted demand for tomorrow</span>
+            <span>Production target for tonight</span>
+          </div>
+          <div className="mt-2 text-xs text-indigo-600 flex items-center gap-1">
+            <span>Click for weekly breakdown</span>
           </div>
         </div>
 
-        {/* Card 3: Predicted Waste Risk */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -188,22 +339,22 @@ export default function JITDashboard() {
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-            <CheckCircle size={12} className="text-emerald-500" /> JIT scheduling eliminates overproduction
+            <CheckCircle size={12} className="text-emerald-500" /> JIT eliminates overproduction
           </p>
         </div>
       </motion.div>
 
-      {/* ===== TONIGHT'S PRODUCTION ACTION PLAN ===== */}
+      {/* Action Plan */}
       <motion.div variants={itemVariants}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-gray-900">Tonight's Production Action Plan</h2>
+          <h2 className="text-base font-semibold text-gray-900">Today's Production Action Plan</h2>
           <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100">
-            {products.filter((p) => p.forecast > p.stock).length} products need action
+            {productDeficits.filter(p => p.deficit > 0).length} products need action
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {products.map((product) => {
-            const deficit = product.forecast - product.stock;
+          {productDeficits.slice(0, 4).map((product) => {
+            const deficit = product.deficit;
             const isLow = deficit > 0;
             return (
               <motion.div
@@ -227,11 +378,11 @@ export default function JITDashboard() {
                 <div className="mt-3 space-y-1.5 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-500">Current Stock</span>
-                    <span className="font-medium text-gray-900">{product.stock}</span>
+                    <span className="font-medium text-gray-900">{product.stock || 0}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500">Tomorrow's Forecast</span>
-                    <span className="font-medium text-blue-600">{product.forecast}</span>
+                    <span className="font-medium text-blue-600">{product.forecast || 0}</span>
                   </div>
                 </div>
                 <div className="mt-4 pt-3 border-t border-gray-100">
@@ -243,7 +394,7 @@ export default function JITDashboard() {
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-medium border border-amber-200/50"
                     >
                       <Package size={14} />
-                      Produce {deficit} Units Tonight
+                      Produce {deficit} Units Today
                     </motion.div>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-emerald-600 text-xs font-medium">
@@ -258,12 +409,12 @@ export default function JITDashboard() {
         </div>
       </motion.div>
 
-      {/* ===== WEEKLY JIT PRODUCTION SCHEDULER (COLUMN CHART) ===== */}
+      {/* Chart */}
       <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">Weekly JIT Production Scheduler</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Nightly production targets based on next-day demand</p>
+            <h2 className="text-base font-semibold text-gray-900">Weekly Production Scheduler</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Click any bar to see product breakdown</p>
           </div>
           <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1.5">
@@ -277,68 +428,198 @@ export default function JITDashboard() {
           </div>
         </div>
 
-        <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 12, fill: '#94a3b8' }}
-              axisLine={false}
-              tickLine={false}
-              interval={0}
-            />
-            <YAxis
-              tick={{ fontSize: 12, fill: '#94a3b8' }}
-              axisLine={false}
-              tickLine={false}
-              domain={[0, 'dataMax + 10']}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend
-              iconType="circle"
-              iconSize={8}
-              wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
-            />
-            <Bar dataKey="units" name="Units to Produce" radius={[4, 4, 0, 0]}>
-              {chartData.map((entry, index) => (
-                <Cell
-                  key={`cell-${index}`}
-                  fill={entry.isPeak ? '#f97316' : '#6366f1'}
-                  fillOpacity={entry.night === currentDay ? 1 : 0.85}
-                  stroke={entry.night === currentDay ? '#2563eb' : 'transparent'}
-                  strokeWidth={entry.night === currentDay ? 2 : 0}
+        {chartData.length > 0 ? (
+          allZero ? (
+            <div className="text-center py-8 text-gray-400">
+              No sales data available for forecasting. Start making sales to see predictions.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={0}
                 />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+                <YAxis
+                  tick={{ fontSize: 12, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  domain={[0, 'dataMax + 10']}
+                />
+                <Tooltip content={<CustomTooltip />} />
+                <Legend
+                  iconType="circle"
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: '12px', paddingTop: '8px' }}
+                />
+                <Bar
+                  dataKey="units"
+                  name="Units to Produce"
+                  radius={[4, 4, 0, 0]}
+                  onClick={handleBarClick}
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={entry.isPeak ? '#f97316' : '#6366f1'}
+                      fillOpacity={entry.day === currentDay ? 1 : 0.85}
+                      stroke={entry.day === currentDay ? '#2563eb' : 'transparent'}
+                      strokeWidth={entry.day === currentDay ? 2 : 0}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )
+        ) : (
+          <div className="text-center py-8 text-gray-400">No forecast data available</div>
+        )}
 
-        {/* Optional: small note about tonight's bar */}
         <div className="mt-3 text-xs text-gray-400 flex items-center justify-center gap-2">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-500" />
-          <span>Highlighted bar = Tonight's production</span>
+          <span>Highlighted bar = Today's scheduled production</span>
         </div>
       </motion.div>
 
-      {/* ===== QUICK INSIGHTS / AI RECOMMENDATION ===== */}
-      <motion.div
-        variants={itemVariants}
-        className="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl border border-indigo-100/50 p-5 flex items-start gap-4"
-      >
-        <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
-          <Sparkles size={18} className="text-indigo-700" />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold text-gray-800">AI Recommendation</h3>
-          <p className="text-sm text-gray-600 mt-0.5">
-            <strong>Thursday night</strong> requires the highest production capacity to fulfill Friday's peak demand. Ensure raw materials / empty bottles are staged by Thursday afternoon.
-          </p>
-          <div className="mt-2 flex items-center gap-2 text-xs text-indigo-700">
-            <BarChart3 size={14} />
-            <span>Forecast accuracy: 94% based on 30-day trend</span>
-          </div>
-        </div>
-      </motion.div>
+      {/* Daily Breakdown Modal */}
+      <AnimatePresence>
+        {showDailyModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setShowDailyModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">{selectedDay}'s Production Breakdown</h3>
+                <button
+                  onClick={() => setShowDailyModal(false)}
+                  className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+              {selectedDayProducts.length > 0 ? (
+                <div className="space-y-3">
+                  {selectedDayProducts.map((item, idx) => (
+                    <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <span className="font-medium text-gray-800">{item.productName}</span>
+                      <span className="text-sm font-semibold text-indigo-600">{item.forecast} units</span>
+                    </div>
+                  ))}
+                  <div className="mt-4 pt-3 border-t border-gray-200 flex justify-between font-bold">
+                    <span>Total</span>
+                    <span className="text-indigo-700">
+                      {selectedDayProducts.reduce((sum, p) => sum + p.forecast, 0)} units
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">No products needed on this day.</p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Weekly Summary Modal with day-by-day breakdown (rotated from today) */}
+      <AnimatePresence>
+        {showWeeklyModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setShowWeeklyModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.9, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[80vh] overflow-y-auto p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Weekly Production Plan (Starting {currentDay})</h3>
+                <button
+                  onClick={() => setShowWeeklyModal(false)}
+                  className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <X size={20} className="text-gray-500" />
+                </button>
+              </div>
+
+              {productDayTotals.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left py-2 px-3 font-semibold text-gray-600 sticky left-0 bg-gray-50">Product</th>
+                        {rotatedDayNames.map(day => (
+                          <th
+                            key={day}
+                            className={`text-center py-2 px-3 font-semibold ${
+                              day === currentDay ? 'text-blue-600 bg-blue-50' : 'text-gray-600'
+                            }`}
+                          >
+                            {day.slice(0, 3)}
+                          </th>
+                        ))}
+                        <th className="text-center py-2 px-3 font-semibold text-indigo-700 bg-indigo-50">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productDayTotals.map((row) => (
+                        <tr key={row.productId} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
+                          <td className="py-2 px-3 font-medium text-gray-800 sticky left-0 bg-white">{row.productName}</td>
+                          {rotatedDayNames.map(day => (
+                            <td key={day} className="text-center py-2 px-3 text-gray-700">
+                              {row.days[day] || 0}
+                            </td>
+                          ))}
+                          <td className="text-center py-2 px-3 font-bold text-indigo-700 bg-indigo-50/50">
+                            {row.total}
+                          </td>
+                        </tr>
+                      ))}
+                      {/* Grand total row */}
+                      <tr className="border-t-2 border-gray-200 bg-gray-50/80">
+                        <td className="py-2 px-3 font-bold text-gray-800 sticky left-0 bg-gray-50">Grand Total</td>
+                        {rotatedDayNames.map(day => {
+                          const total = productDayTotals.reduce((sum, row) => sum + (row.days[day] || 0), 0);
+                          return (
+                            <td key={day} className="text-center py-2 px-3 font-bold text-gray-800">
+                              {total}
+                            </td>
+                          );
+                        })}
+                        <td className="text-center py-2 px-3 font-bold text-indigo-800 bg-indigo-50">
+                          {productDayTotals.reduce((sum, row) => sum + row.total, 0)}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">No products needed this week.</p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

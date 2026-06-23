@@ -13,6 +13,12 @@ const customerRoutes = require('./src/routes/customerRoutes');
 const settingsRoutes = require('./src/routes/settingsRoutes');
 const roleRoutes = require('./src/routes/roleRoutes');
 
+const forecastRoutes = require('./src/routes/forecastRoutes');
+const inventoryRoutes = require('./src/routes/inventoryRoutes');
+const employeeRoutes = require('./src/routes/employeeRoutes');
+const attendanceRoutes = require('./src/routes/attendanceRoutes');
+const salaryRoutes = require('./src/routes/salaryRoutes');
+const contactRoutes = require('./src/routes/contactRoutes');
 
 const app = express();
 
@@ -21,18 +27,30 @@ app.use(cors({
   origin: 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // API route mounting
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/employees', employeeRoutes); 
-app.use('/api/orders', ordersRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/vendors', vendorsRoutes);
-app.use('/api/customers', customerRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/roles', roleRoutes);
+app.use('/api/departments', departmentRoutes);
+app.use('/api/positions', positionRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/products', productsRoutes);
+app.use('/api/vendors', vendorsRoutes); 
+app.use('/api/customers', customerRoutes);  
+app.use('/api/forecast', forecastRoutes); 
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/vendors', vendorsRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/salaries', salaryRoutes);
+
+
+app.use('/api/contact', contactRoutes); 
 
 // Health check
 app.get('/', (req, res) => {
