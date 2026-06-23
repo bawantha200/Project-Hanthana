@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader2 } from 'lucide-react';
 import axios from 'axios';
 
 const fadeInUp = {
@@ -28,8 +27,63 @@ const ContactUs = () => {
   });
 
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false); 
+  const [loading, setLoading] = useState(true);
+  
+  // 🆕 Settings State
+  const [settings, setSettings] = useState({
+    contactPhone: '+94 76 835 686',
+    contactEmail: 'support@hanthana.com',
+    ordersEmail: 'orders@hanthana.com',
+    businessHours: {
+      mondaySaturday: '7:00 AM - 9:00 PM',
+      sunday: '8:00 AM - 6:00 PM',
+      emergency: '24/7 Available'
+    },
+    emergencyPhone: '+94 76 835 6860',
+    address: 'Colombo, Sri Lanka',
+    companyName: 'Hanthana Water'
+  });
+
+  // ===== FETCH SETTINGS =====
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/settings', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            contactPhone: general.contactPhone || '+94 76 835 6860',
+            contactEmail: general.contactEmail || 'support@hanthana.com',
+            ordersEmail: general.ordersEmail || 'orders@hanthana.com',
+            businessHours: general.businessHours || {
+              mondaySaturday: '7:00 AM - 9:00 PM',
+              sunday: '8:00 AM - 6:00 PM',
+              emergency: '24/7 Available'
+            },
+            emergencyPhone: general.emergencyPhone || '+94 76 835 6860',
+            address: general.address || 'Colombo, Sri Lanka',
+            companyName: general.companyName || 'Hanthana Water'
+          });
+        }
+      } catch (error) {
+        console.error('Fetch settings error:', error);
+        // Fallback values already set in state
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  
   const [serverError, setServerError] = useState(''); 
+
 
   const handleChange = (e) => {
     const { name, value } = e.target;
