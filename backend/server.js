@@ -5,12 +5,14 @@ require('dotenv').config();
 // Route imports
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
-const departmentRoutes = require('./src/routes/departmentRoutes');
-const positionRoutes = require('./src/routes/positionRoutes');
+const employeeRoutes = require('./src/routes/employeeRoutes'); 
 const ordersRoutes = require('./src/routes/ordersRoutes');
 const productsRoutes = require('./src/routes/productsRoutes');
 const vendorsRoutes = require('./src/routes/vendorsRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
+const settingsRoutes = require('./src/routes/settingsRoutes');
+const roleRoutes = require('./src/routes/roleRoutes');
+
 const forecastRoutes = require('./src/routes/forecastRoutes');
 const inventoryRoutes = require('./src/routes/inventoryRoutes');
 const employeeRoutes = require('./src/routes/employeeRoutes');
@@ -31,6 +33,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // API route mounting
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/roles', roleRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api/orders', ordersRoutes);
