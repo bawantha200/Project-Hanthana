@@ -27,7 +27,7 @@ const registerUser = async (req, res) => {
     if (!authUser) return res.status(400).json({ success: false, message: 'User provisioning failed.' });
 
     const { data: roleData } = await supabase.from('roles').select('id').eq('role_name', 'CUSTOMER').maybeSingle();
-    const defaultRoleId = roleData ? roleData.id : 3; 
+    const defaultRoleId = roleData ? roleData.id : null; 
 
     console.log("Inserting profile record into PostgreSQL...");
     const { error: profileError } = await supabase
