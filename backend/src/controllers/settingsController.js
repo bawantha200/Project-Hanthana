@@ -309,9 +309,46 @@ const resetSettings = async (req, res) => {
       message: error.message
     });
   }
+
+  
 };
 
+const getPublicSettings = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'general')
+      .maybeSingle();
+
+    if (error) {
+      console.error('Get public settings error:', error);
+      return res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+    }
+
+    const general = data?.value || {};
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        general: {
+          heroImageUrl: general.heroImageUrl || null,
+          companyName: general.companyName || null,
+          contactPhone: general.contactPhone || null,
+          contactEmail: general.contactEmail || null,
+          businessHours: general.businessHours || null,
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get public settings error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
 module.exports = {
+  getPublicSettings,
   getSettings,
   getSettingByKey,
   updateSettings,

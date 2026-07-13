@@ -113,16 +113,17 @@ class UserService {
       console.log(`[UserService] ✅ Auth user created: ${userId}`);
 
       // ✅ Insert into profiles
+      // ✅ Trigger already created the profile row
       const { error: profileError } = await supabase
         .from('profiles')
-        .insert([{
-          id: userId,
+        .update({
           full_name: fullName,
           email,
           phone_number: phone || '',
           address: address || '',
           role_id: role
-        }]);
+        })
+        .eq('id', userId);
 
       if (profileError) {
         console.error('[UserService] ❌ Profile insert error:', profileError);

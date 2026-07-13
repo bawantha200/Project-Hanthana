@@ -50,6 +50,8 @@ const deliveryHighlights = [
   },
 ];
 
+
+
 const refillServices = [
   {
     icon: Droplets,
@@ -82,6 +84,7 @@ const stats = [
 export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [heroImageUrl, setHeroImageUrl] = useState('/images/carousel0.jpeg');
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -100,18 +103,34 @@ export default function Home() {
     fetchProducts();
   }, []);
 
+  useEffect(() => {
+    const fetchHeroImage = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/settings/public');
+        const data = await response.json();
+        if (data.success && data.data?.general?.heroImageUrl) {
+          setHeroImageUrl(data.data.general.heroImageUrl);
+        }
+      } catch (error) {
+        console.error('Failed to load hero image:', error);
+        
+      }
+    };
+    fetchHeroImage();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <img 
-            src="/images/carousel0.jpeg" 
-            alt="Background" 
-            className="w-full h-full object-cover opacity-100"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-        </div>
+      <img 
+        src={heroImageUrl} 
+        alt="Background" 
+        className="w-full h-full object-cover opacity-100"
+      />
+      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+    </div>
         
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-36">
           <motion.div

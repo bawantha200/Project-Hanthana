@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Settings as SettingsIcon, Bell, Shield, Globe, Save, Loader } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../supabaseClient';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -23,10 +25,31 @@ const tabs = [
   { key: 'system', label: 'System', icon: Globe },
 ];
 
+
+
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState('notifications');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+   const [uploading, setUploading] = useState(false);
+  const { user } = useAuth();
+
+  
+  const visibleTabs = tabs.filter(tab => {
+  const role = user?.role?.toUpperCase();
+
+  if (role === 'CEO') {
+    return tab.key === 'general';
+  }
+
+  if (role === 'ADMIN') {
+    return tab.key !== 'general';
+  }
+
+  return false;
+});
+
+  const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
 
   // Settings state
   const [generalSettings, setGeneralSettings] = useState({
@@ -128,7 +151,7 @@ export default function Settings() {
       setSaving(false);
     }
   };
-
+  
   const Toggle = ({ enabled, onToggle }) => (
     <button
       onClick={onToggle}
@@ -151,6 +174,41 @@ export default function Settings() {
       </div>
     );
   }
+
+ 
+
+const handleHeroImageUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  setUploading(true);
+  try {
+    const fileExt = file.name.split('.').pop();
+    const fileName = `hero-bg-${Date.now()}.${fileExt}`;
+    const filePath = `hero/${fileName}`;
+
+    // Upload to bucket
+    const { error: uploadError } = await supabase.storage
+      .from('Home-img')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    // Get public URL
+    const { data } = supabase.storage
+      .from('Home-img')
+      .getPublicUrl(filePath);
+
+    // Save URL into your settings state (and DB if you're persisting settings)
+    setGeneralSettings({ ...generalSettings, heroImageUrl: data.publicUrl });
+
+  } catch (err) {
+    console.error('Upload failed:', err);
+    alert('Image upload වුනේ නැහැ, ආයෙත් try කරන්න');
+  } finally {
+    setUploading(false);
+  }
+};
 
   return (
     <motion.div
@@ -189,9 +247,13 @@ export default function Settings() {
       </motion.div>
 
       {/* Tab Navigation */}
-      <motion.div variants={itemVariants} className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit overflow-x-auto">
-        {tabs.map((tab) => {
+      <motion.div
+        variants={itemVariants}
+        className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit overflow-x-auto"
+      >
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
+
           return (
             <button
               key={tab.key}
@@ -210,7 +272,7 @@ export default function Settings() {
       </motion.div>
 
       {/* ===== GENERAL SETTINGS ===== */}
-      {activeTab === 'general' && (
+      {activeTab === 'general' &&  (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -225,6 +287,29 @@ export default function Settings() {
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+
+            <div className="sm:col-span-2">
+  <label className="block text-xs font-medium text-gray-600 mb-1.5">Hero Background Image</label>
+  <div className="flex items-center gap-4">
+    {generalSettings.heroImageUrl && (
+      <img
+        src={generalSettings.heroImageUrl}
+        alt="Hero preview"
+        className="w-24 h-16 object-cover rounded-lg border border-gray-200"
+      />
+    )}
+    <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
+      {uploading ? 'Uploading...' : 'Change Image'}
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleHeroImageUpload}
+        disabled={uploading}
+        className="hidden"
+      />
+    </label>
+  </div>
+</div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Company Name</label>
               <input
@@ -261,7 +346,7 @@ export default function Settings() {
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               />
             </div>
-            <div>
+            {/* <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Language</label>
               <select
                 value={generalSettings.language}
@@ -272,8 +357,8 @@ export default function Settings() {
                 <option value="si">Sinhala</option>
                 <option value="ta">Tamil</option>
               </select>
-            </div>
-            {/* General Settings Form එකට මේවා එකතු කරන්න */}
+            </div> */}
+            
 
 <div>
   <label className="block text-xs font-medium text-gray-600 mb-1.5">Contact Phone (Hotline)</label>
@@ -369,8 +454,10 @@ export default function Settings() {
         </motion.div>
       )}
 
+      
+      
       {/* ===== NOTIFICATION SETTINGS ===== */}
-      {activeTab === 'notifications' && (
+      {activeTab === 'notifications'&& canManageUsers  && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -432,9 +519,10 @@ export default function Settings() {
           </div>
         </motion.div>
       )}
+    
 
       {/* ===== SECURITY SETTINGS ===== */}
-      {activeTab === 'security' && (
+      {activeTab === 'security'&& canManageUsers && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -531,7 +619,7 @@ export default function Settings() {
       )}
 
       {/* ===== SYSTEM SETTINGS ===== */}
-      {activeTab === 'system' && (
+      {activeTab === 'system'&& canManageUsers && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -627,6 +715,7 @@ export default function Settings() {
           </div>
         </motion.div>
       )}
+    
     </motion.div>
   );
 }
