@@ -2,8 +2,10 @@ const express = require("express");
 const router = express.Router();
 
 const {
-  createUser,
   getUsers,
+  getUserById,
+  createUser,
+  createUserFromEmployee,
   updateUser,
   deleteUser,
   updateUserStatus
@@ -11,23 +13,15 @@ const {
 
 const { protect } = require("../middlewares/authMiddleware");
 
+// ===== All routes require authentication =====
+router.use(protect);
 
-// Get all users
-router.get("/", protect, getUsers);
-
-
-
-
-router.post("/", protect,  createUser);
-
-// router.put("/:id", protect,  updateUser);
-
-router.delete("/:id", protect, deleteUser);
-
-router.patch('/:id/status', updateUserStatus);
-
-router.put('/:id', updateUser);
-
-
+router.get("/", getUsers);
+router.get("/:id", getUserById);
+router.post("/", createUser);
+router.post("/from-employee", createUserFromEmployee);
+router.put("/:id", updateUser);
+router.delete("/:id", deleteUser);
+router.patch("/:id/status", updateUserStatus);
 
 module.exports = router;

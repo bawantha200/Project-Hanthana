@@ -223,7 +223,7 @@ const Orders = () => {
         }}
                   >
                     <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-blue-600">ORD-{order.id}</span>
+                      <span className="text-sm font-semibold text-blue-600">ORD - {order.id}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-gray-900">{formatCurrency(order.amount)}</span>

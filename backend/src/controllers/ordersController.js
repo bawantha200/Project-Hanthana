@@ -1,103 +1,126 @@
-// src/controllers/ordersController.js
+// backend/src/controllers/ordersController.js
 const {
   getAllOrders,
   getAllUsers,
   getAllProducts,
   createOrder,
   getOrdersByUserId,
-  getOrderById
+  getOrderById,
 } = require('../services/ordersService');
 
-/**
- * GET /api/orders
- * Fetch orders – if user is admin, return all; otherwise return user's own orders
- */
+const supabase = require('../config/db');
+
 const getOrders = async (req, res) => {
   try {
     const userId = req.user.id;
-    // If user is admin (you can adjust this condition)
-    const isAdmin = req.user.role === 'admin'; // or however you store admin flag
+    console.log(`🔍 [getOrders] User ID: ${userId}`);
+
+    // Get role
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      console.error(`❌ [getOrders] Profile error:`, profileError.message);
+      const orders = await getOrdersByUserId(userId);
+      return res.json({ success: true, orders });
+    }
+
+    const { data: role, error: roleError } = await supabase
+      .from('roles')
+      .select('role_name')
+      .eq('id', profile.role_id)
+      .single();
+
+    if (roleError) {
+      console.error(`❌ [getOrders] Role error:`, roleError.message);
+      const orders = await getOrdersByUserId(userId);
+      return res.json({ success: true, orders });
+    }
+
+    const isAdmin = role?.role_name === 'ADMIN';
+    console.log(`👤 [getOrders] Role: ${role.role_name}, isAdmin: ${isAdmin}`);
 
     let orders;
     if (isAdmin) {
-      orders = await getAllOrders();           // all orders for admin
+      orders = await getAllOrders();
     } else {
-      orders = await getOrdersByUserId(userId); // user's own orders
+      orders = await getOrdersByUserId(userId);
     }
 
     res.json({ success: true, orders });
   } catch (err) {
-    console.error('Error fetching orders:', err);
+    console.error(`💥 [getOrders]`, err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-/**
- * GET /api/orders/:id
- * Fetch a single order by ID (with user validation)
- */
 const getOrder = async (req, res) => {
   try {
     const userId = req.user.id;
     let idParam = req.params.id;
-    if (idParam.startsWith('ORD-')) {
-      idParam = idParam.replace('ORD-', '');
-    }
+    if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
     const orderId = parseInt(idParam, 10);
     if (isNaN(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
-    const order = await getOrderById(orderId, userId);
+
+    // Check admin status for bypass
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role_id')
+      .eq('id', userId)
+      .single();
+
+    let isAdmin = false;
+    if (profile) {
+      const { data: role } = await supabase
+        .from('roles')
+        .select('role_name')
+        .eq('id', profile.role_id)
+        .single();
+      isAdmin = role?.role_name === 'ADMIN';
+    }
+
+    const order = await getOrderById(orderId, userId, isAdmin);
     res.json({ success: true, order });
   } catch (err) {
-    console.error('Error fetching order:', err);
+    console.error(`💥 [getOrder]`, err);
     res.status(500).json({ success: false, message: 'Failed to fetch order' });
   }
 };
 
-/**
- * GET /api/users
- * Fetch all users (for dropdown – admin only)
- */
 const getUsers = async (req, res) => {
   try {
     const users = await getAllUsers();
     res.json({ success: true, users });
   } catch (err) {
-    console.error('Error fetching users:', err);
+    console.error(`💥 [getUsers]`, err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-/**
- * GET /api/products
- * Fetch all products (for dropdown)
- */
 const getProducts = async (req, res) => {
   try {
     const products = await getAllProducts();
     res.json({ success: true, products });
   } catch (err) {
-    console.error('Error fetching products:', err);
+    console.error(`💥 [getProducts]`, err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-/**
- * POST /api/orders
- * Create a new order
- */
 const postOrder = async (req, res) => {
   try {
     const { customerId, orderType, paymentMethod, deliveryLocation, items } = req.body;
-
     if (!customerId || !items || items.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Customer ID and at least one item are required.',
       });
     }
-
     const newOrder = await createOrder({
       customerId,
       orderType,
@@ -105,15 +128,13 @@ const postOrder = async (req, res) => {
       deliveryLocation,
       items,
     });
-
     res.status(201).json({ success: true, order: newOrder });
   } catch (err) {
-    console.error('Error creating order:', err);
+    console.error(`💥 [postOrder]`, err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ✅ Single export – include ALL functions
 module.exports = {
   getOrders,
   getOrder,
