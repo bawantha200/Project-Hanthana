@@ -50,6 +50,8 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
+  { id: 'manage-permission', label: 'Manage Permission', icon: Settings, path: '/admin/manage-permission' },
+
 ];
 
 // Helper: get initials
@@ -690,7 +692,7 @@ export default function AdminLayout() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false); // single modal for all account actions
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false); 
 
   // Permissions & roles
   const [permissions, setPermissions] = useState([]);

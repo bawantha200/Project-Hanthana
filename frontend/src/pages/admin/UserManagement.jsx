@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Search, Plus, Shield, UserPlus, Filter, ToggleLeft, ToggleRight,
@@ -31,6 +32,9 @@ const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE'];
 
 export default function UserManagement() {
   const { isAdmin } = useAuth();
+  const { user } = useAuth();
+  
+  
 
   // ===== STATE =====
   const [users, setUsers] = useState([]);               // from profiles
@@ -77,6 +81,16 @@ export default function UserManagement() {
     marriageStatus: "",
     profileImage: null,
   });
+
+
+  const employeeRecordsRef = useRef(null);
+
+  const hasAccess = ['ADMIN', 'CEO'].includes(
+  user?.role?.toUpperCase()
+  );
+
+  const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
+
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -386,7 +400,7 @@ export default function UserManagement() {
 
   const showEmployeeFields = formData.roleId && formData.roleId !== '1';
 
-  if (!isAdmin) {
+  if (!hasAccess) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
@@ -417,15 +431,17 @@ export default function UserManagement() {
             Manage user accounts and employee records
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => openModal()}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <UserPlus size={16} />
-          Create User
-        </motion.button>
+        {user?.role?.toUpperCase() === 'ADMIN' && (
+  <motion.button
+    whileHover={{ scale: 1.04 }}
+    whileTap={{ scale: 0.97 }}
+    onClick={() => openModal()}
+    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+  >
+    <UserPlus size={16} />
+    Create User
+  </motion.button>
+)}
       </motion.div>
 
       {/* ===== SUMMARY CARDS ===== */}
@@ -454,12 +470,30 @@ export default function UserManagement() {
             <div><p className="text-xs text-gray-400 font-medium">Employees</p><p className="text-lg font-bold text-gray-900">{userCounts.employees}</p></div>
           </div>
         </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center"><Clock size={16} className="text-yellow-600" /></div>
-            <div><p className="text-xs text-gray-400 font-medium">Pending</p><p className="text-lg font-bold text-yellow-600">{employeeCounts.pending}</p></div>
-          </div>
-        </div>
+        <div
+  onClick={() => {
+    setStatusFilter('PENDING');
+
+    employeeRecordsRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    });
+  }}
+  className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+>
+  <div className="flex items-center gap-3">
+    <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center">
+      <Clock size={16} className="text-yellow-600" />
+    </div>
+
+    <div>
+      <p className="text-xs text-gray-400 font-medium">Pending</p>
+      <p className="text-lg font-bold text-yellow-600">
+        {employeeCounts.pending}
+      </p>
+    </div>
+  </div>
+</div>
       </motion.div>
 
       {/* ============================================================ */}
@@ -518,7 +552,11 @@ export default function UserManagement() {
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
-                    <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    {canManageUsers && (
+                        <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Actions
+                        </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -543,18 +581,29 @@ export default function UserManagement() {
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); openModal(user, e); }}
-                            className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          >
-                            <Edit size={16} />
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setDeleteConfirm(user); }}
-                            className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {canManageUsers && (
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openModal(user, e);
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              >
+                                <Edit size={16} />
+                              </button>
+
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirm(user);
+                                }}
+                                className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -568,7 +617,12 @@ export default function UserManagement() {
 
       {/* ============================================================ */}
       {/* ===== TABLE 2: EMPLOYEES (with filters) ===== */}
-      <motion.div variants={itemVariants} className="space-y-4 mt-8">
+      
+      <motion.div
+          ref={employeeRecordsRef}
+          variants={itemVariants}
+          className="space-y-4 mt-8"
+        >
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900">Employee Records</h2>
           <span className="text-xs text-gray-400">{filteredEmployees.length} employees</span>
@@ -627,7 +681,9 @@ export default function UserManagement() {
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    {canManageUsers && (
                     <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -647,6 +703,7 @@ export default function UserManagement() {
                         <td className="py-3 px-4">
                           <StatusBadge status={emp.status} />
                         </td>
+                        {canManageUsers && (
                         <td className="py-3 px-4 text-right">
                           {isPending ? (
                             <button
@@ -662,6 +719,7 @@ export default function UserManagement() {
                             <span className="text-xs text-gray-400 italic">Active</span>
                           )}
                         </td>
+                        )}
                       </tr>
                     );
                   })}

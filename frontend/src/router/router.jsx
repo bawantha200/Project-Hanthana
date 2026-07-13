@@ -20,6 +20,7 @@ import Customers from '../pages/admin/Customers';
 import Finance from '../pages/admin/Finance';
 import Products from '../pages/admin/Products';
 import Messages from '../pages/admin/Messages';
+import ManagePermissions from '../pages/admin/ManagePermissions';
 
 
 // Auth pages
@@ -95,6 +96,11 @@ function AdminRoutes() {
 
         <Route path="messages" element={
             <Messages />
+        } />
+
+
+        <Route path="manage-permission" element={
+            <ManagePermissions />
         } />
 
 

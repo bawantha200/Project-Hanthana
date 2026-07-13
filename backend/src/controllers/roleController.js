@@ -32,4 +32,33 @@ const getRoles = async (req, res) => {
   }
 };
 
-module.exports = { getRoles };
+
+const createRole = async (req, res) => {
+  try {
+    const { role_name } = req.body;
+    
+    if (!role_name) {
+      return res.status(400).json({ success: false, message: 'Role name is required' });
+    }
+
+    const { data, error } = await supabase
+      .from('roles')
+      .insert({ role_name })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('[Roles] ❌ Create error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+module.exports = {
+  getRoles,
+  createRole,
+};
+
+// module.exports = { getRoles };

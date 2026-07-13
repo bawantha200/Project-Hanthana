@@ -1,4 +1,4 @@
-const { supabase } = require("../config/db");
+const  supabase  = require("../config/db");
 
 const getPositions = async (req, res) => {
   try {
