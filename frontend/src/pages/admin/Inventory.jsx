@@ -7,15 +7,39 @@ import {
   Plus,
   UserPlus,
   Search,
-  Filter,
-  Factory, // new icon for production
+  Factory,
 } from 'lucide-react';
 import InventoryTable from '../../components/InventoryTable';
 import VendorTable from '../../components/VendorTable';
-import { inventoryData, emptyBottleData, vendorData } from '../../data/mockData';
-import { waterUsagePrediction } from '../../data/mockData';
-import JITDashboard from '../../components/JITDashboard'; // <-- import the new dashboard
+import JITDashboard from '../../components/JITDashboard';
+import api from '../../services/api';
 
+// --------------------------------------------
+// API helper functions (using the axios instance)
+// --------------------------------------------
+async function fetchProductsWithStock() {
+  const res = await api.get('/inventory/products-with-stock');
+  return res.data.products;
+}
+
+async function fetchVendors() {
+  const res = await api.get('/inventory/vendors');
+  return res.data.vendors;
+}
+
+async function fetchEmptyBottles() {
+  const res = await api.get('/inventory/empty-bottles');
+  return res.data.emptyBottles;
+}
+
+async function fetchMonthlySales() {
+  const res = await api.get('/inventory/monthly-sales');
+  return res.data.monthlySales;
+}
+
+// --------------------------------------------
+// Animation variants
+// --------------------------------------------
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -30,35 +54,89 @@ const itemVariants = {
 };
 
 const tabs = [
+  { key: 'production', label: 'Production', icon: Factory },
   { key: 'stock', label: 'Stock Levels', icon: Package },
   { key: 'empty', label: 'Empty Bottles', icon: AlertTriangle },
   { key: 'vendors', label: 'Vendors', icon: Truck },
-  { key: 'production', label: 'Production', icon: Factory }, // new tab
 ];
 
 export default function Inventory() {
-  const [activeTab, setActiveTab] = useState('production'); // default to production
+  // Tab state
+  const [activeTab, setActiveTab] = useState('production');
+
+  // Data states
+  const [inventoryData, setInventoryData] = useState([]);
+  const [vendorData, setVendorData] = useState([]);
+  const [emptyBottleData, setEmptyBottleData] = useState([]);
+  const [waterUsagePrediction, setWaterUsagePrediction] = useState([]);
+
+  // UI states
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchVendor, setSearchVendor] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const totalStock = inventoryData.reduce((sum, item) => sum + item.stock, 0);
-  const totalPredicted = inventoryData.reduce((sum, item) => sum + item.predicted, 0);
-  const lowStockItems = inventoryData.filter((item) => item.status === 'low').length;
   const [fromDate, setFromDate] = useState('');
 
+  // Computed metrics
+  const totalStock = inventoryData.reduce((sum, item) => sum + (item.stock || 0), 0);
+  const totalPredicted = inventoryData.reduce((sum, item) => sum + (item.predicted || 0), 0);
+  const lowStockItems = inventoryData.filter((item) => item.status === 'low').length;
+  const lowStockAlerts = inventoryData.filter((item) => item.status === 'low');
+
+  // Filter vendors
+  const filteredVendors = vendorData.filter(
+    (v) =>
+      v.vendor_name?.toLowerCase().includes(searchVendor.toLowerCase()) ||
+      v.contact_number?.toLowerCase().includes(searchVendor.toLowerCase()) ||
+      v.supply_type?.toLowerCase().includes(searchVendor.toLowerCase())
+  );
+
+  // Load data on mount
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        const [products, vendors, emptyBottles, monthlySales] = await Promise.all([
+          fetchProductsWithStock(),
+          fetchVendors(),
+          fetchEmptyBottles(),
+          fetchMonthlySales(),
+        ]);
+
+        setInventoryData(products);
+        setVendorData(vendors);
+        setEmptyBottleData(emptyBottles);
+        setWaterUsagePrediction(monthlySales);
+        setError(null);
+      } catch (err) {
+        setError(err.message);
+        console.error('Failed to load data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
     const today = new Date().toISOString().split('T')[0];
     setFromDate(today);
   }, []);
 
-  const filteredVendors = vendorData.filter(
-    (v) =>
-      v.name.toLowerCase().includes(searchVendor.toLowerCase()) ||
-      v.contact.toLowerCase().includes(searchVendor.toLowerCase()) ||
-      v.supplyType.toLowerCase().includes(searchVendor.toLowerCase())
-  );
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-gray-500">Loading inventory data...</div>
+      </div>
+    );
+  }
 
-  const refillData = inventoryData.filter((item) => item.type === 'refill');
-  const lowStockAlerts = inventoryData.filter((item) => item.status === 'low');
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">
+        Error loading data: {error}
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -99,13 +177,13 @@ export default function Inventory() {
         })}
       </motion.div>
 
-      {/* ===== RENDER PRODUCTION DASHBOARD ===== */}
-      {activeTab === 'production' && <JITDashboard />}
+      {/* Production Dashboard */}
+      {activeTab === 'production' && <JITDashboard products={inventoryData} />}
 
-      {/* ===== EXISTING TABS (unchanged) ===== */}
+      {/* Other tabs */}
       {activeTab !== 'production' && (
         <>
-          {/* Summary Cards - only for stock/empty/vendors */}
+          {/* Summary Cards */}
           <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-3 gap-5">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
               <div className="flex items-center gap-3">
@@ -189,11 +267,11 @@ export default function Inventory() {
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Volume</label>
                         <select className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white">
-                          <option value="EMPLOYEE">500ml</option>
-                          <option value="MANAGER">1L</option>
-                          <option value="MANAGER">1.5L</option>
-                          <option value="ADMIN">5L</option>
-                          <option value="CUSTOMER">19L</option>
+                          <option>500ml</option>
+                          <option>1L</option>
+                          <option>1.5L</option>
+                          <option>5L</option>
+                          <option>19L</option>
                         </select>
                       </div>
                       <div>
@@ -245,6 +323,7 @@ export default function Inventory() {
                 <InventoryTable data={inventoryData} showPredicted={true} />
               </motion.div>
 
+              {/* Usage Prediction Analytics */}
               <motion.div
                 variants={itemVariants}
                 className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -258,54 +337,58 @@ export default function Inventory() {
                     <AlertTriangle size={18} className="text-blue-600" />
                   </div>
                 </div>
-                <div className="space-y-3">
-                  {waterUsagePrediction.map((row) => {
-                    const maxVal = Math.max(
-                      ...waterUsagePrediction.map((r) => Math.max(r.actual, r.predicted))
-                    );
-                    const actualPct = row.actual > 0 ? (row.actual / maxVal) * 100 : 0;
-                    const predictedPct = (row.predicted / maxVal) * 100;
-                    return (
-                      <div key={row.month} className="space-y-1.5">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium text-gray-700 w-10">{row.month}</span>
-                          <div className="flex items-center gap-4 text-xs">
-                            <span className="text-gray-500">
-                              Actual:{' '}
-                              <span className="font-semibold text-gray-700">
-                                {row.actual.toLocaleString()}
+                {waterUsagePrediction.length > 0 ? (
+                  <div className="space-y-3">
+                    {waterUsagePrediction.map((row) => {
+                      const maxVal = Math.max(
+                        ...waterUsagePrediction.map((r) => Math.max(r.actual, r.predicted))
+                      );
+                      const actualPct = row.actual > 0 ? (row.actual / maxVal) * 100 : 0;
+                      const predictedPct = (row.predicted / maxVal) * 100;
+                      return (
+                        <div key={row.month} className="space-y-1.5">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium text-gray-700 w-16">{row.month}</span>
+                            <div className="flex items-center gap-4 text-xs">
+                              <span className="text-gray-500">
+                                Actual:{' '}
+                                <span className="font-semibold text-gray-700">
+                                  {row.actual.toLocaleString()}
+                                </span>
                               </span>
-                            </span>
-                            <span className="text-gray-500">
-                              Predicted:{' '}
-                              <span className="font-semibold text-blue-600">
-                                {row.predicted.toLocaleString()}
+                              <span className="text-gray-500">
+                                Predicted:{' '}
+                                <span className="font-semibold text-blue-600">
+                                  {row.predicted.toLocaleString()}
+                                </span>
                               </span>
-                            </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 h-3">
+                            <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${actualPct}%` }}
+                                transition={{ duration: 0.6, delay: 0.1 }}
+                                className="h-full bg-blue-600 rounded-full"
+                              />
+                            </div>
+                            <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
+                              <motion.div
+                                initial={{ width: 0 }}
+                                animate={{ width: `${predictedPct}%` }}
+                                transition={{ duration: 0.6, delay: 0.2 }}
+                                className="h-full bg-cyan-400 rounded-full"
+                              />
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 h-3">
-                          <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${actualPct}%` }}
-                              transition={{ duration: 0.6, delay: 0.1 }}
-                              className="h-full bg-blue-600 rounded-full"
-                            />
-                          </div>
-                          <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
-                            <motion.div
-                              initial={{ width: 0 }}
-                              animate={{ width: `${predictedPct}%` }}
-                              transition={{ duration: 0.6, delay: 0.2 }}
-                              className="h-full bg-cyan-400 rounded-full"
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">No historical sales data available</p>
+                )}
                 <div className="flex items-center gap-5 mt-4 pt-4 border-t border-gray-100 text-xs">
                   <div className="flex items-center gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-sm bg-blue-600" />
@@ -318,6 +401,7 @@ export default function Inventory() {
                 </div>
               </motion.div>
 
+              {/* Low Stock Alerts */}
               <motion.div
                 variants={itemVariants}
                 className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"

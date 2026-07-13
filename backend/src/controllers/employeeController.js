@@ -1,6 +1,6 @@
-const  supabase  = require('../config/db');
+const supabase = require('../config/db');
 
-// ===== GET all employees with optional filters =====
+// GET all employees with optional filters
 exports.getAllEmployees = async (req, res) => {
   try {
     const { position, status, search } = req.query;
