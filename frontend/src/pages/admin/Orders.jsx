@@ -105,23 +105,31 @@ export default function Orders() {
   const [formLoading, setFormLoading] = useState(false);
 
   // ---------- Data fetching ----------
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [ordersData, usersData, productsData] = await Promise.all([
-        fetchOrders(),
-        fetchUsers(),
-        fetchProducts(),
-      ]);
-      setOrders(ordersData);
-      setUsers(usersData);
-      setProducts(productsData);
-    } catch (err) {
-      console.error('Failed to load data:', err);
-    } finally {
-      setLoading(false);
+const loadData = async () => {
+  try {
+    setLoading(true);
+    const [ordersData, usersData, productsData] = await Promise.all([
+      fetchOrders(),
+      fetchUsers(),
+      fetchProducts(),
+    ]);
+    console.log('📦 Raw ordersData:', ordersData);
+    console.log('📦 Number of orders:', ordersData?.length);
+    if (ordersData && ordersData.length > 0) {
+      console.log('📦 First order keys:', Object.keys(ordersData[0]));
+      console.log('📦 First order sample:', ordersData[0]);
+    } else {
+      console.warn('⚠️ No orders returned or ordersData is null/undefined');
     }
-  };
+    setOrders(ordersData || []);
+    setUsers(usersData || []);
+    setProducts(productsData || []);
+  } catch (err) {
+    console.error('Failed to load data:', err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     loadData();
@@ -367,7 +375,7 @@ export default function Orders() {
                   <option value="">Select customer</option>
                   {users.map((user) => (
                     <option key={user.id} value={user.id}>
-                      {user.full_name} {user.phone ? `(${user.phone})` : ''}
+                      {user.name} {user.phone ? `(${user.phone})` : ''}
                     </option>
                   ))}
                 </select>
@@ -446,7 +454,7 @@ export default function Orders() {
                     >
                       {products.map((p) => (
                         <option key={p.id} value={p.id}>
-                          {p.name} ({formatCurrency(p.price)})
+                          {p.name} ({formatCurrency(p.unit_price)})
                         </option>
                       ))}
                     </select>

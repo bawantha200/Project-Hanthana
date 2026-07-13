@@ -1,87 +1,95 @@
 // backend/src/services/ordersService.js
 const supabase = require('../config/db');
 
-/**
- * Fetch all orders with customer info and items
- */
+// ========== GET ALL ORDERS (Admin) ==========
 const getAllOrders = async () => {
-  // Correct column names: users.name, users.phone
+  console.log('🔍 [getAllOrders] Fetching all orders...');
+
   const { data: orders, error } = await supabase
     .from('orders')
     .select(`
-      *,
+      id,
+      order_type,
+      payment_method,
+      payment_status,
+      order_status,
+      total_amount,
+      delivery_location,
+      created_at,
       users ( id, name, phone )
     `)
     .order('created_at', { ascending: false });
 
-  if (error) throw new Error(`Supabase error: ${error.message}`);
+  if (error) {
+    console.error('❌ [getAllOrders] Supabase error:', error);
+    throw new Error(`Supabase error: ${error.message}`);
+  }
 
-  // Fetch items for each order
+  console.log(`📦 [getAllOrders] Found ${orders.length} orders`);
+
   const ordersWithItems = await Promise.all(
     orders.map(async (order) => {
-      // Correct product column: unit_price
       const { data: items, error: itemsError } = await supabase
         .from('order_items')
         .select(`
-          *,
+          id,
+          quantity,
+          sub_total,
           products ( id, name, unit_price )
         `)
         .eq('order_id', order.id);
 
-      if (itemsError) throw new Error(`Items error: ${itemsError.message}`);
+      if (itemsError) {
+        console.error(`❌ [getAllOrders] Items error for order ${order.id}:`, itemsError);
+        throw new Error(`Items error: ${itemsError.message}`);
+      }
 
       return {
         ...order,
-        customer_name: order.users?.name || null,          // changed from full_name
+        customer_name: order.users?.name || null,
         customer_phone: order.users?.phone || null,
         items: items.map((item) => ({
-          ...item,
+          id: item.id,
+          quantity: item.quantity,
+          sub_total: item.sub_total,
+          product_id: item.products?.id,
           product_name: item.products?.name,
-          product_price: item.products?.unit_price,       // changed from price
+          unit_price: item.products?.unit_price,
         })),
       };
     })
   );
 
+  console.log(`✅ [getAllOrders] Returning ${ordersWithItems.length} orders with items`);
   return ordersWithItems;
 };
 
-/**
- * Fetch all users (for dropdown)
- */
+// ========== GET ALL USERS (for dropdown) ==========
 const getAllUsers = async () => {
-  // Use 'name' instead of 'full_name'
   const { data, error } = await supabase
     .from('users')
     .select('id, name, phone')
-    .order('name');
+    .order('name', { ascending: true });
 
   if (error) throw new Error(`Supabase error: ${error.message}`);
   return data;
 };
 
-/**
- * Fetch all products (for dropdown)
- */
+// ========== GET ALL PRODUCTS (for dropdown) ==========
 const getAllProducts = async () => {
-  // Use 'unit_price' instead of 'price'
   const { data, error } = await supabase
     .from('products')
     .select('id, name, unit_price')
-    .order('name');
+    .order('name', { ascending: true });
 
   if (error) throw new Error(`Supabase error: ${error.message}`);
   return data;
 };
 
-/**
- * Create a new order with items
- * Expects: { customerId, orderType, paymentMethod, deliveryLocation, items: [{ productId, quantity }] }
- */
+// ========== CREATE ORDER ==========
 const createOrder = async (orderData) => {
   const { customerId, orderType, paymentMethod, deliveryLocation, items } = orderData;
 
-  // 1. Calculate total from product prices (use unit_price)
   const { data: products, error: prodError } = await supabase
     .from('products')
     .select('id, unit_price')
@@ -94,7 +102,6 @@ const createOrder = async (orderData) => {
     return sum + (product ? product.unit_price * item.quantity : 0);
   }, 0);
 
-  // 2. Insert order
   const { data: orderInsert, error: orderError } = await supabase
     .from('orders')
     .insert({
@@ -111,7 +118,6 @@ const createOrder = async (orderData) => {
 
   if (orderError) throw new Error(`Order insert error: ${orderError.message}`);
 
-  // 3. Insert order items
   const orderItems = items.map((item) => {
     const product = products.find(p => p.id === item.productId);
     return {
@@ -131,9 +137,93 @@ const createOrder = async (orderData) => {
   return { id: orderInsert.id, total };
 };
 
+// ========== GET ORDERS BY USER ID (Customer) ==========
+const getOrdersByUserId = async (userId) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_status,
+      total_amount,
+      created_at,
+      order_items ( quantity, product_id, products ( name ) )
+    `)
+    .eq('customer_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(`Supabase error: ${error.message}`);
+
+  return data.map(order => ({
+    id: order.id,
+    orderId: order.id,
+    product: order.order_items?.[0]?.products?.name || 'No product',
+    qty: order.order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0,
+    amount: order.total_amount || 0,
+    status: order.order_status === 'PLACED' ? 'Pending' :
+            order.order_status === 'PROCESSING' ? 'Preparing' :
+            order.order_status === 'DELIVERED' ? 'Delivered' :
+            order.order_status === 'CANCELLED' ? 'Cancelled' : order.order_status,
+    date: order.created_at?.slice(0, 10) || '',
+  }));
+};
+
+// ========== GET SINGLE ORDER (with optional admin bypass) ==========
+const getOrderById = async (orderId, userId, isAdmin = false) => {
+  let query = supabase
+    .from('orders')
+    .select(`
+      id,
+      order_type,
+      payment_method,
+      payment_status,
+      order_status,
+      total_amount,
+      delivery_location,
+      created_at,
+      users ( name, email, phone, address ),
+      order_items ( quantity, sub_total, products ( id, name, unit_price, image_url ) )
+    `)
+    .eq('id', orderId);
+
+  if (!isAdmin) {
+    query = query.eq('customer_id', userId);
+  }
+
+  const { data, error } = await query.single();
+  if (error) throw new Error(`Supabase error: ${error.message}`);
+
+  return {
+    id: `ORD-${String(data.id).padStart(4, '0')}`,
+    orderId: data.id,
+    orderType: data.order_type,
+    paymentMethod: data.payment_method,
+    paymentStatus: data.payment_status,
+    status: data.order_status,
+    totalAmount: data.total_amount,
+    deliveryLocation: data.delivery_location,
+    createdAt: data.created_at,
+    customer: data.users ? {
+      name: data.users.name,
+      email: data.users.email,
+      phone: data.users.phone,
+      address: data.users.address,
+    } : null,
+    items: data.order_items.map(item => ({
+      productId: item.products?.id,
+      productName: item.products?.name,
+      unitPrice: item.products?.unit_price,
+      quantity: item.quantity,
+      subTotal: item.sub_total,
+      imageUrl: item.products?.image_url,
+    })),
+  };
+};
+
 module.exports = {
   getAllOrders,
   getAllUsers,
   getAllProducts,
   createOrder,
+  getOrdersByUserId,
+  getOrderById,
 };

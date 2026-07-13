@@ -1,43 +1,46 @@
+// frontend/src/services/api.js
 import axios from 'axios';
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
+// Use environment variable with fallback
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+console.log('🔧 API Base URL:', API_URL);
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: { 'Content-Type': 'application/json' },
+  baseURL: API_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  withCredentials: true,
 });
 
-// Attach Supabase JWT token to every request
+// Request interceptor for auth token
 api.interceptors.request.use(
   (config) => {
-    const token =
-      localStorage.getItem('supabase.auth.token') ||
-      sessionStorage.getItem('supabase.auth.token');
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api',
-  headers: { 'Content-Type': 'application/json' },
-});
-
-// ─── Request interceptor: attach token ───
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token'); // adjust key if different
+    const token = localStorage.getItem('token');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    console.log(`🚀 ${config.method.toUpperCase()} ${config.baseURL}${config.url}`);
     return config;
   },
-  (error) => Promise.reject(error)
+  (error) => {
+    console.error('❌ Request interceptor error:', error);
+    return Promise.reject(error);
+  }
 );
 
-// ─── Response interceptor: handle 401 globally ───
+// Response interceptor for debugging
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log(`✅ Response from ${response.config.url}:`, response.status);
+    return response;
+  },
   (error) => {
-    if (error.response && error.response.status === 401) {
-      // Optional: redirect to login
-      // window.location.href = '/login';
-      // Or you can handle it per component
+    console.error(`❌ Response error from ${error.config?.url || 'unknown'}:`, error.message);
+    if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Data:', error.response.data);
     }
     return Promise.reject(error);
   }
