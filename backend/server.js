@@ -20,6 +20,7 @@ const inventoryRoutes = require('./src/routes/inventoryRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const salaryRoutes = require('./src/routes/salaryRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
+const deliveryRoutes = require('./src/routes/deliveryRoutes');
 
 const app = express();
 
@@ -38,7 +39,6 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api', permissionRoutes);
-app.use('/api/departments', departmentRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
@@ -51,6 +51,7 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salaries', salaryRoutes);
+app.use('/api/deliveries', deliveryRoutes);
 
 
 app.use('/api/contact', contactRoutes); 

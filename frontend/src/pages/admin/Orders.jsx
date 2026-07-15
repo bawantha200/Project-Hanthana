@@ -1,4 +1,4 @@
-// src/pages/Orders.jsx
+// frontend/src/pages/admin/Orders.jsx
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
@@ -12,11 +12,12 @@ import {
   HandHelping,
   Plus,
   Trash2,
+  Eye
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { fetchOrders, fetchUsers, fetchProducts, createOrder } from '../../services/ordersService';
 import { formatCurrency } from '../../utils/helpers';
-import api from '../../services/api';
-
+import toast from 'react-hot-toast';
 
 // Animation variants
 const containerVariants = {
@@ -36,7 +37,7 @@ const itemVariants = {
 const filterTabs = [
   { key: 'All', label: 'All', icon: Filter },
   { key: 'PLACED', label: 'Pending', icon: Clock },
-  { key: 'PROCESSING', label: 'Preparing', icon: Package },
+  { key: 'PROCESSING', label: 'Processing', icon: Package },
   { key: 'DELIVERED', label: 'Delivered', icon: CheckCircle },
 ];
 
@@ -67,7 +68,7 @@ const summaryCards = [
   },
   {
     key: 'processing',
-    label: 'Preparing',
+    label: 'Processing',
     icon: Package,
     color: 'cyan',
     bgClass: 'bg-cyan-50',
@@ -84,6 +85,7 @@ const summaryCards = [
 ];
 
 export default function Orders() {
+  const navigate = useNavigate();
   // ---------- State ----------
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,31 +107,32 @@ export default function Orders() {
   const [formLoading, setFormLoading] = useState(false);
 
   // ---------- Data fetching ----------
-const loadData = async () => {
-  try {
-    setLoading(true);
-    const [ordersData, usersData, productsData] = await Promise.all([
-      fetchOrders(),
-      fetchUsers(),
-      fetchProducts(),
-    ]);
-    console.log('📦 Raw ordersData:', ordersData);
-    console.log('📦 Number of orders:', ordersData?.length);
-    if (ordersData && ordersData.length > 0) {
-      console.log('📦 First order keys:', Object.keys(ordersData[0]));
-      console.log('📦 First order sample:', ordersData[0]);
-    } else {
-      console.warn('⚠️ No orders returned or ordersData is null/undefined');
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      const [ordersData, usersData, productsData] = await Promise.all([
+        fetchOrders(),
+        fetchUsers(),
+        fetchProducts(),
+      ]);
+      console.log('📦 Raw ordersData:', ordersData);
+      console.log('📦 Number of orders:', ordersData?.length);
+      if (ordersData && ordersData.length > 0) {
+        console.log('📦 First order keys:', Object.keys(ordersData[0]));
+        console.log('📦 First order sample:', ordersData[0]);
+      } else {
+        console.warn('⚠️ No orders returned or ordersData is null/undefined');
+      }
+      setOrders(ordersData || []);
+      setUsers(usersData || []);
+      setProducts(productsData || []);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+      toast.error('Failed to load orders');
+    } finally {
+      setLoading(false);
     }
-    setOrders(ordersData || []);
-    setUsers(usersData || []);
-    setProducts(productsData || []);
-  } catch (err) {
-    console.error('Failed to load data:', err);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   useEffect(() => {
     loadData();
@@ -188,7 +191,7 @@ const loadData = async () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.customerId || formData.items.length === 0) {
-      alert('Please select a customer and add at least one product.');
+      toast.error('Please select a customer and add at least one product.');
       return;
     }
     try {
@@ -200,6 +203,7 @@ const loadData = async () => {
         deliveryLocation: formData.deliveryLocation,
         items: formData.items,
       });
+      toast.success('Order created successfully');
       await loadData(); // refresh orders
       setShowCreateForm(false);
       setFormData({
@@ -211,7 +215,7 @@ const loadData = async () => {
       });
     } catch (err) {
       console.error('Failed to create order:', err);
-      alert('Error creating order. Please try again.');
+      toast.error('Error creating order. Please try again.');
     } finally {
       setFormLoading(false);
     }
@@ -248,6 +252,7 @@ const loadData = async () => {
           onClick={() => setShowCreateForm(true)}
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
         >
+          <Plus size={18} />
           Customer Order
         </motion.button>
       </motion.div>
@@ -545,6 +550,7 @@ const loadData = async () => {
                 <th className="px-6 py-3">Total</th>
                 <th className="px-6 py-3">Items</th>
                 <th className="px-6 py-3">Date</th>
+                <th className="px-6 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -581,7 +587,7 @@ const loadData = async () => {
                       {order.order_status === 'PLACED'
                         ? 'Pending'
                         : order.order_status === 'PROCESSING'
-                        ? 'Preparing'
+                        ? 'Processing'
                         : order.order_status === 'DELIVERED'
                         ? 'Delivered'
                         : 'Cancelled'}
@@ -593,6 +599,15 @@ const loadData = async () => {
                   </td>
                   <td className="px-6 py-3 text-xs text-gray-500">
                     {new Date(order.created_at).toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-3">
+                    <button
+                      onClick={() => navigate(`/admin/orders/${order.id}`)}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      <Eye size={14} />
+                      View Details
+                    </button>
                   </td>
                 </tr>
               ))}
