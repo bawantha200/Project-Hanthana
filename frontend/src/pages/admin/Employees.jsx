@@ -5,7 +5,8 @@ import {
   X, User, Calendar as CalendarIcon, Mail as MailIcon, Smartphone, 
   CreditCard, Home, Heart, Briefcase as BriefcaseIcon, Edit, Trash2, 
   UserPlus, FileText, Camera, Image, Building, Clock, DollarSign,
-  Circle, CheckCircle, AlertCircle, Loader
+  Circle, CheckCircle, AlertCircle, Loader, Shield, TrendingUp, Package, 
+  Calculator, Truck, Bike, Headphones, Crown
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import RoleBadge from '../../components/RoleBadge';
@@ -27,14 +28,18 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
+// Filter tabs based on roles table
 const filterTabs = [
   { key: 'All', label: 'All', icon: Filter },
-  { key: 'Driver', label: 'Drivers', icon: Briefcase },
-  { key: 'Warehouse Staff', label: 'Warehouse', icon: Briefcase },
-  { key: 'Delivery Staff', label: 'Delivery', icon: Briefcase },
-  { key: 'Branch Manager', label: 'Managers', icon: Award },
-  { key: 'Operations Manager', label: 'Ops Managers', icon: Award },
-  { key: 'Customer Support', label: 'Support', icon: Briefcase },
+  { key: 'HR_MANAGER', label: 'HR Managers', icon: Users },
+  { key: 'SALES_MANAGER', label: 'Sales Managers', icon: TrendingUp },
+  { key: 'INVENTORY_MANAGER', label: 'Inventory Managers', icon: Package },
+  { key: 'ACCOUNTANT', label: 'Accountants', icon: Calculator },
+  { key: 'CASHIER', label: 'Cashiers', icon: DollarSign },
+  { key: 'DELIVERY_PERSON', label: 'Delivery Staff', icon: Truck },
+  { key: 'RIDER', label: 'Riders', icon: Bike },
+  { key: 'Customer Services', label: 'Customer Support', icon: Headphones },
+  { key: 'CEO', label: 'CEO', icon: Crown },
 ];
 
 const summaryCards = [
@@ -66,6 +71,23 @@ const summaryCards = [
     bgClass: 'bg-blue-50',
     textClass: 'text-blue-600',
   },
+];
+
+// Role options for form dropdown based on roles table
+const roleOptions = [
+  { value: 'ADMIN', label: 'Admin' },
+  { value: 'MANAGER', label: 'Manager' },
+  { value: 'CUSTOMER', label: 'Customer' },
+  { value: 'EMPLOYEE', label: 'Employee' },
+  { value: 'HR_MANAGER', label: 'HR Manager' },
+  { value: 'SALES_MANAGER', label: 'Sales Manager' },
+  { value: 'INVENTORY_MANAGER', label: 'Inventory Manager' },
+  { value: 'ACCOUNTANT', label: 'Accountant' },
+  { value: 'CASHIER', label: 'Cashier' },
+  { value: 'DELIVERY_PERSON', label: 'Delivery Person' },
+  { value: 'RIDER', label: 'Rider' },
+  { value: 'Customer Services', label: 'Customer Services' },
+  { value: 'CEO', label: 'CEO' },
 ];
 
 export default function Employees() {
@@ -143,6 +165,7 @@ export default function Employees() {
     managers,
   };
 
+  // Filter employees based on role and search query
   const filteredEmployees = employees.filter((employee) => {
     const matchesPosition = activeFilter === 'All' || employee.position === activeFilter;
     const matchesSearch =
@@ -233,93 +256,87 @@ export default function Employees() {
   };
 
   // Handle Edit Employee
- // Handle Edit Employee - FIXED VERSION
-const handleEditEmployee = async (e) => {
-  e.preventDefault();
-  
-  // Validate required fields
-  const requiredFields = ['fullName', 'email', 'phoneNo', 'role', 'address', 'hiredDate'];
-  for (let field of requiredFields) {
-    if (!formData[field]) {
-      alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
-      return;
-    }
-  }
-
-  try {
-    setSubmitting(true);
-    setError(null);
+  const handleEditEmployee = async (e) => {
+    e.preventDefault();
     
-    // Build update data - only include fields that have values
-    const updateData = {
-      name: formData.fullName,
-      position: formData.role,
-      phone: formData.phoneNo,
-      email: formData.email,
-      hireDate: formData.hiredDate,
-      address: formData.address
-    };
-    
-    // Only include optional fields if they have values
-    if (formData.birthday) {
-      updateData.birthday = formData.birthday;
-    }
-    
-    if (formData.gender) {
-      updateData.gender = formData.gender;
-    }
-    
-    if (formData.nic) {
-      updateData.nic = formData.nic;
-    }
-    
-    if (formData.marriageStatus) {
-      updateData.marriageStatus = formData.marriageStatus;
-    }
-    
-    if (formData.jobType) {
-      updateData.jobType = formData.jobType;
-    }
-    
-    if (formData.profileImage) {
-      updateData.profileImage = formData.profileImage;
-    }
-
-    console.log('Sending update data:', updateData); // Debug log
-
-    const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData);
-    
-    if (response.data.success) {
-      setEmployees(employees.map(emp => 
-        emp.id === selectedEmployee.id ? response.data.data : emp
-      ));
-      setShowCreateForm(false);
-      setShowDetailModal(false);
-      setSelectedEmployee(response.data.data);
-      resetForm();
-      showSuccessNotification('Employee updated successfully!');
-    }
-  } catch (err) {
-    console.error('Error updating employee:', err);
-    console.error('Error response:', err.response?.data); // Debug log
-    
-    if (err.response) {
-      if (err.response.status === 409) {
-        setError('Email already in use by another employee.');
-      } else if (err.response.status === 404) {
-        setError('Employee not found.');
-      } else if (err.response.status === 400) {
-        setError(err.response.data?.message || 'Please check all required fields.');
-      } else {
-        setError(err.response.data?.message || 'Failed to update employee. Please try again.');
+    // Validate required fields
+    const requiredFields = ['fullName', 'email', 'phoneNo', 'role', 'address', 'hiredDate'];
+    for (let field of requiredFields) {
+      if (!formData[field]) {
+        alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
+        return;
       }
-    } else {
-      setError('Network error. Please check your connection.');
     }
-  } finally {
-    setSubmitting(false);
-  }
-};
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      
+      const updateData = {
+        name: formData.fullName,
+        position: formData.role,
+        phone: formData.phoneNo,
+        email: formData.email,
+        hireDate: formData.hiredDate,
+        address: formData.address
+      };
+      
+      if (formData.birthday) {
+        updateData.birthday = formData.birthday;
+      }
+      
+      if (formData.gender) {
+        updateData.gender = formData.gender;
+      }
+      
+      if (formData.nic) {
+        updateData.nic = formData.nic;
+      }
+      
+      if (formData.marriageStatus) {
+        updateData.marriageStatus = formData.marriageStatus;
+      }
+      
+      if (formData.jobType) {
+        updateData.jobType = formData.jobType;
+      }
+      
+      if (formData.profileImage) {
+        updateData.profileImage = formData.profileImage;
+      }
+
+      const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData);
+      
+      if (response.data.success) {
+        setEmployees(employees.map(emp => 
+          emp.id === selectedEmployee.id ? response.data.data : emp
+        ));
+        setShowCreateForm(false);
+        setShowDetailModal(false);
+        setSelectedEmployee(response.data.data);
+        resetForm();
+        showSuccessNotification('Employee updated successfully!');
+      }
+    } catch (err) {
+      console.error('Error updating employee:', err);
+      
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError('Email already in use by another employee.');
+        } else if (err.response.status === 404) {
+          setError('Employee not found.');
+        } else if (err.response.status === 400) {
+          setError(err.response.data?.message || 'Please check all required fields.');
+        } else {
+          setError(err.response.data?.message || 'Failed to update employee. Please try again.');
+        }
+      } else {
+        setError('Network error. Please check your connection.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   // Reset Form
   const resetForm = () => {
@@ -734,12 +751,11 @@ const handleEditEmployee = async (e) => {
                         disabled={submitting}
                       >
                         <option value="">Select Role</option>
-                        <option value="Driver">Driver</option>
-                        <option value="Warehouse Staff">Warehouse Staff</option>
-                        <option value="Delivery Staff">Delivery Staff</option>
-                        <option value="Branch Manager">Branch Manager</option>
-                        <option value="Operations Manager">Operations Manager</option>
-                        <option value="Customer Support">Customer Support</option>
+                        {roleOptions.map((role) => (
+                          <option key={role.value} value={role.value}>
+                            {role.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 
