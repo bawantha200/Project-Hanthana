@@ -6,16 +6,22 @@ const {
   createOrder,
   getOrdersByUserId,
   getOrderById,
+  updateOrderStatus,
+  assignDeliveryPerson,
+  getDeliveryPersonnel,
+  getOrderWithDetails,
+  getOrderStatusHistory,
+  updateDeliveryStatus
 } = require('../services/ordersService');
 
 const supabase = require('../config/db');
 
+// ========== GET ORDERS (Admin or Customer) ==========
 const getOrders = async (req, res) => {
   try {
     const userId = req.user.id;
     console.log(`🔍 [getOrders] User ID: ${userId}`);
 
-    // Get role
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role_id')
@@ -57,6 +63,7 @@ const getOrders = async (req, res) => {
   }
 };
 
+// ========== GET SINGLE ORDER ==========
 const getOrder = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -67,7 +74,6 @@ const getOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
 
-    // Check admin status for bypass
     const { data: profile } = await supabase
       .from('profiles')
       .select('role_id')
@@ -92,6 +98,7 @@ const getOrder = async (req, res) => {
   }
 };
 
+// ========== GET USERS ==========
 const getUsers = async (req, res) => {
   try {
     const users = await getAllUsers();
@@ -102,6 +109,7 @@ const getUsers = async (req, res) => {
   }
 };
 
+// ========== GET PRODUCTS ==========
 const getProducts = async (req, res) => {
   try {
     const products = await getAllProducts();
@@ -112,6 +120,7 @@ const getProducts = async (req, res) => {
   }
 };
 
+// ========== CREATE ORDER ==========
 const postOrder = async (req, res) => {
   try {
     const { customerId, orderType, paymentMethod, deliveryLocation, items } = req.body;
@@ -135,10 +144,127 @@ const postOrder = async (req, res) => {
   }
 };
 
+// ========== UPDATE ORDER STATUS ==========
+const updateStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    let idParam = req.params.id;
+    if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
+    const orderId = parseInt(idParam, 10);
+    
+    if (isNaN(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID' });
+    }
+
+    const { status } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, message: 'Status is required' });
+    }
+
+    const order = await updateOrderStatus(orderId, status, userId);
+    
+    if (status === 'DELIVERED') {
+      await updateDeliveryStatus(orderId, 'DELIVERED', userId);
+    }
+
+    res.json({ success: true, order });
+  } catch (err) {
+    console.error('💥 [updateStatus]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== ASSIGN DELIVERY PERSON ==========
+const assignDelivery = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    let idParam = req.params.id;
+    if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
+    const orderId = parseInt(idParam, 10);
+    
+    if (isNaN(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID' });
+    }
+
+    const { deliveryPersonId } = req.body;
+    if (!deliveryPersonId) {
+      return res.status(400).json({ success: false, message: 'Delivery person ID is required' });
+    }
+
+    const result = await assignDeliveryPerson(orderId, deliveryPersonId, userId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('💥 [assignDelivery]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== GET DELIVERY PERSONNEL ==========
+const getDeliveryPersonnelList = async (req, res) => {
+  try {
+    const personnel = await getDeliveryPersonnel();
+    res.json({ success: true, personnel });
+  } catch (err) {
+    console.error('💥 [getDeliveryPersonnelList]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== GET ORDER WITH DETAILS ==========
+const getOrderDetails = async (req, res) => {
+  try {
+    let idParam = req.params.id;
+    if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
+    const orderId = parseInt(idParam, 10);
+    
+    if (isNaN(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID' });
+    }
+
+    const order = await getOrderWithDetails(orderId);
+    const history = await getOrderStatusHistory(orderId);
+    
+    res.json({ success: true, order, history });
+  } catch (err) {
+    console.error('💥 [getOrderDetails]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== UPDATE DELIVERY STATUS ==========
+const updateDelivery = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    let idParam = req.params.id;
+    if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
+    const orderId = parseInt(idParam, 10);
+    
+    if (isNaN(orderId)) {
+      return res.status(400).json({ success: false, message: 'Invalid order ID' });
+    }
+
+    const { status } = req.body;
+    if (!status) {
+      return res.status(400).json({ success: false, message: 'Status is required' });
+    }
+
+    const delivery = await updateDeliveryStatus(orderId, status, userId);
+    res.json({ success: true, delivery });
+  } catch (err) {
+    console.error('💥 [updateDelivery]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   getOrders,
   getOrder,
   getUsers,
   getProducts,
   postOrder,
+  updateStatus,
+  assignDelivery,
+  getDeliveryPersonnelList,
+  getOrderDetails,
+  updateDelivery
 };

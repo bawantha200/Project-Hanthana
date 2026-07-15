@@ -219,6 +219,297 @@ const getOrderById = async (orderId, userId, isAdmin = false) => {
   };
 };
 
+// ========== GET DELIVERY PERSONNEL ==========
+const getDeliveryPersonnel = async () => {
+  console.log('🔍 [getDeliveryPersonnel] Fetching delivery personnel...');
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select(`
+      id,
+      full_name,
+      phone_number,
+      email,
+      address,
+      role_id,
+      roles (role_name)
+    `)
+    .eq('roles.role_name', 'DELIVERY')
+    .order('full_name');
+
+  if (error) {
+    console.error('❌ [getDeliveryPersonnel] Error:', error);
+    throw new Error(`Failed to fetch delivery personnel: ${error.message}`);
+  }
+
+  return data.map(profile => ({
+    id: profile.id,
+    name: profile.full_name,
+    phone: profile.phone_number,
+    email: profile.email,
+    address: profile.address,
+    role: profile.roles?.role_name || 'DELIVERY'
+  }));
+};
+
+// ========== CREATE DELIVERY RECORD ==========
+const createDelivery = async (orderId, deliveryPersonId, assignedBy) => {
+  console.log(`🚚 [createDelivery] Creating delivery for order ${orderId}`);
+
+  const { data: existingDelivery, error: checkError } = await supabase
+    .from('deliveries')
+    .select('id')
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  if (checkError && checkError.code !== 'PGRST116') {
+    throw new Error(`Failed to check existing delivery: ${checkError.message}`);
+  }
+
+  if (existingDelivery) {
+    const { data, error } = await supabase
+      .from('deliveries')
+      .update({
+        delivery_person_id: deliveryPersonId,
+        status: 'ASSIGNED',
+        delivery_start_time: new Date().toISOString()
+      })
+      .eq('id', existingDelivery.id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update delivery: ${error.message}`);
+    return data;
+  }
+
+  const { data, error } = await supabase
+    .from('deliveries')
+    .insert({
+      order_id: orderId,
+      delivery_person_id: deliveryPersonId,
+      status: 'ASSIGNED',
+      delivery_start_time: new Date().toISOString(),
+      delivery_fee: 0
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ [createDelivery] Error:', error);
+    throw new Error(`Failed to create delivery: ${error.message}`);
+  }
+
+  return data;
+};
+
+// ========== UPDATE DELIVERY STATUS ==========
+const updateDeliveryStatus = async (orderId, status, userId) => {
+  console.log(`🔄 [updateDeliveryStatus] Order ${orderId} -> ${status}`);
+
+  const { data: delivery, error: findError } = await supabase
+    .from('deliveries')
+    .select('id')
+    .eq('order_id', orderId)
+    .single();
+
+  if (findError) {
+    throw new Error(`Delivery not found for order ${orderId}`);
+  }
+
+  const updateData = {
+    status: status,
+    updated_at: new Date().toISOString()
+  };
+
+  if (status === 'DELIVERED') {
+    updateData.delivery_end_time = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from('deliveries')
+    .update(updateData)
+    .eq('id', delivery.id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ [updateDeliveryStatus] Error:', error);
+    throw new Error(`Failed to update delivery status: ${error.message}`);
+  }
+
+  return data;
+};
+
+// ========== UPDATE ORDER STATUS ==========
+const updateOrderStatus = async (orderId, status, userId) => {
+  console.log(`🔄 [updateOrderStatus] Order ${orderId} -> ${status}`);
+
+  const { data, error } = await supabase
+    .from('orders')
+    .update({
+      order_status: status,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ [updateOrderStatus] Error:', error);
+    throw new Error(`Failed to update order status: ${error.message}`);
+  }
+
+  return data;
+};
+
+// ========== ASSIGN DELIVERY PERSON ==========
+const assignDeliveryPerson = async (orderId, deliveryPersonId, assignedBy) => {
+  console.log(`👤 [assignDeliveryPerson] Order ${orderId} -> ${deliveryPersonId}`);
+
+  const delivery = await createDelivery(orderId, deliveryPersonId, assignedBy);
+  const order = await updateOrderStatus(orderId, 'PROCESSING', assignedBy);
+
+  return { delivery, order };
+};
+
+// ========== GET ORDER WITH FULL DETAILS ==========
+const getOrderWithDetails = async (orderId) => {
+  console.log(`📋 [getOrderWithDetails] Fetching order ${orderId} with details...`);
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_type,
+      payment_method,
+      payment_status,
+      order_status,
+      total_amount,
+      delivery_location,
+      created_at,
+      customer_id,
+      users!orders_customer_id_fkey (
+        id,
+        name,
+        email,
+        phone,
+        address
+      ),
+      order_items (
+        id,
+        quantity,
+        sub_total,
+        products (
+          id,
+          name,
+          unit_price,
+          image_url,
+          description
+        )
+      ),
+      deliveries (
+        id,
+        status,
+        delivery_start_time,
+        delivery_end_time,
+        delivery_fee,
+        collecting_empty_bottles,
+        delivery_person_id,
+        profiles!deliveries_delivery_person_id_fkey (
+          id,
+          full_name,
+          phone_number,
+          email
+        )
+      )
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (error) {
+    console.error('❌ [getOrderWithDetails] Error:', error);
+    throw new Error(`Failed to fetch order details: ${error.message}`);
+  }
+
+  const delivery = data.deliveries?.[0] || null;
+  
+  return {
+    id: `ORD-${String(data.id).padStart(4, '0')}`,
+    orderId: data.id,
+    ...data,
+    customer: data.users || null,
+    delivery: delivery ? {
+      id: delivery.id,
+      status: delivery.status,
+      delivery_start_time: delivery.delivery_start_time,
+      delivery_end_time: delivery.delivery_end_time,
+      delivery_fee: delivery.delivery_fee,
+      collecting_empty_bottles: delivery.collecting_empty_bottles,
+      delivery_person: delivery.profiles || null
+    } : null,
+    items: data.order_items?.map(item => ({
+      id: item.id,
+      quantity: item.quantity,
+      subTotal: item.sub_total,
+      product: item.products || null
+    })) || []
+  };
+};
+
+// ========== GET ORDER STATUS HISTORY ==========
+const getOrderStatusHistory = async (orderId) => {
+  console.log(`📜 [getOrderStatusHistory] Fetching history for order ${orderId}...`);
+
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select(`
+      created_at,
+      order_status,
+      deliveries (
+        status,
+        delivery_start_time,
+        delivery_end_time
+      )
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (error) {
+    console.error('❌ [getOrderStatusHistory] Error:', error);
+    return [];
+  }
+
+  const history = [
+    {
+      status: 'PLACED',
+      created_at: order.created_at,
+      users: { name: 'Customer' }
+    }
+  ];
+
+  if (order.deliveries && order.deliveries.length > 0) {
+    const delivery = order.deliveries[0];
+    if (delivery.delivery_start_time) {
+      history.push({
+        status: 'PROCESSING',
+        created_at: delivery.delivery_start_time,
+        users: { name: 'Admin' }
+      });
+    }
+    if (delivery.delivery_end_time) {
+      history.push({
+        status: 'DELIVERED',
+        created_at: delivery.delivery_end_time,
+        users: { name: 'Delivery Person' }
+      });
+    }
+  }
+
+  return history.sort((a, b) => 
+    new Date(b.created_at) - new Date(a.created_at)
+  );
+};
+
 module.exports = {
   getAllOrders,
   getAllUsers,
@@ -226,4 +517,11 @@ module.exports = {
   createOrder,
   getOrdersByUserId,
   getOrderById,
+  updateOrderStatus,
+  assignDeliveryPerson,
+  getDeliveryPersonnel,
+  getOrderWithDetails,
+  getOrderStatusHistory,
+  updateDeliveryStatus,
+  createDelivery
 };
