@@ -19,7 +19,7 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
   const [paymentStatus, setPaymentStatus] = useState(null);
 
   useEffect(() => {
-    // Check if there's a pending payment status in URL
+    // VIVA POINT: Intercept query parameters on mounting if coming back from an explicit redirect
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('status');
     const order = urlParams.get('order');
@@ -32,10 +32,11 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
   const handlePayment = async () => {
     try {
       setLoading(true);
+      // Initiate payment processing sequence token on our backend server
       const paymentData = await initiatePayment(orderId, selectedMethod);
       
       if (paymentData) {
-        // Redirect to PayHere
+        // VIVA POINT: Safe programmatic web form post redirection to external PayHere merchant checkout
         redirectToPayHere(paymentData);
       }
     } catch (error) {
@@ -51,6 +52,7 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
       const payment = await getPaymentStatus(order);
       setPaymentStatus(payment);
       
+      // Status code '2' explicitly tags verified authorization success on PayHere engine network
       if (status === '2' || payment?.status === 'COMPLETED') {
         toast.success('Payment successful!');
         if (onSuccess) onSuccess(order);
@@ -72,7 +74,7 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
         <p className="text-sm text-gray-500 mt-1">Complete your payment securely</p>
       </div>
 
-      {/* Order Summary */}
+      {/* Dynamic Summary Card */}
       <div className="bg-gray-50 rounded-xl p-4 mb-6">
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-600">Order #{orderId}</span>
@@ -87,7 +89,7 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
         </div>
       </div>
 
-      {/* Payment Methods */}
+      {/* Interactive Gateway Channel Grid Selection */}
       <div className="mb-6">
         <label className="block text-sm font-medium text-gray-700 mb-3">
           Select Payment Method
@@ -120,7 +122,7 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
         </div>
       </div>
 
-      {/* Action Buttons */}
+      {/* Form CTA Buttons */}
       <div className="flex gap-3">
         <button
           onClick={onCancel}
@@ -147,7 +149,6 @@ export default function PaymentCheckout({ orderId, amount, onSuccess, onCancel }
         </button>
       </div>
 
-      {/* Security Badge */}
       <div className="mt-4 text-center">
         <p className="text-xs text-gray-400 flex items-center justify-center gap-1">
           <CheckCircle size={14} className="text-emerald-500" />

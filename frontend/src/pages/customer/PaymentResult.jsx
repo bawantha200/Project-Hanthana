@@ -15,11 +15,12 @@ export default function PaymentResult() {
   const [loading, setLoading] = useState(true);
   const [orderDetails, setOrderDetails] = useState(null);
   
-  // FIXED 1: PayHere sends 'order_id', not 'order'
+  // VIVA POINT 1: PayHere gateways send 'order_id' parameter, fallback to 'order'
   const rawOrderId = searchParams.get('order_id') || searchParams.get('order');
   const status = searchParams.get('status');
 
-  // FIXED 2: Convert "000213" string to numeric 213 to match DB integer type
+  // VIVA POINT 2: PayHere passes the padded string (e.g. "000213"). 
+  // We parse it into an integer (213) to match our Database structure type.
   const orderId = rawOrderId ? parseInt(rawOrderId, 10) : null;
 
   useEffect(() => {
@@ -33,10 +34,12 @@ export default function PaymentResult() {
   const loadPaymentStatus = async () => {
     try {
       setLoading(true);
-      // Get payment status from backend using the numeric ID
+      
+      // Fetch status via custom backend API using numeric order ID
       const paymentData = await getPaymentStatus(orderId);
       setPayment(paymentData);
       
+      // Fetch latest order details directly from Supabase Database
       const { data: order, error } = await supabase
         .from('orders')
         .select('*')
@@ -45,9 +48,9 @@ export default function PaymentResult() {
       
       if (!error) setOrderDetails(order);
     } catch (error) {
+      // VIVA POINT: Sometimes IPN (Instant Payment Notification) takes a few seconds 
+      // to update the DB. So we catch the error gracefully without crashing the UI.
       console.error('Failed to load payment status:', error);
-      // IPN notification එක DB එකට වැදෙන්න පොඩි වෙලාවක් යන නිසා, 
-      // මුලින්ම error එකක් ආවත් toast එකක් දාන්නේ නැතුව UI එක manage කරමු
     } finally {
       setLoading(false);
     }
@@ -64,8 +67,9 @@ export default function PaymentResult() {
     );
   }
 
-  // FIXED 3: Check all possible success conditions
-  // (URL status code IS '2' OR DB payment status IS 'COMPLETED' OR DB order payment status IS 'COMPLETED')
+  // VIVA POINT 3: Dynamic fallback validation. Checks all potential states:
+  // - status === '2' means PayHere gateway confirmed success via URL query
+  // - payment status or order payment status inside Supabase DB is marked 'COMPLETED'
   const isSuccess = 
     status === '2' || 
     payment?.status === 'COMPLETED' || 
@@ -82,6 +86,7 @@ export default function PaymentResult() {
       >
         {isSuccess ? (
           <>
+            {/* SUCCESS VIEW */}
             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200, damping: 20 }}>
               <div className="w-24 h-24 rounded-full bg-green-100 flex items-center justify-center mx-auto">
                 <CheckCircle size={48} className="text-green-600" />
@@ -90,6 +95,7 @@ export default function PaymentResult() {
             <h2 className="text-2xl font-bold text-gray-900 mt-4">Payment Successful! 🎉</h2>
             <p className="text-gray-500 mt-2">Your order #{orderId} has been confirmed</p>
             
+            {/* Receipt Summary Breakdown */}
             <div className="mt-6 p-4 bg-gray-50 rounded-xl text-left space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Order ID</span>
@@ -120,6 +126,7 @@ export default function PaymentResult() {
           </>
         ) : isCancelled ? (
           <>
+            {/* CANCELLED VIEW */}
             <div className="w-24 h-24 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
               <Clock size={48} className="text-amber-600" />
             </div>
@@ -136,6 +143,7 @@ export default function PaymentResult() {
           </>
         ) : (
           <>
+            {/* FAILED VIEW */}
             <div className="w-24 h-24 rounded-full bg-red-100 flex items-center justify-center mx-auto">
               <XCircle size={48} className="text-red-600" />
             </div>

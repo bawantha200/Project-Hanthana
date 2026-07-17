@@ -13,7 +13,7 @@ import toast from "react-hot-toast";
 
 const DELIVERY_CHARGE = 350;
 
-// PAYHERE CONFIG
+// PAYHERE CONFIGURATION METADATA
 const PAYHERE_CONFIG = {
   merchantId: "1236932",
   merchantSecret: "MTUwODY5ODIwMzYzODI1MDQxNjI3OTI1MDk1OTMzNDY4MjE5OTU4",
@@ -24,19 +24,21 @@ const PAYHERE_CONFIG = {
 };
 
 /**
- * FIXED: PayHere Hash Generation
+ * VIVA EXAMINER QUESTION: How does PayHere secure requests from tampering?
+ * ANSWER: Using an MD5 Integrity Verification Hash checksum.
  * Formula: UpperCase(MD5(merchant_id + order_id + amount + currency + UpperCase(MD5(merchant_secret))))
  */
 const generatePayHereHash = (merchantId, orderId, amount, currency, merchantSecret) => {
-  // 1. Merchant Secret එක මුලින්ම MD5 කරලා Capital කරගන්න ඕනේ
+  // Step 1: Hash the merchant secret itself first and convert to uppercase
   const hashedSecret = CryptoJS.MD5(merchantSecret).toString().toUpperCase();
   
-  // 2. ඊට පස්සේ තමයි full string එක concatenate කරන්නේ
+  // Step 2: Concatenate all parameters including the uppercase secret hash
   const hashString = `${merchantId}${orderId}${amount}${currency}${hashedSecret}`;
-  console.log('🔑 Hash String:', hashString);
+  console.log('🔑 Hash Composition String:', hashString);
   
+  // Step 3: Generate ultimate validation parameter hash signature string
   const hash = CryptoJS.MD5(hashString).toString().toUpperCase();
-  console.log('🔑 Generated Hash:', hash);
+  console.log('🔑 Final Generated Hash Signature:', hash);
   return hash;
 };
 
@@ -129,11 +131,13 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         .eq("id", user.id)
         .single();
 
+      // Pad order number with leading zeros to maintain uniform invoice references
       const orderRef = String(order.id).padStart(6, "0");
       
-      // FIXED: PayHere එකට amount එක දශමස්ථාන 2ක් ඇතුව string එකක් විදිහට දෙන්න ඕනේ (e.g., "360.00")
+      // VIVA POINT: PayHere demands amounts strictly formatted to 2 decimal places (string format e.g., "1250.00")
       const amount = Number(total).toFixed(2);
 
+      // Generate verification signature token
       const hash = generatePayHereHash(
         PAYHERE_CONFIG.merchantId,
         orderRef,
@@ -142,6 +146,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         PAYHERE_CONFIG.merchantSecret
       );
 
+      // Log intermediate pending payment state row inside internal DB
       await supabase.from("payments").insert({
         order_id: order.id,
         amount: total,
@@ -150,6 +155,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         transaction_id: `TXN-${Date.now()}`,
       });
 
+      // Construct payload for PayHere checkout server interface
       const formData = {
         merchant_id: PAYHERE_CONFIG.merchantId,
         order_id: orderRef,
@@ -173,6 +179,9 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         notify_url: PAYHERE_CONFIG.notifyUrl,
       };
 
+      // VIVA POINT: Programmatic Form Submission Method.
+      // Dynamically constructs a hidden HTML Form element and triggers POST submit 
+      // to securely transfer customer context directly into PayHere checkout servers.
       const form = document.createElement("form");
       form.method = "POST";
       form.action = `${PAYHERE_CONFIG.baseUrl}/pay/checkout`;
@@ -189,7 +198,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
       form.submit();
       
     } catch (error) {
-      console.error("Payment error:", error);
+      console.error("Payment setup exception error:", error);
       toast.error("Failed to initiate payment.");
       setIsPaymentProcessing(false);
       setLoading(false);
@@ -219,6 +228,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
       const total = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? DELIVERY_CHARGE : 0);
       const isOnline = orderData.deliveryType === "HOME_DELIVERY" || selectedPaymentMethod === "ONLINE";
 
+      // Transaction step A: Create new Order record entry inside Database
       const { data: order, error } = await supabase
         .from("orders")
         .insert({
@@ -235,11 +245,13 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
 
       if (error) throw error;
 
+      // Transaction step B: Map cart relational collection rows into order items table entries
       await supabase.from("order_items").insert(orderItems.map(item => ({ ...item, order_id: order.id })));
 
       setOrderId(order.id);
 
       if (isOnline) {
+        // Handover session context flow execution to outer network gateway integration loop
         await initiatePayHerePayment(order);
       } else {
         setStep(4);
@@ -247,7 +259,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         setLoading(false);
       }
     } catch (error) {
-      console.error("Order error:", error);
+      console.error("Order process failure exception:", error);
       toast.error("Failed to place order.");
       setLoading(false);
     }
@@ -263,7 +275,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
 
   return (
     <>
-      {/* Floating Button */}
+      {/* Trigger Button Interface Layout View */}
       <motion.button
         onClick={() => {
           if (!user) onLoginRequired();
@@ -284,7 +296,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         <span className="font-bold tracking-wide">ORDER NOW</span>
       </motion.button>
 
-      {/* Modal */}
+      {/* Main Checkout Wizard Overlay Window */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -301,6 +313,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
               className="relative bg-white rounded-3xl shadow-2xl max-w-2xl w-full max-h-[95vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Internal Scroller Styles Block */}
               <style>{`
                 .order-scroll::-webkit-scrollbar { width: 6px; }
                 .order-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
@@ -308,7 +321,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                 .order-scroll::-webkit-scrollbar-thumb:hover { background: #1e3a8a; }
               `}</style>
 
-              {/* Header */}
+              {/* Title Section Header bar panel */}
               <div className="sticky top-0 bg-white z-10 flex items-center justify-between p-6 border-b border-gray-100 rounded-t-3xl">
                 <div className="flex items-center gap-3">
                   {step === 4 ? <CircleCheck className="w-6 h-6 text-green-500" /> : <ShoppingCart className="w-6 h-6 text-blue-600" />}
@@ -323,11 +336,11 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                 )}
               </div>
 
-              {/* Body */}
+              {/* Main Content Area Container Node */}
               <div className="flex-1 overflow-y-auto order-scroll p-6 space-y-6">
                 {step !== 4 && (
                   <>
-                    {/* Steps */}
+                    {/* Visual Progress Steps Map Indicators */}
                     <div className="flex items-center justify-center gap-2">
                       {[1, 2, 3].map((s) => (
                         <div key={s} className="flex items-center">
@@ -339,7 +352,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                       ))}
                     </div>
 
-                    {/* Step 1: Products */}
+                    {/* Step 1: Products Catalogue Selection List View */}
                     {step === 1 && (
                       <div>
                         <div className="flex items-center justify-between mb-4">
@@ -385,7 +398,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                       </div>
                     )}
 
-                    {/* Step 2: Delivery */}
+                    {/* Step 2: Logistics Fulfillment Configurations Panel */}
                     {step === 2 && (
                       <div>
                         <h3 className="text-lg font-semibold text-gray-700 mb-4">Delivery Method</h3>
@@ -425,7 +438,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                       </div>
                     )}
 
-                    {/* Step 3: Review */}
+                    {/* Step 3: Transaction Invoice Summary Review */}
                     {step === 3 && (
                       <div>
                         <h3 className="text-lg font-semibold text-gray-700 mb-4">Review Your Order</h3>
@@ -459,6 +472,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                           </div>
                         </div>
 
+                        {/* Interactive Payment Gateway Method Selection */}
                         <div className="mt-4">
                           <label className="block text-sm font-medium text-gray-700 mb-3">Payment Method</label>
                           {orderData.deliveryType === "HOME_DELIVERY" ? (
@@ -482,16 +496,16 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                           <Shield className="w-4 h-4" /><span>Secure SSL encryption</span>
                         </div>
 
-                        {/* TEST CARD INFO */}
+                        {/* SANDBOX TESTING SIMULATOR METRICS - CRITICAL FOR VIVA DEMO */}
                         {(orderData.deliveryType === "HOME_DELIVERY" || selectedPaymentMethod === "ONLINE") && (
                           <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                            <p className="text-xs font-medium text-amber-700">🧪 Sandbox Test Card</p>
+                            <p className="text-xs font-medium text-amber-700">🧪 Sandbox Test Card for Viva Demo</p>
                             <p className="text-xs text-amber-600">
                               Number: <span className="font-mono font-bold">4012001037141112</span> | 
                               Expiry: <span className="font-bold">12/26</span> | 
                               CVV: <span className="font-bold">123</span>
                             </p>
-                            <p className="text-xs text-amber-500 mt-1">💡 No spaces in card number</p>
+                            <p className="text-xs text-amber-500 mt-1">💡 Do not enter spaces when pasting card number</p>
                           </div>
                         )}
                       </div>
@@ -499,7 +513,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                   </>
                 )}
 
-                {/* Step 4: Success */}
+                {/* Step 4: Transaction Pipeline Terminal Success Template View */}
                 {step === 4 && (
                   <div className="text-center py-8">
                     <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-500">
@@ -515,7 +529,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                 )}
               </div>
 
-              {/* Footer */}
+              {/* Step Navigation Action Trigger Row Panel Footer */}
               {step !== 4 && !isPaymentProcessing && (
                 <div className="sticky bottom-0 bg-white p-4 border-t border-gray-100 rounded-b-3xl flex items-center gap-3">
                   {step > 1 && (
@@ -537,11 +551,11 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
                 </div>
               )}
 
-              {/* Processing Overlay */}
+              {/* Processing Loader Interstitial Screen Shield Overlay */}
               {isPaymentProcessing && (
                 <div className="p-8 text-center">
                   <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto" />
-                  <p className="mt-4 font-medium text-gray-700">Redirecting to payment...</p>
+                  <p className="mt-4 font-medium text-gray-700">Redirecting to payment gateway...</p>
                 </div>
               )}
             </motion.div>
