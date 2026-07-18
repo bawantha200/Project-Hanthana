@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -9,7 +10,7 @@ import {
   CheckCircle,
   ArrowRight,
 } from 'lucide-react';
-import { services } from '../../data/mockData';
+
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -31,6 +32,8 @@ const iconMap = {
   Truck: Truck,
   Siren: Siren,
 };
+
+
 
 const colorSchemes = [
   {
@@ -76,10 +79,42 @@ const colorSchemes = [
 ];
 
 const Services = () => {
+
+  
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/settings/public');
+        const data = await response.json();
+        if (data.success && data.data.services) {
+          setServices(data.data.services);
+        }
+      } catch (error) {
+        console.error('Failed to load services:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchServices();
+  }, []);
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600">
+
+        {/* Image Background – visible and with dark overlay for text contrast */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            <img 
+              src="/images/services.jpeg" 
+              alt="Background" 
+              className="w-full h-full object-cover opacity-100"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+          </div>
+
         {/* Decorative elements */}
         <div className="absolute -top-24 -left-24 w-96 h-96 bg-white/5 rounded-full" />
         <div className="absolute top-1/2 -right-32 w-80 h-80 bg-white/5 rounded-full" />
@@ -123,13 +158,56 @@ const Services = () => {
         </div>
 
         {/* Bottom wave */}
-        <div className="absolute bottom-0 left-0 right-0">
-          <svg viewBox="0 0 1440 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M0 120L48 110C96 100 192 80 288 70C384 60 480 60 576 65C672 70 768 80 864 85C960 90 1056 90 1152 80C1248 70 1344 50 1392 40L1440 30V120H1392C1344 120 1248 120 1152 120C1056 120 960 120 864 120C768 120 672 120 576 120C480 120 384 120 288 120C192 120 96 120 48 120H0Z"
-              fill="#F9FAFB"
-            />
-          </svg>
+        {/* Truly seamless infinite wave – right‑to‑left */}
+        <style>
+          {`
+            .wave-wrap {
+              position: absolute;
+              bottom: 0;
+              left: 0;
+              width: 100%;
+              height: 150px;
+              overflow: hidden;
+              pointer-events: none;
+              z-index: 2;
+            }
+            .wave-track {
+              position: absolute;
+              bottom: 0;
+              left: 0;
+              width: 200%;
+              height: 100%;
+              background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 150' preserveAspectRatio='none'%3E%3Cpath d='M0,150 C400,130 500,60 800,60 C1100,60 1200,130 1600,150' fill='%23F9FAFB' /%3E%3C/svg%3E") repeat-x bottom;
+              background-size: 50% 100%;
+              will-change: transform;
+            }
+            .wave-slide {
+              animation: slideRight 12s linear infinite;
+              bottom: -1px;
+            }
+            .wave-swell {
+              animation: slideRight 16s linear infinite, verticalSwell 6s ease-in-out infinite;
+              opacity: 0.7;
+              bottom: -15px;
+            }
+            @keyframes slideRight {
+              0% { transform: translateX(0); }
+              100% { transform: translateX(-50%); }
+            }
+            @keyframes verticalSwell {
+              0%, 100% { transform: translateX(-50%) translateY(0); }
+              50% { transform: translateX(-50%) translateY(-14px); }
+            }
+            /* Responsive heights */
+            @media (max-width: 1024px) { .wave-wrap { height: 120px; } }
+            @media (max-width: 768px) { .wave-wrap { height: 90px; } }
+            @media (max-width: 480px) { .wave-wrap { height: 60px; } }
+          `}
+        </style>
+
+        <div className="wave-wrap">
+          <div className="wave-track wave-slide"></div>
+          <div className="wave-track wave-swell"></div>
         </div>
       </section>
 
@@ -155,6 +233,12 @@ const Services = () => {
               in mind -- so you always have access to clean water when you need it.
             </p>
           </motion.div>
+
+          {loading ? (
+  <div className="flex justify-center py-20">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+  </div>
+) : (
 
           <motion.div
             initial="hidden"
@@ -217,6 +301,9 @@ const Services = () => {
               );
             })}
           </motion.div>
+
+)}
+          
         </div>
       </section>
 

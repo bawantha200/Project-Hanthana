@@ -37,10 +37,12 @@ import { supabase } from '../supabaseClient';
 // ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
+  { id: 'products', label: 'Products', icon: Package, path: '/admin/products' },
   { id: 'inventory', label: 'Inventory', icon: Package, path: '/admin/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
   { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
+
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin/finance' },
@@ -48,6 +50,8 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
+  { id: 'manage-permission', label: 'Manage Permission', icon: Settings, path: '/admin/manage-permission' },
+
 ];
 
 // Helper: get initials
@@ -120,10 +124,8 @@ function SidebarItem({ item, isActive, onClick }) {
 }
 
 // ---------- Notification Panel (mock) ----------
-const mockNotifications = [
-  { id: 1, message: 'New order #1234', time: '2 min ago', read: false, type: 'order' },
-  { id: 2, message: 'Delivery completed', time: '1 hour ago', read: false, type: 'delivery' },
-];
+// Replaces mockNotifications block + NotificationPanel component in AdminLayout.jsx
+
 const NOTIFICATION_ICONS = {
   order: ShoppingCart,
   delivery: Truck,
@@ -132,9 +134,71 @@ const NOTIFICATION_ICONS = {
   system: Settings,
 };
 
+// Relative time helper - "2 min ago", "1 hour ago" ආදිය
+const timeAgo = (dateString) => {
+  const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+};
+
 function NotificationPanel({ isOpen, onClose }) {
   const panelRef = useRef(null);
-  const unreadCount = mockNotifications.filter((n) => !n.read).length;
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  // Panel open වෙනකොට fresh list එකක් fetch කරනවා
+  const fetchNotifications = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/notifications', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) setNotifications(data.notifications || []);
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) fetchNotifications();
+  }, [isOpen, fetchNotifications]);
+
+  const handleMarkAsRead = async (id) => {
+    // Optimistic UI update - request එක fail උනත් user ට instant feedback
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`http://localhost:5000/api/notifications/${id}/read`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      console.error('Failed to mark as read:', err);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      const token = localStorage.getItem('token');
+      await fetch('http://localhost:5000/api/notifications/read-all', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      console.error('Failed to mark all as read:', err);
+    }
+  };
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -171,26 +235,54 @@ function NotificationPanel({ isOpen, onClose }) {
                   </span>
                 )}
               </div>
-              <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={handleMarkAllAsRead}
+                    className="text-[11px] font-medium text-blue-600 hover:text-blue-700"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+                  <X size={16} />
+                </button>
+              </div>
             </div>
             <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
-              {mockNotifications.map((n) => {
-                const Icon = NOTIFICATION_ICONS[n.type] || Bell;
-                return (
-                  <div key={n.id} className={`flex items-start gap-3 px-4 py-3 ${!n.read ? 'bg-blue-50/40' : ''}`}>
-                    <div className={`p-1.5 rounded-lg ${!n.read ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
-                      <Icon size={14} />
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-sm ${!n.read ? 'font-medium text-slate-800' : 'text-slate-500'}`}>{n.message}</p>
-                      <p className="text-xs text-slate-400 mt-1">{n.time}</p>
-                    </div>
-                    {!n.read && <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5" />}
-                  </div>
-                );
-              })}
+              {loading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+                </div>
+              )}
+              {!loading && notifications.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-10 text-center">
+                  <Bell size={22} className="text-slate-300 mb-2" />
+                  <p className="text-xs text-slate-400">No notifications yet</p>
+                </div>
+              )}
+              {!loading &&
+                notifications.map((n) => {
+                  const Icon = NOTIFICATION_ICONS[n.type] || Bell;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => !n.read && handleMarkAsRead(n.id)}
+                      className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors ${
+                        !n.read ? 'bg-blue-50/40 hover:bg-blue-50' : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-lg ${!n.read ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'}`}>
+                        <Icon size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm ${!n.read ? 'font-medium text-slate-800' : 'text-slate-500'}`}>{n.message}</p>
+                        <p className="text-xs text-slate-400 mt-1">{timeAgo(n.created_at)}</p>
+                      </div>
+                      {!n.read && <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
             </div>
           </motion.div>
         </>
@@ -663,9 +755,13 @@ function ProfileDropdown({ isOpen, onClose, user, onOpenSettings }) {
             <button onClick={() => { onOpenSettings(); onClose(); }} className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
               <User size={16} /> Account Settings
             </button>
-            <button onClick={handleSignOut} className="flex items-center gap-2.5 w-full px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 border-t border-slate-100 mt-1">
-              <LogOut size={16} /> Sign Out
-            </button>
+            <button
+                      onClick={handleSignOut}
+                      className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition"
+                    >
+                      <LogOut size={16} />
+                      Sign Out
+                    </button>
           </div>
         </motion.div>
       )}
@@ -681,10 +777,11 @@ export default function AdminLayout() {
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false); // single modal for all account actions
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false); 
 
   // Permissions & roles
   const [permissions, setPermissions] = useState([]);
@@ -705,6 +802,20 @@ export default function AdminLayout() {
       if (res.ok) setPermissions(data.permissions || []);
     } catch (err) {
       console.error('Failed to fetch permissions', err);
+    }
+  }, []);
+
+
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/notifications/unread-count', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) setUnreadCount(data.count);
+    } catch (err) {
+      console.error('Failed to fetch unread count:', err);
     }
   }, []);
 
@@ -754,6 +865,21 @@ export default function AdminLayout() {
       setEffectivePermissions([]);
     }
   }, [isAdmin, viewRole, user?.role, fetchPermissionsForRole]);
+
+
+  useEffect(() => {
+    if (!user) return;
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, [user, fetchUnreadCount]);
+
+  const handleNotificationsToggle = () => {
+    setNotificationsOpen((prev) => {
+      if (prev) fetchUnreadCount();
+      return !prev;
+    });
+  };
 
   // Determine which nav items to show
   const filteredNavItems = NAV_ITEMS.filter((item) => {
@@ -886,11 +1012,17 @@ export default function AdminLayout() {
             <div className="flex items-center gap-3">
               {/* Notifications */}
               <div className="relative">
-                <button onClick={() => setNotificationsOpen(!notificationsOpen)} className="p-2 rounded-xl text-slate-500 hover:bg-slate-100">
+                <button onClick={handleNotificationsToggle} className="relative p-2 rounded-xl text-slate-500 hover:bg-slate-100">
                   <Bell size={20} />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
                 </button>
                 <NotificationPanel isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
               </div>
+              
               <div className="h-8 w-px bg-slate-200" />
               {/* Profile */}
               <div className="relative">

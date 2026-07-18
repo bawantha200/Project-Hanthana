@@ -1,25 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ShoppingBag, Clock, Package, CheckCircle, DollarSign } from 'lucide-react';
-import { customerOrders } from '../../data/mockData';
-import StatusBadge from '../../components/StatusBadge';
 import { formatCurrency } from '../../utils/helpers';
 import { useNavigate } from "react-router-dom";
-
-function Component() {
-  const navigate = useNavigate();
-
-  return (
-    <motion.button
-      whileHover={{ scale: 1.04 }}
-      whileTap={{ scale: 0.97 }}
-      onClick={() => navigate("/tracking")}
-      className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-    >
-      Order Tracking
-    </motion.button>
-  );
-}
+import api from '../../services/api';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 20 },
@@ -30,7 +14,6 @@ const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
-
 
 const staggerContainer = {
   hidden: { opacity: 0 },
@@ -58,10 +41,40 @@ const Orders = () => {
   const [filter, setFilter] = useState('All');
   const navigate = useNavigate();
 
-  const totalOrders = customerOrders.length;
-  const totalSpent = customerOrders.reduce((sum, o) => sum + o.amount, 0);
-  const pendingOrders = customerOrders.filter(o => o.status === 'Pending' || o.status === 'Preparing').length;
-  const deliveredOrders = customerOrders.filter(o => o.status === 'Delivered').length;
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(null);
+
+  useEffect(() => {
+    const fetchOrders = async () => {
+      try {
+        const response = await api.get('/orders');
+        if (response.data.success) {
+          setOrders(response.data.orders);
+        } else {
+          throw new Error(response.data.message || 'Failed to fetch orders');
+        }
+      } catch (err) {
+        // Handle 401 specifically
+        if (err.response && err.response.status === 401) {
+          setFetchError('You are not logged in. Please log in to view your orders.');
+          // Optional: redirect after 3 seconds
+          setTimeout(() => navigate('/login'), 3000);
+        } else {
+          setFetchError(err.message || 'Something went wrong');
+        }
+        console.error('Fetch orders error:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchOrders();
+  }, [navigate]);
+
+  const totalOrders = orders.length;
+  const totalSpent = orders.reduce((sum, o) => sum + o.amount, 0);
+  const pendingOrders = orders.filter(o => o.status === 'Pending' || o.status === 'Preparing').length;
+  const deliveredOrders = orders.filter(o => o.status === 'Delivered').length;
 
   const summaryCards = [
     { label: 'Total Orders', value: totalOrders, icon: ShoppingBag, color: 'from-blue-600 to-blue-700', bg: 'bg-blue-50' },
@@ -71,28 +84,39 @@ const Orders = () => {
   ];
 
   const filteredOrders = filter === 'All'
-    ? customerOrders
-    : customerOrders.filter(o => o.status === filter);
+    ? orders
+    : orders.filter(o => o.status === filter);
 
-  const previousDeliveries = customerOrders.filter(o => o.status === 'Delivered');
+  const filters = ['All', 'Preparing', 'Dispatched', 'Delivered'];
 
-  const filters = ['All', 'Pending', 'Preparing', 'Dispatched', 'Delivered'];
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-center">
+        <div className="text-red-600 text-xl mb-4">⚠️ {fetchError}</div>
+        {fetchError.includes('log in') && (
+          <button
+            onClick={() => navigate('/login')}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Go to Login
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        {/* <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeInUp}
-          transition={{ duration: 0.5 }}
-          className="mb-8"
-        >
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Orders</h1>
-          <p className="mt-1 text-gray-500">Track and manage your water orders</p>
-        </motion.div> */}
-
         <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4 space-y-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">My Orders</h1>
@@ -110,7 +134,7 @@ const Orders = () => {
           </motion.button>
         </motion.div>
 
-        {/* Invoice Summary Cards */}
+        {/* Summary Cards */}
         <motion.div
           initial="hidden"
           animate="visible"
@@ -148,7 +172,6 @@ const Orders = () => {
           transition={{ duration: 0.5, delay: 0.2 }}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-8"
         >
-          {/* Table Header */}
           <div className="px-6 py-5 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
@@ -156,11 +179,9 @@ const Orders = () => {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">Order History</h2>
-                <p className="text-sm text-gray-500">{customerOrders.length} orders found</p>
+                <p className="text-sm text-gray-500">{orders.length} orders found</p>
               </div>
             </div>
-
-            {/* Filter Tabs */}
             <div className="flex flex-wrap gap-2">
               {filters.map((f) => (
                 <button
@@ -178,14 +199,11 @@ const Orders = () => {
             </div>
           </div>
 
-          {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Order ID</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Product</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Qty</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Amount</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
@@ -198,21 +216,14 @@ const Orders = () => {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3, delay: index * 0.05 }}
-                    className="hover:bg-blue-50/30 transition-colors duration-150"
+                    className="hover:bg-blue-50/30 transition-colors duration-150 cursor-pointer"
+                    onClick={() => {
+                    console.log('orderId being sent:', order.orderId);
+                    navigate(`/order/${order.orderId}`);
+        }}
                   >
                     <td className="px-6 py-4">
-                      <span className="text-sm font-semibold text-blue-600">{order.id}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                          <Package className="w-4 h-4 text-blue-600" />
-                        </div>
-                        <span className="text-sm font-medium text-gray-900">{order.product}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-700">{order.qty}</span>
+                      <span className="text-sm font-semibold text-blue-600">ORD-{order.id}</span>
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm font-semibold text-gray-900">{formatCurrency(order.amount)}</span>
@@ -237,62 +248,6 @@ const Orders = () => {
               <ShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500 font-medium">No orders found</p>
               <p className="text-sm text-gray-400 mt-1">Try adjusting your filter</p>
-            </div>
-          )}
-        </motion.div>
-
-        {/* Previous Deliveries Section */}
-        <motion.div
-          initial="hidden"
-          animate="visible"
-          variants={fadeInUp}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
-        >
-          <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
-              <CheckCircle className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Previous Deliveries</h2>
-              <p className="text-sm text-gray-500">{previousDeliveries.length} completed deliveries</p>
-            </div>
-          </div>
-
-          {previousDeliveries.length > 0 ? (
-            <div className="divide-y divide-gray-50">
-              {previousDeliveries.map((order, index) => (
-                <motion.div
-                  key={order.id}
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.3, delay: index * 0.08 }}
-                  className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50 transition-colors duration-150"
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                      <CheckCircle className="w-5 h-5 text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900">{order.product}</p>
-                      <p className="text-xs text-gray-500">Order {order.id} &middot; {order.date}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4 sm:gap-6">
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-gray-900">{formatCurrency(order.amount)}</p>
-                      <p className="text-xs text-gray-500">Qty: {order.qty}</p>
-                    </div>
-                    <StatusBadge status={order.status} />
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center py-12">
-              <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">No previous deliveries yet</p>
-              <p className="text-sm text-gray-400 mt-1">Your completed orders will appear here</p>
             </div>
           )}
         </motion.div>

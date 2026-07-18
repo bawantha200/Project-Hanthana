@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
@@ -18,6 +19,11 @@ import Vendors from '../pages/admin/Vendors';
 import Customers from '../pages/admin/Customers';
 import Finance from '../pages/admin/Finance';
 import Products from '../pages/admin/Products';
+import Messages from '../pages/admin/Messages';
+import POS from '../pages/admin/POS';
+import ManagePermissions from '../pages/admin/ManagePermissions';
+import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
+import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 
 
 // Auth pages
@@ -33,6 +39,7 @@ import ContactUs from '../pages/customer/ContactUs';
 import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
+import OrderDetails from '../pages/customer/OrderDetails';
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -85,12 +92,23 @@ function AdminRoutes() {
         <Route path="finance" element={
             <Finance />
         } />
+        
+        <Route path="pos" element={<POS />} />
 
-        <Route path="settings" element={<Products />} />    
+        <Route path="products" element={
+            <Products />
+        } />
 
+        <Route path="messages" element={
+            <Messages />
+        } />
+
+
+        <Route path="manage-permission" element={
+            <ManagePermissions />
+        } />
 
         
-
 
         {/* Invalid admin paths redirect to dashboard */}
         <Route path="*" element={<Navigate to="dashboard" replace />} />
@@ -110,7 +128,10 @@ function CustomerRoutes() {
         <Route path="orders" element={<CustomerOrders />} />
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/login" element={<Login />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="order/:id" element={<OrderDetails />} /> 
       </Route>
     </Routes>
   );
@@ -120,10 +141,10 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
+      <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
       <Route path="/admin/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
     </Routes>
   );
 }
@@ -131,6 +152,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
+    <Toaster position="top-right" />
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>

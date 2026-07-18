@@ -1,4 +1,6 @@
+// components/VendorTable.jsx
 import StatusBadge from './StatusBadge';
+import { Edit, Trash2 } from 'lucide-react';
 
 export default function VendorTable({ vendors, onEdit, onDelete }) {
   return (
@@ -24,21 +26,25 @@ export default function VendorTable({ vendors, onEdit, onDelete }) {
                   {v.supplyType}
                 </span>
               </td>
-              <td className="py-3 px-4 text-gray-500">{v.lastDelivery}</td>
+              <td className="py-3 px-4 text-gray-500">
+                {v.lastDelivery ? new Date(v.lastDelivery).toLocaleDateString() : 'N/A'}
+              </td>
               <td className="py-3 px-4"><StatusBadge status={v.status} /></td>
               <td className="py-3 px-4">
-                <button
-                  onClick={() => onEdit(v)}
-                  className="text-orange-600 hover:text-orange-800 mr-3 text-sm font-medium"
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => onDelete(v.id)}
-                  className="text-red-600 hover:text-red-800 text-sm font-medium"
-                >
-                  Delete
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => onEdit(v)}
+                    className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                  >
+                    <Edit size={14} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(v)}  // ✅ pass full vendor object
+                    className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

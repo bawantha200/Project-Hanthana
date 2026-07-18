@@ -1,32 +1,84 @@
-// Import required external modules
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
-// Import custom application routes
+// Route imports
 const authRoutes = require('./src/routes/authRoutes');
-const vendorRoutes = require('./src/routes/vendorRoutes');
+const userRoutes = require('./src/routes/userRoutes');
+const employeeRoutes = require('./src/routes/employeeRoutes'); 
+const ordersRoutes = require('./src/routes/ordersRoutes');
+const productsRoutes = require('./src/routes/productsRoutes');
+const vendorsRoutes = require('./src/routes/vendorsRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
+const settingsRoutes = require('./src/routes/settingsRoutes');
+const roleRoutes = require('./src/routes/roleRoutes');
 
-// Initialize the Express application instance
+const notificationsRoutes = require('./src/routes/notificationsRoutes');
+const positionRoutes = require('./src/routes/positionRoutes');
+const permissionRoutes = require('./src/routes/permissionRoutes');
+const departmentRoutes = require('./src/routes/departmentRoutes');
+
+const forecastRoutes = require('./src/routes/forecastRoutes');
+const inventoryRoutes = require('./src/routes/inventoryRoutes');
+const attendanceRoutes = require('./src/routes/attendanceRoutes');
+const salaryRoutes = require('./src/routes/salaryRoutes');
+const contactRoutes = require('./src/routes/contactRoutes');
+
+
 const app = express();
 
-// Global Middlewares Configuration
+// Global middleware
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+];
 app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy does not allow origin ${origin}`));
+    }
+  },
+  credentials: true,
 }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use(express.json());
-
-// API routes
-app.use('/api/vendors', vendorRoutes);
+// API route mounting
 app.use('/api/auth', authRoutes);
-app.use('/api/customers', customerRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/roles', roleRoutes);
 
-// Root test route
+app.use('/api/positions', positionRoutes);
+app.use('/api', permissionRoutes);
+app.use('/api/notifications', notificationsRoutes);
+
+app.use('/api/departments', departmentRoutes);
+app.use('/api/positions', positionRoutes);
+app.use('/api/orders', ordersRoutes);
+app.use('/api/products', productsRoutes);
+app.use('/api/vendors', vendorsRoutes); 
+app.use('/api/customers', customerRoutes);  
+app.use('/api/forecast', forecastRoutes); 
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/vendors', vendorsRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/attendance', attendanceRoutes);
+app.use('/api/salaries', salaryRoutes);
+
+
+app.use('/api/contact', contactRoutes); 
+
+
+// Health check
 app.get('/', (req, res) => {
-  res.status(200).json({ status: "success", message: "Hanthana Backend API is running smoothly." });
+  res.status(200).json({
+    status: 'success',
+    message: 'Hanthana Backend API is running smoothly.'
+  });
 });
 
 const PORT = process.env.PORT || 5000;

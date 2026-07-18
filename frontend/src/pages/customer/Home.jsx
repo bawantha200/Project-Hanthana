@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,8 +14,8 @@ import {
   ChevronRight,
   ArrowRight,
   Headphones,
+  Calendar,
 } from 'lucide-react';
-import { products, testimonials } from '../../data/mockData';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -50,6 +51,8 @@ const deliveryHighlights = [
   },
 ];
 
+
+
 const refillServices = [
   {
     icon: Droplets,
@@ -71,24 +74,94 @@ const refillServices = [
   },
 ];
 
-const stats = [
-  { value: '10,000+', label: 'Customers', icon: Users },
-  { value: '50,000+', label: 'Deliveries', icon: Truck },
-  { value: '99.9%', label: 'Quality', icon: Award },
-  { value: '24/7', label: 'Support', icon: Headphones },
-];
 
-const Home = () => {
+// const stats = [
+//   { value: '10,000+', label: 'Customers', icon: Users },
+//   { value: '50,000+', label: 'Deliveries', icon: Truck },
+//   { value: '99.9%', label: 'Quality', icon: Award },
+//   { value: '24/7', label: 'Support', icon: Headphones },
+// ];
+
+// ✅ Component එක ඇතුළේ Hooks භාවිතා කරන්න
+export default function Home() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [heroImageUrl, setHeroImageUrl] = useState('/images/carousel0.jpeg');
+  const [settings, setSettings] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+
+
+  const iconMap = [Users, Calendar, Truck, MapPin];
+
+  const stats = (settings?.general?.stats || []).map((stat, i) => ({
+    ...stat,
+    icon: iconMap[i] || Users,
+  }));
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/products');
+        const data = await response.json();
+        if (data.success) {
+          setProducts(data.data || []);
+        }
+      } catch (error) {
+        console.error('Fetch products error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchProducts();
+  }, []);
+
+  useEffect(() => {
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/settings/public');
+      const data = await response.json();
+
+      console.log("HOME SETTINGS:", data);
+
+      if (data.success) {
+        setSettings(data.data);
+
+        if (data.data?.general?.heroImageUrl) {
+          setHeroImageUrl(data.data.general.heroImageUrl);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load settings:', error);
+    }
+  };
+
+  fetchSettings();
+}, []);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600">
-        {/* Decorative circles */}
-        <div className="absolute -top-24 -left-24 w-96 h-96 bg-white/5 rounded-full" />
-        <div className="absolute top-1/2 -right-32 w-80 h-80 bg-white/5 rounded-full" />
-        <div className="absolute -bottom-20 left-1/3 w-64 h-64 bg-white/5 rounded-full" />
-        <div className="absolute top-20 right-1/4 w-32 h-32 bg-cyan-400/10 rounded-full" />
 
+       
+    
+    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+  {!imageLoaded && (
+    <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+  )}
+  <img
+    src={settings?.general?.heroImageUrl || '/images/default-hero.jpg'}
+    alt="Background"
+    onLoad={() => setImageLoaded(true)}
+    className={`w-full h-full object-cover transition-opacity duration-500 ${
+      imageLoaded ? 'opacity-100' : 'opacity-0'
+    }`}
+  />
+  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+</div>
+  
+        
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-36">
           <motion.div
             initial="hidden"
@@ -131,15 +204,9 @@ const Home = () => {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
             >
+             
               <Link
-                to="/orders"
-                className="inline-flex items-center gap-2 bg-white text-blue-700 font-semibold px-8 py-4 rounded-xl hover:bg-blue-50 transition-all duration-200 shadow-lg shadow-blue-900/20 text-lg"
-              >
-                <ShoppingBag className="w-5 h-5" />
-                Order Now
-              </Link>
-              <Link
-                to="services"
+                to="/services"
                 className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-semibold px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-200 text-lg"
               >
                 Explore Services
@@ -149,18 +216,58 @@ const Home = () => {
           </motion.div>
         </div>
 
-        {/* Bottom wave */}
-        <div className="absolute bottom-0 left-0 right-0">
-          <svg viewBox="0 0 1440 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M0 120L48 110C96 100 192 80 288 70C384 60 480 60 576 65C672 70 768 80 864 85C960 90 1056 90 1152 80C1248 70 1344 50 1392 40L1440 30V120H1392C1344 120 1248 120 1152 120C1056 120 960 120 864 120C768 120 672 120 576 120C480 120 384 120 288 120C192 120 96 120 48 120H0Z"
-              fill="#F9FAFB"
-            />
-          </svg>
+        <style>
+          {`
+            .wave-wrap {
+              position: absolute;
+              bottom: 0;
+              left: 0;
+              width: 100%;
+              height: 150px;
+              overflow: hidden;
+              pointer-events: none;
+              z-index: 2;
+            }
+            .wave-track {
+              position: absolute;
+              bottom: 0;
+              left: 0;
+              width: 200%;
+              height: 100%;
+              background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 150' preserveAspectRatio='none'%3E%3Cpath d='M0,150 C400,130 500,60 800,60 C1100,60 1200,130 1600,150' fill='%23F9FAFB' /%3E%3C/svg%3E") repeat-x bottom;
+              background-size: 50% 100%;
+              will-change: transform;
+            }
+            .wave-slide {
+              animation: slideRight 12s linear infinite;
+              bottom: -1px;
+            }
+            .wave-swell {
+              animation: slideRight 16s linear infinite, verticalSwell 6s ease-in-out infinite;
+              opacity: 0.7;
+              bottom: -15px;
+            }
+            @keyframes slideRight {
+              0% { transform: translateX(0); }
+              100% { transform: translateX(-50%); }
+            }
+            @keyframes verticalSwell {
+              0%, 100% { transform: translateX(-50%) translateY(0); }
+              50% { transform: translateX(-50%) translateY(-14px); }
+            }
+            @media (max-width: 1024px) { .wave-wrap { height: 120px; } }
+            @media (max-width: 768px) { .wave-wrap { height: 90px; } }
+            @media (max-width: 480px) { .wave-wrap { height: 60px; } }
+          `}
+        </style>
+
+        <div className="wave-wrap">
+          <div className="wave-track wave-slide"></div>
+          <div className="wave-track wave-swell"></div>
         </div>
       </section>
 
-      {/* Product Cards Section */}
+      {/* Product Cards Section - ✅ Database Products Display */}
       <section className="py-16 sm:py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -183,65 +290,78 @@ const Home = () => {
             </p>
           </motion.div>
 
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.1 }}
-            variants={staggerContainer}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6"
-          >
-            {products.map((product) => (
-              <motion.div
-                key={product.id}
-                variants={fadeInUp}
-                transition={{ duration: 0.4 }}
-                className="group bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-100"
-              >
-                <div className="relative h-48 bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center overflow-hidden">
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <span
-                    className={`absolute top-3 right-3 text-xs font-semibold px-3 py-1 rounded-full ${
-                      product.type === 'sealed'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-cyan-500 text-white'
-                    }`}
-                  >
-                    {product.type === 'sealed' ? 'Sealed' : 'Refill'}
-                  </span>
-                </div>
-
-                <div className="p-5">
-                  <h3 className="font-semibold text-gray-900 text-base">
-                    {product.name}
-                  </h3>
-                  <p className="mt-1 text-sm text-gray-500 line-clamp-2">
-                    {product.description}
-                  </p>
-
-                  <div className="mt-4 flex items-center justify-between">
-                    <span className="text-2xl font-bold text-blue-600">
-                      LKR {product.price}
-                    </span>
-                    <Link
-                      to="/customer/order"
-                      className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+          {/* ✅ Loading State */}
+          {loading ? (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+            </div>
+          ) : products.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              No products available
+            </div>
+          ) : (
+            <motion.div
+              initial="hidden"
+              whileInView="visible"
+              viewport={{ once: true, amount: 0.1 }}
+              variants={staggerContainer}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6"
+            >
+              {products.map((product) => (
+                <motion.div
+                  key={product.id}
+                  variants={fadeInUp}
+                  transition={{ duration: 0.4 }}
+                  className="group bg-white rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-100"
+                >
+                  <div className="relative h-48 bg-gradient-to-br from-blue-50 to-cyan-50 flex items-center justify-center overflow-hidden">
+                    <img
+                      src={product.image_url || '/images/default-product.jpg'}
+                      alt={product.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span
+                      className={`absolute top-3 right-3 text-xs font-semibold px-3 py-1 rounded-full ${
+                        product.type === 'SEALED'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-cyan-500 text-white'
+                      }`}
                     >
-                      Add to Order
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                      {product.type === 'SEALED' ? 'Sealed' : 'Refill'}
+                    </span>
                   </div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
+
+                  <div className="p-5">
+                    <h3 className="font-semibold text-gray-900 text-base">
+                      {product.name}
+                    </h3>
+                    {product.description && (
+                      <p className="mt-1 text-sm text-gray-500 line-clamp-2">
+                        {product.description}
+                      </p>
+                    )}
+
+                    <div className="mt-4 flex items-center justify-between">
+                      <span className="text-2xl font-bold text-blue-600">
+                        LKR {Number(product.unit_price).toFixed(2)}
+                      </span>
+                      <Link
+                        to="/customer/order"
+                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Add to Order
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
         </div>
       </section>
 
-      {/* Refill Service Cards Section */}
+      {/* Refill Service Cards Section - No Changes */}
       <section className="py-16 sm:py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -344,7 +464,6 @@ const Home = () => {
                   transition={{ duration: 0.5 }}
                   className="relative bg-white rounded-2xl p-8 shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden border border-gray-100"
                 >
-                  {/* Gradient accent bar */}
                   <div
                     className={`absolute top-0 left-0 right-0 h-1 bg-gradient-to-r ${item.color}`}
                   />
@@ -368,86 +487,8 @@ const Home = () => {
         </div>
       </section>
 
-      {/* Testimonials Section */}
-      <section className="py-16 sm:py-20 bg-gradient-to-br from-blue-50 to-cyan-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.2 }}
-            variants={fadeInUp}
-            transition={{ duration: 0.6 }}
-            className="text-center mb-12"
-          >
-            <span className="text-sm font-semibold text-blue-600 uppercase tracking-wider">
-              Testimonials
-            </span>
-            <h2 className="mt-2 text-3xl sm:text-4xl font-bold text-gray-900">
-              What Our Customers Say
-            </h2>
-          </motion.div>
-
-          <motion.div
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true, amount: 0.1 }}
-            variants={staggerContainer}
-            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
-          >
-            {testimonials.map((testimonial) => (
-              <motion.div
-                key={testimonial.id}
-                variants={fadeInUp}
-                transition={{ duration: 0.4 }}
-                className="bg-white rounded-2xl p-6 shadow-sm hover:shadow-md transition-all duration-300 border border-gray-100 flex flex-col"
-              >
-                {/* Star rating */}
-                <div className="flex gap-1 mb-4">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`w-4 h-4 ${
-                        i < testimonial.rating
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-300'
-                      }`}
-                    />
-                  ))}
-                </div>
-
-                {/* Quote */}
-                <p className="text-gray-600 text-sm leading-relaxed flex-1">
-                  &ldquo;{testimonial.text}&rdquo;
-                </p>
-
-                {/* Author */}
-                <div className="mt-5 pt-4 border-t border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-sm font-bold">
-                      {testimonial.name
-                        .split(' ')
-                        .map((n) => n[0])
-                        .join('')}
-                    </div>
-                    <div>
-                      <p className="font-semibold text-gray-900 text-sm">
-                        {testimonial.name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {testimonial.role}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
       {/* Statistics Section */}
       <section className="py-16 sm:py-20 bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600 relative overflow-hidden">
-        {/* Decorative circles */}
         <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/5 rounded-full" />
         <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/5 rounded-full" />
 
@@ -518,13 +559,7 @@ const Home = () => {
               daily water needs. Place your first order today.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link
-                to="/orders"
-                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg shadow-blue-600/20 text-lg"
-              >
-                <ShoppingBag className="w-5 h-5" />
-                Order Now
-              </Link>
+              
               <Link
                 to="/services"
                 className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-8 py-4 rounded-xl transition-colors duration-200 text-lg"
@@ -538,6 +573,4 @@ const Home = () => {
       </section>
     </div>
   );
-};
-
-export default Home;
+}
