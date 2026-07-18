@@ -38,7 +38,9 @@ import ContactUs from '../pages/customer/ContactUs';
 import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
-import CustomerOrderDetails from '../pages/customer/OrderDetails'; // ✅ Customer order details
+import CustomerOrderDetails from '../pages/customer/OrderDetails';
+import PaymentResult from '../pages/customer/PaymentResult';
+import PaymentCancel from '../pages/customer/PaymentCancel';
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -88,6 +90,8 @@ function CustomerRoutes() {
         <Route path="profile" element={<Profile />} />
         <Route path="register" element={<Register />} />
         <Route path="login" element={<Login />} />
+        <Route path="payment-result" element={<PaymentResult />} />
+        <Route path="payment-cancel" element={<PaymentCancel />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

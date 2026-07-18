@@ -21,6 +21,7 @@ const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const salaryRoutes = require('./src/routes/salaryRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
 const deliveryRoutes = require('./src/routes/deliveryRoutes');
+const paymentRoutes = require('./src/routes/paymentRoutes');
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salaries', salaryRoutes);
 app.use('/api/deliveries', deliveryRoutes);
+app.use('/api/payments', paymentRoutes);
 
 
 app.use('/api/contact', contactRoutes); 

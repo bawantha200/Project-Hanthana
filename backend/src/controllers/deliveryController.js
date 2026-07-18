@@ -134,8 +134,7 @@ const updateDelivery = async (req, res) => {
 
     const updatedDelivery = await updateDeliveryStatus(
       deliveryId,
-      status,
-      parseInt(emptyBottles) || 0
+      status
     );
 
     res.json({ success: true, delivery: updatedDelivery });
