@@ -1,3 +1,4 @@
+// frontend/src/router/router.jsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
@@ -20,11 +21,12 @@ import Customers from '../pages/admin/Customers';
 import Finance from '../pages/admin/Finance';
 import Products from '../pages/admin/Products';
 import Messages from '../pages/admin/Messages';
-import POS from '../pages/admin/POS';
 import ManagePermissions from '../pages/admin/ManagePermissions';
+import AdminOrderDetails from '../pages/admin/OrderDetails';
+import RiderDashboard from '../pages/admin/RiderDashboard';
+import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
-
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -39,7 +41,9 @@ import ContactUs from '../pages/customer/ContactUs';
 import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
-import OrderDetails from '../pages/customer/OrderDetails';
+import CustomerOrderDetails from '../pages/customer/OrderDetails';
+import PaymentResult from '../pages/customer/PaymentResult';
+import PaymentCancel from '../pages/customer/PaymentCancel';
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -50,68 +54,27 @@ function AdminRoutes() {
 
   return (
     <Routes>
-      {/* Use adminlayout as a parent route element*/}
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        
-        <Route path="dashboard" element={<Dashboard />
-        } />
-        
-        <Route path="inventory" element={<Inventory />
-        } />
-        
-        <Route path="orders" element={<Orders />
-        } />
-
-        <Route path="deliveries" element={<Deliveries />
-        } />
-
-        <Route path="reports" element={<Reports />
-        } />
-        
-        <Route path="user-management" element={<UserManagement />
-        } />
-
-        <Route path="settings" element={<Settings />} />    
- 
-        <Route path="employees" element={<Employees />
-        } />
-        
-        <Route path="hrm" element={<HRM />
-        } />
-        
-
-        <Route path="vendors" element={ 
-            <Vendors />
-        } />
-
-        <Route path="customers" element={
-            <Customers />
-        } />
-
-        <Route path="finance" element={
-            <Finance />
-        } />
-        
+        <Route index element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
         <Route path="pos" element={<POS />} />
-
-        <Route path="products" element={
-            <Products />
-        } />
-
-        <Route path="messages" element={
-            <Messages />
-        } />
-
-
-        <Route path="manage-permission" element={
-            <ManagePermissions />
-        } />
-
-        
-
-        {/* Invalid admin paths redirect to dashboard */}
-        <Route path="*" element={<Navigate to="dashboard" replace />} />
+        <Route path="inventory" element={<Inventory />} />
+        <Route path="orders" element={<Orders />} />
+        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* Admin order details */}
+        <Route path="deliveries" element={<Deliveries />} />
+        <Route path="reports" element={<Reports />} />
+        <Route path="user-management" element={<UserManagement />} />
+        <Route path="settings" element={<Settings />} />
+        <Route path="employees" element={<Employees />} />
+        <Route path="hrm" element={<HRM />} />
+        <Route path="vendors" element={<Vendors />} />
+        <Route path="customers" element={<Customers />} />
+        <Route path="finance" element={<Finance />} />
+        <Route path="products" element={<Products />} />
+        <Route path="messages" element={<Messages />} />
+        <Route path="manage-permission" element={<ManagePermissions />} />
+        <Route path="rider-dashboard" element={<RiderDashboard />} />
+        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
     </Routes>
   );
@@ -126,12 +89,14 @@ function CustomerRoutes() {
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
         <Route path="orders" element={<CustomerOrders />} />
+        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* Customer order details */}
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="register" element={<Register />} />
+        <Route path="login" element={<Login />} />
+        <Route path="payment-result" element={<PaymentResult />} />
+        <Route path="payment-cancel" element={<PaymentCancel />} />
         <Route path="*" element={<Navigate to="/" replace />} />
-        <Route path="order/:id" element={<OrderDetails />} /> 
       </Route>
     </Routes>
   );
@@ -152,7 +117,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-    <Toaster position="top-right" />
+      <Toaster position="top-right" />
       <AuthProvider>
         <AppRoutes />
       </AuthProvider>

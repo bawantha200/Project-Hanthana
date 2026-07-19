@@ -42,6 +42,8 @@ async function notifyOrderEvent({ settingsKey, type, message, relatedOrderId = n
   type,
   message,
   related_order_id: relatedOrderId,
+
+  
 });
 
 if (insertError) {
@@ -58,6 +60,19 @@ if (insertError) {
   }
 }
 
+
+async function sendOrderConfirmationEmail({ customerEmail, subject, message }) {
+  const activeTransporter = getTransporter();
+  if (!activeTransporter || !customerEmail) return;
+
+  await activeTransporter.sendMail({
+    from: `"${fromName}" <${fromEmail}>`,
+    to: customerEmail,
+    subject,
+    text: message,
+    html: `<p>${message}</p>`,
+  });
+}
 /**
  * targetRole ට match වෙන profiles ටික email ලබන්න
  */

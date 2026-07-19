@@ -8,89 +8,87 @@ import { useAuth } from '../../context/AuthContext';
 
 const Login = ({ onSuccess, isModal = false }) => {
   const { login, loginWithGoogle } = useAuth();
-  
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isLocked, setIsLocked] = useState(false);
-  
+
   const navigate = useNavigate();
 
   /**
    * Handles traditional Email/Password authentication
    */
-const handleLogin = useCallback(async (e) => {
-  e.preventDefault();
-  setLoading(true);
-  setError('');
-  setIsLocked(false);
-  console.log("[LOGIN] Attempting email/password sign-in for:", email);
+  const handleLogin = useCallback(async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    setIsLocked(false);
+    console.log("[LOGIN] Attempting email/password sign-in for:", email);
 
-  try {
-    const response = await fetch('http://localhost:5000/api/auth/login', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ email, password }),
-    });
+    try {
+      const response = await fetch('http://localhost:5000/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    console.log("LOGIN RESPONSE:", data);
+      console.log("LOGIN RESPONSE:", data);
 
-    if (!response.ok || !data.success) {
+      if (!response.ok || !data.success) {
 
+        console.log("🟡 Entered failure block. Full data:", data);
+        console.log("🟡 requireTwoFactorSetup value:", data.requireTwoFactorSetup);
 
-      console.log("🟡 Entered failure block. Full data:", data);
-  console.log("🟡 requireTwoFactorSetup value:", data.requireTwoFactorSetup);
-  
-  
-      if (data.locked) {
-        setIsLocked(true);
-      }
+        if (data.locked) {
+          setIsLocked(true);
+        }
 
-      // Password හරි, ඒත් 2FA setup වෙලා නෑ — QR scan page එකට යවනවා
-      if (data.requireTwoFactorSetup) {
-        console.log("🔵 2FA Setup branch reached!");
-        navigate('/2fa-setup', { state: { tempToken: data.tempToken } });
+        // Password හරි, ඒත් 2FA setup වෙලා නෑ — QR scan page එකට යවනවා
+        if (data.requireTwoFactorSetup) {
+          console.log("🔵 2FA Setup branch reached!");
+          navigate('/2fa-setup', { state: { tempToken: data.tempToken } });
+          setLoading(false);
+          return;
+        }
+
+        // Password හරි, 2FA already enabled — code එක type කරන්න
+        if (data.requireTwoFactor) {
+          navigate('/2fa-verify', { state: { tempToken: data.tempToken } });
+          setLoading(false);
+          return;
+        }
+
+        setError(data.message || 'Login execution failed');
         setLoading(false);
         return;
       }
 
-      // Password හරි, 2FA already enabled — code එක type කරන්න
-      if (data.requireTwoFactor) {
-        navigate('/2fa-verify', { state: { tempToken: data.tempToken } });
-        setLoading(false);
-        return;
-      }
+      login(data.user, data.session.access_token, data.permissions || []);
 
-      setError(data.message || 'Login execution failed');
-      setLoading(false);
-      return;
-    }
-
-    login(data.user, data.session.access_token, data.permissions || []);
-
-    if (isModal && onSuccess) {
-      onSuccess();
-    } else {
-      const targetRole = data.user.role?.toUpperCase();
-      if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
-        navigate('/admin/dashboard', { replace: true });
+      if (isModal && onSuccess) {
+        onSuccess();
       } else {
-        navigate('/customer/dashboard', { replace: true });
+        const targetRole = data.user.role?.toUpperCase();
+        if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
+          navigate('/admin/dashboard', { replace: true });
+        } else {
+          navigate('/customer/dashboard', { replace: true });
+        }
       }
-    }
 
-  } catch (error) {
-    console.error("[LOGIN ERROR]", error);
-    setError('Something went wrong. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-}, [email, password, login, navigate, isModal, onSuccess]);
+    } catch (error) {
+      console.error("[LOGIN ERROR]", error);
+      setError('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }, [email, password, login, navigate, isModal, onSuccess]);
 
   /**
    * Handles Google OAuth Authentication
@@ -100,7 +98,7 @@ const handleLogin = useCallback(async (e) => {
       e.preventDefault();
       e.stopPropagation();
     }
-    
+
     console.log("🔥 [CLICK TRIGGERED] The Google Button was physically clicked!");
 
     try {
@@ -133,31 +131,31 @@ const handleLogin = useCallback(async (e) => {
           playsInline
           className="w-full h-full object-cover opacity-30"
         >
-          <source 
-            src="/videos/bg_video.mp4" 
-            type="video/mp4" 
+          <source
+            src="/videos/bg_video.mp4"
+            type="video/mp4"
           />
           Your browser does not support the video tag.
         </video>
       </div>
       {!isModal && (
         <>
-          <motion.div 
-            animate={{ y: [0, -20, 0] }} 
-            transition={{ duration: 5, repeat: Infinity }} 
-            className="absolute -top-24 -left-24 w-96 h-96 bg-blue-200 rounded-full blur-3xl opacity-50" 
+          <motion.div
+            animate={{ y: [0, -20, 0] }}
+            transition={{ duration: 5, repeat: Infinity }}
+            className="absolute -top-24 -left-24 w-96 h-96 bg-blue-200 rounded-full blur-3xl opacity-50"
           />
-          <motion.div 
-            animate={{ y: [0, 20, 0] }} 
-            transition={{ duration: 7, repeat: Infinity, delay: 1 }} 
-            className="absolute -bottom-24 -right-24 w-96 h-96 bg-cyan-100 rounded-full blur-3xl opacity-50" 
+          <motion.div
+            animate={{ y: [0, 20, 0] }}
+            transition={{ duration: 7, repeat: Infinity, delay: 1 }}
+            className="absolute -bottom-24 -right-24 w-96 h-96 bg-cyan-100 rounded-full blur-3xl opacity-50"
           />
         </>
       )}
 
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }} 
-        animate={{ opacity: 1, y: 0 }} 
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
         className={isModal ? "" : "sm:mx-auto sm:w-full sm:max-w-md relative z-10"}
       >
         <div className={innerCardClasses}>
@@ -165,27 +163,24 @@ const handleLogin = useCallback(async (e) => {
             <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
             <p className="text-gray-500 text-sm mt-2">Sign in to manage your water deliveries</p>
           </div>
-          
+
           {error && (
-  <div className={`flex items-start gap-3 rounded-xl p-3 mb-5 border ${
-    isLocked ? 'bg-red-50 border-red-200' : 'bg-red-50 border-red-200'
-  }`}>
-    {isLocked ? (
-      <Lock size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
-    ) : (
-      <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
-    )}
-    <div>
-      <p className="text-sm font-medium text-red-700">
-        {isLocked ? 'Account Locked' : 'Login Failed'}
-      </p>
-      <p className="text-xs text-red-600 mt-0.5">{error}</p>
-    </div>
-  </div>
-)}
-
-
-  {/* existing email/password fields */}
+            <div className={`flex items-start gap-3 rounded-xl p-3 mb-5 border ${
+              isLocked ? 'bg-red-50 border-red-200' : 'bg-red-50 border-red-200'
+            }`}>
+              {isLocked ? (
+                <Lock size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+              ) : (
+                <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+              )}
+              <div>
+                <p className="text-sm font-medium text-red-700">
+                  {isLocked ? 'Account Locked' : 'Login Failed'}
+                </p>
+                <p className="text-xs text-red-600 mt-0.5">{error}</p>
+              </div>
+            </div>
+          )}
 
           <form onSubmit={handleLogin} className="space-y-5">
             {/* Email Field */}
@@ -193,13 +188,13 @@ const handleLogin = useCallback(async (e) => {
               <label className="block text-sm font-medium text-gray-700 ml-1">Email</label>
               <div className="mt-1 relative">
                 <Mail className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
-                <input 
-                  type="email" 
-                  required 
+                <input
+                  type="email"
+                  required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
-                  placeholder="name@example.com" 
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  placeholder="name@example.com"
                 />
               </div>
             </div>
@@ -209,46 +204,46 @@ const handleLogin = useCallback(async (e) => {
               <label className="block text-sm font-medium text-gray-700 ml-1">Password</label>
               <div className="mt-1 relative">
                 <Lock className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
-                <input 
-                  type="password" 
-                  required 
+                <input
+                  type="password"
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all" 
-                  placeholder="••••••••" 
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  placeholder="••••••••"
                 />
               </div>
             </div>
 
             {/* Submit Button */}
-           <button 
-  type="submit" 
-  disabled={loading || isLocked}
-  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center disabled:bg-blue-400 disabled:cursor-not-allowed"
->
-  <LogIn className="w-5 h-5 mr-2" /> 
-  {isLocked ? "Account Locked" : loading ? "Signing In..." : "Sign In"}
-</button>
+            <button
+              type="submit"
+              disabled={loading || isLocked}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center disabled:bg-blue-400 disabled:cursor-not-allowed"
+            >
+              <LogIn className="w-5 h-5 mr-2" />
+              {isLocked ? "Account Locked" : loading ? "Signing In..." : "Sign In"}
+            </button>
           </form>
 
           {/* Social Divider */}
           <div className="mt-6">
-             <div className="relative flex py-3 items-center">
+            <div className="relative flex py-3 items-center">
               <div className="flex-grow border-t border-gray-400"></div>
               <span className="flex-shrink mx-4 text-gray-600 text-sm">OR</span>
               <div className="flex-grow border-t border-gray-400"></div>
             </div>
 
             {/* Google Authentication Trigger */}
-            <button 
+            <button
               type="button"
-              onClick={handleGoogleLoginClick} 
+              onClick={handleGoogleLoginClick}
               className="w-full mt-2 bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 font-semibold py-3 rounded-xl transition-all flex justify-center items-center cursor-pointer relative z-30 gap-3"
             >
-              <img 
-                src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg" 
-                className="w-5 h-5" 
-                alt="Google" 
+              <img
+                src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/google/google-original.svg"
+                className="w-5 h-5"
+                alt="Google"
               />
               Continue with Google
             </button>

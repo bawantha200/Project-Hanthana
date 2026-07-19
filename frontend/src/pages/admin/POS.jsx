@@ -58,7 +58,7 @@ export default function POS() {
 
   // ---------- Computed ----------
   const filteredCustomers = users.filter((u) =>
-    u.full_name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
+    u.name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
     u.phone?.includes(customerSearch)
   );
 

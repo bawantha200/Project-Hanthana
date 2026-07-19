@@ -1,4 +1,4 @@
-// src/routes/ordersRoutes.js
+// backend/src/routes/ordersRoutes.js
 const express = require('express');
 const router = express.Router();
 const {
@@ -7,20 +7,28 @@ const {
   getUsers,
   getProducts,
   postOrder,
+  updateStatus,
+  assignDelivery,
+  getDeliveryPersonnelList,
+  getOrderDetails,
+  updateDelivery,
 } = require('../controllers/ordersController');
 const { protect } = require('../middlewares/authMiddleware');
 
-// Import authentication middleware (if you have one)
-// const { protect, admin } = require('../middlewares/authMiddleware');
+router.use(protect);
 
-// All routes are protected – adjust as needed
-// router.use(protect); // uncomment if you want to require login for all
+router.get('/', getOrders);
+router.get('/users', getUsers);
+router.get('/products', getProducts);
+router.post('/', postOrder);
 
-router.get('/', getOrders);           // GET all orders
-router.get('/users', getUsers);       // GET all users
-router.get('/products', getProducts); // GET all products
-router.post('/', postOrder);          // POST create order
+router.get('/:id', getOrder);
 
-router.get('/:id', protect, getOrder);   // 👈 new route
+router.get('/:id/details', getOrderDetails);
+router.put('/:id/status', updateStatus);
+router.put('/:id/assign', assignDelivery);
+router.put('/:id/delivery', updateDelivery);
+
+router.get('/delivery/personnel', getDeliveryPersonnelList);
 
 module.exports = router;

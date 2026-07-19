@@ -5,33 +5,37 @@ require('dotenv').config();
 // Route imports
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
-const employeeRoutes = require('./src/routes/employeeRoutes'); 
+const employeeRoutes = require('./src/routes/employeeRoutes');
 const ordersRoutes = require('./src/routes/ordersRoutes');
 const productsRoutes = require('./src/routes/productsRoutes');
 const vendorsRoutes = require('./src/routes/vendorsRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
 const settingsRoutes = require('./src/routes/settingsRoutes');
 const roleRoutes = require('./src/routes/roleRoutes');
-
-const notificationsRoutes = require('./src/routes/notificationsRoutes');
 const positionRoutes = require('./src/routes/positionRoutes');
 const permissionRoutes = require('./src/routes/permissionRoutes');
-const departmentRoutes = require('./src/routes/departmentRoutes');
+
+const notificationsRoutes = require('./src/routes/notificationsRoutes');
+const { startPaymentReminderJob } = require('./src/jobs/paymentReminderJob');
 
 const forecastRoutes = require('./src/routes/forecastRoutes');
 const inventoryRoutes = require('./src/routes/inventoryRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const salaryRoutes = require('./src/routes/salaryRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
+const deliveryRoutes = require('./src/routes/deliveryRoutes');
+const paymentRoutes = require('./src/routes/paymentRoutes');
+
 
 
 const app = express();
 
-// Global middleware
 const allowedOrigins = [
   'http://localhost:5173',
-  'http://localhost:5174',
+  'http://localhost:3000',
 ];
+
+// Global middleware
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -50,28 +54,21 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/roles', roleRoutes);
-
 app.use('/api/positions', positionRoutes);
 app.use('/api', permissionRoutes);
-app.use('/api/notifications', notificationsRoutes);
-
-app.use('/api/departments', departmentRoutes);
-app.use('/api/positions', positionRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
-app.use('/api/vendors', vendorsRoutes); 
-app.use('/api/customers', customerRoutes);  
-app.use('/api/forecast', forecastRoutes); 
-app.use('/api/inventory', inventoryRoutes);
 app.use('/api/vendors', vendorsRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/forecast', forecastRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/notifications', notificationsRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salaries', salaryRoutes);
-
-
-app.use('/api/contact', contactRoutes); 
-
+app.use('/api/deliveries', deliveryRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/contact', contactRoutes);
 
 // Health check
 app.get('/', (req, res) => {
@@ -84,4 +81,5 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`[Server] Hanthana core engine actively running on port: ${PORT}`);
+  startPaymentReminderJob(); // 🆕
 });

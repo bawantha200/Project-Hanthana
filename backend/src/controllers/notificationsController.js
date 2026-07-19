@@ -27,10 +27,14 @@ const getUnreadCount = async (req, res) => {
   try {
     const userRole = (req.user?.role?.role_name || req.user?.role || '').toString().trim().toUpperCase();
 
+    // NOTE: target_role is stored as a comma-separated list (e.g. "CASHIER,ADMIN"),
+    // so this must use the same ilike wildcard match as getNotifications.
+    // A plain .eq() here never matches multi-role rows, which meant unread
+    // counts always came back 0 even though unread notifications existed.
     const { count, error } = await supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
-      .or(`target_role.eq.${userRole},target_role.eq.ALL`)
+      .or(`target_role.ilike.%${userRole}%,target_role.eq.ALL`)
       .eq('read', false);
 
     if (error) throw error;
@@ -59,12 +63,16 @@ const markAsRead = async (req, res) => {
 const markAllAsRead = async (req, res) => {
   try {
     const userRole = (req.user?.role?.role_name || req.user?.role || '').toString().trim().toUpperCase();
+
+    // Same fix as getUnreadCount: use ilike to match comma-separated target_role values.
     const { error } = await supabase
       .from('notifications')
       .update({ read: true })
-      .or(`target_role.eq.${userRole},target_role.eq.ALL`)
+      .or(`target_role.ilike.%${userRole}%,target_role.eq.ALL`)
       .eq('read', false);
+
     if (error) throw error;
+
     return res.status(200).json({ success: true });
   } catch (error) {
     console.error('Mark all as read error:', error);

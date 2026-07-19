@@ -7,13 +7,11 @@ const supabase  = require('../config/db');
 const registerUser = async (req, res) => {
   try {
     const { email, password, fullName, phone, address } = req.body;
-    console.log("\n--- [BACKEND REGISTER] New registration attempt ---");
 
     if (!email || !password || !fullName || !phone) {
       return res.status(400).json({ success: false, message: 'All fields are required.' });
     }
 
-    console.log("Registering user in Supabase Auth...");
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -29,7 +27,6 @@ const registerUser = async (req, res) => {
     const { data: roleData } = await supabase.from('roles').select('id').eq('role_name', 'CUSTOMER').maybeSingle();
     const defaultRoleId = roleData ? roleData.id : null; 
 
-    console.log("Inserting profile record into PostgreSQL...");
     const { error: profileError } = await supabase
       .from('profiles')
       .insert([{
@@ -95,7 +92,6 @@ const handleGoogleCallback = async (req, res) => {
 
     const authUser = authData.user;
     
-    // 1. Try to get existing profile with role name using a join
     let profile = null;
     let roleName = 'CUSTOMER';
     
@@ -114,11 +110,9 @@ const handleGoogleCallback = async (req, res) => {
 
     if (!profileError && profileData) {
       profile = profileData;
-      // Extract role name from the joined 'roles' object
       if (profile.roles && typeof profile.roles === 'object' && profile.roles.role_name) {
         roleName = profile.roles.role_name;
       } else if (profile.role_id) {
-        // Fallback: fetch role name directly from roles table
         const { data: roleData } = await supabase
           .from('roles')
           .select('role_name')
@@ -128,7 +122,6 @@ const handleGoogleCallback = async (req, res) => {
       }
     }
 
-    // 2. If profile doesn't exist, create a new one with default CUSTOMER role
     let isNewUser = false;
     let finalFullName = authUser.user_metadata?.full_name || 
                         authUser.user_metadata?.name || 
@@ -138,13 +131,12 @@ const handleGoogleCallback = async (req, res) => {
 
     if (!profile) {
       isNewUser = true;
-      // Get default role ID for CUSTOMER
       const { data: roleData } = await supabase
         .from('roles')
         .select('id')
         .eq('role_name', 'CUSTOMER')
         .maybeSingle();
-      const defaultRoleId = roleData ? roleData.id : 3; // fallback ID
+      const defaultRoleId = roleData ? roleData.id : 3;
 
       const { error: insertError } = await supabase
         .from('profiles')
@@ -163,10 +155,7 @@ const handleGoogleCallback = async (req, res) => {
       finalAddress = profile.address || '';
     }
 
-    // Convert role name to uppercase for consistency
     const finalRole = roleName.toUpperCase();
-
-    console.log(`[GOOGLE CALLBACK] User ${authUser.email} has role: ${finalRole}`);
 
     return res.status(200).json({
       success: true,
@@ -641,13 +630,11 @@ const updatePassword = async (req, res) => {
  * @desc    Delete user account entirely from Auth and Profiles
  * @route   DELETE /api/auth/account
  */
-// DELETE /api/auth/account
 const deleteAccount = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { password } = req.body;   // user must send password
+    const { password } = req.body;
 
-    // 1. Verify current password
     const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
       email: req.user.email,
       password,
@@ -657,7 +644,6 @@ const deleteAccount = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid password' });
     }
 
-    // 2. Delete the Auth user (this will cascade to profiles if foreign key is set)
     const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
     if (deleteError) throw deleteError;
 
@@ -668,32 +654,42 @@ const deleteAccount = async (req, res) => {
   }
 };
 
-
-// In authController.js
-const getPermissionsForRole = async (req, res) => {
+/**
+ * @desc    Get permissions for a role (by role name from URL)
+ * @route   GET /api/auth/permissions/:roleName
+ */
+const getPermissionsByRoleName = async (req, res) => {
   try {
-    const { role } = req.params;
-    const roleUpper = role.toUpperCase();
+    const { roleName } = req.params;
+    const roleUpper = roleName.toUpperCase();
 
-    // Find role id
-    const { data: roleData } = await supabase.from('roles').select('id').eq('role_name', roleUpper).single();
-    if (!roleData) return res.status(404).json({ success: false, message: 'Role not found' });
+    const { data: role, error: roleError } = await supabase
+      .from('roles')
+      .select('id')
+      .eq('role_name', roleUpper)
+      .single();
 
-    // Get permission names from role_permissions join
-    const { data } = await supabase
+    if (roleError || !role) {
+      return res.status(200).json({ success: true, permissions: [] });
+    }
+
+    const { data: rolePerms, error: rpError } = await supabase
       .from('role_permissions')
-      .select('permissions (permission_name)')
-      .eq('role_id', roleData.id);
+      .select('permissions ( permission_name )')
+      .eq('role_id', role.id);
 
-    const permissions = data.map(rp => rp.permissions.permission_name);
+    if (rpError) throw rpError;
 
+    const permissions = rolePerms.map(rp => rp.permissions.permission_name);
     return res.status(200).json({ success: true, permissions });
   } catch (error) {
+    console.error('Get permissions by role error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };
 
 /**
+ * @desc    Get current user's permissions based on POSITION (from employees table) or ROLE (fallback)
  * @desc    Get current user's permissions based on POSITION (from employees table) or ROLE (fallback)
  * @route   GET /api/auth/permissions
  */
@@ -781,42 +777,6 @@ const getAllRoles = async (req, res) => {
 };
 
 /**
- * @desc    Get permissions for a specific role by role name
- * @route   GET /api/auth/permissions/:roleName
- */
-const getPermissionsByRoleName = async (req, res) => {
-  try {
-    const { roleName } = req.params;
-    const roleUpper = roleName.toUpperCase();
-
-    // Find role id
-    const { data: role, error: roleError } = await supabase
-      .from('roles')
-      .select('id')
-      .eq('role_name', roleUpper)
-      .single();
-
-    if (roleError || !role) {
-      return res.status(200).json({ success: true, permissions: [] });
-    }
-
-    // Fetch permissions for that role
-    const { data: rolePerms, error: rpError } = await supabase
-      .from('role_permissions')
-      .select('permissions ( permission_name )')
-      .eq('role_id', role.id);
-
-    if (rpError) throw rpError;
-
-    const permissions = rolePerms.map(rp => rp.permissions.permission_name);
-    return res.status(200).json({ success: true, permissions });
-  } catch (error) {
-    console.error('Get permissions by role error:', error);
-    return res.status(500).json({ success: false, message: error.message });
-  }
-};
-
-/**
  * @desc    Get complete user profile including created_at
  * @route   GET /api/auth/profile
  */
@@ -848,7 +808,6 @@ const getProfile = async (req, res) => {
   }
 };
 
-
 module.exports = {
   registerUser,
   initiateGoogleOAuth,
@@ -858,8 +817,8 @@ module.exports = {
   updateProfile,
   updatePassword,
   deleteAccount,
-  getUserPermissions,      
-  getAllRoles,             
+  getUserPermissions,
+  getAllRoles,
   getPermissionsByRoleName,
   getProfile ,
   verifyLogin2FA, setup2FA, verifySetup2FA
