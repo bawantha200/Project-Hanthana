@@ -178,26 +178,137 @@ export default function InvoicingReports() {
 
   function exportReportCSV() {
     if (!report) return;
+    const summaryRow = {
+      row_type: "SUMMARY",
+      invoice_number: "",
+      order_id: "",
+      customer: "",
+      date: "",
+      amount: "",
+      status: "",
+      period_from: report.from,
+      period_to: report.to,
+      revenue: report.revenue,
+      expenses: report.expenses,
+      net_profit: report.netProfit,
+      online_revenue: report.byPaymentType?.ONLINE || 0,
+      cash_revenue: report.byPaymentType?.CASH || 0,
+    };
+    const invoiceRows = reportInvoices.map((inv) => ({
+      row_type: "INVOICE",
+      invoice_number: inv.invoiceNumber,
+      order_id: inv.orderId,
+      customer: inv.customer || "",
+      date: inv.date.slice(0, 10),
+      amount: inv.amount,
+      status: isPaid(inv.paymentStatus) ? "Paid" : "Unpaid",
+      period_from: "",
+      period_to: "",
+      revenue: "",
+      expenses: "",
+      net_profit: "",
+      online_revenue: "",
+      cash_revenue: "",
+    }));
     downloadCSV(
-      [
-        {
-          period_from: report.from,
-          period_to: report.to,
-          revenue: report.revenue,
-          expenses: report.expenses,
-          net_profit: report.netProfit,
-          online_revenue: report.byPaymentType?.ONLINE || 0,
-          cash_revenue: report.byPaymentType?.CASH || 0,
-        },
-      ],
+      [summaryRow, ...invoiceRows],
       `financial-report-${report.from}-to-${report.to}.csv`
     );
   }
 
   function exportReportPDF() {
-    // Zero-dependency approach: browser print dialog ("Save as PDF").
-    // Swap for jsPDF later if you want a fully styled PDF export.
-    window.print();
+    if (!report) return;
+
+    const rowsHtml = reportInvoices
+      .map(
+        (inv) => `
+        <tr>
+          <td>${inv.invoiceNumber}</td>
+          <td>${inv.orderId}</td>
+          <td>${inv.customer || "—"}</td>
+          <td>${inv.date.slice(0, 10)}</td>
+          <td style="text-align:right">${formatLKR(inv.amount)}</td>
+          <td style="text-align:center">${isPaid(inv.paymentStatus) ? "Paid" : "Unpaid"}</td>
+        </tr>`
+      )
+      .join("");
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Financial Report ${report.from} to ${report.to}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
+            h1 { font-size: 22px; margin-bottom: 4px; }
+            .subtitle { color: #6b7280; font-size: 13px; margin-bottom: 24px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+            td, th { border: 1px solid #e5e7eb; padding: 8px; font-size: 13px; }
+            th { background: #f9fafb; text-align: left; text-transform: uppercase; font-size: 11px; color: #6b7280; }
+            .summary td:first-child { background: #f9fafb; font-weight: 600; width: 200px; }
+            .profit-positive { color: #059669; font-weight: 600; }
+            .profit-negative { color: #e11d48; font-weight: 600; }
+          </style>
+        </head>
+        <body>
+          <h1>Financial Report</h1>
+          <p class="subtitle">
+            Period: ${report.from} to ${report.to} &middot; Generated ${new Date().toLocaleString()}
+          </p>
+
+          <table class="summary">
+            <tr><td>Revenue</td><td>${formatLKR(report.revenue)}</td></tr>
+            <tr><td>Total expenses</td><td>${formatLKR(report.expenses)}</td></tr>
+            <tr><td>Net profit</td><td class="${report.netProfit >= 0 ? "profit-positive" : "profit-negative"}">${formatLKR(report.netProfit)}</td></tr>
+            <tr><td>Online revenue</td><td>${formatLKR(report.byPaymentType?.ONLINE || 0)}</td></tr>
+            <tr><td>Cash revenue</td><td>${formatLKR(report.byPaymentType?.CASH || 0)}</td></tr>
+          </table>
+
+          <h2 style="font-size:15px;">Invoices in this period (${reportInvoices.length})</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Invoice No.</th>
+                <th>Order</th>
+                <th>Customer</th>
+                <th>Date</th>
+                <th style="text-align:right">Amount</th>
+                <th style="text-align:center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || `<tr><td colspan="6" style="text-align:center;color:#9ca3af;">No invoices in this period.</td></tr>`}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+
+    // Print via a hidden iframe on this same page — unlike window.open(), this
+    // can't be blocked by the browser's pop-up blocker, and it only prints
+    // exactly the HTML we generate, not the surrounding app.
+    let iframe = document.getElementById("report-print-frame");
+    if (!iframe) {
+      iframe = document.createElement("iframe");
+      iframe.id = "report-print-frame";
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "0";
+      document.body.appendChild(iframe);
+    }
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    iframe.onload = () => {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    };
   }
 
   const revenueBreakdownData = report
@@ -206,10 +317,25 @@ export default function InvoicingReports() {
         .map(([name, value]) => ({ name, value, color: PAYMENT_COLORS[name] || "#94a3b8" }))
     : [];
 
+  // Every invoice that falls inside the currently generated report's date range —
+  // this is what backs both the on-screen "included invoices" list and the PDF export.
+  const reportInvoices = useMemo(() => {
+    if (!report) return [];
+    const toInclusive = report.to ? `${report.to}T23:59:59.999` : null;
+    return invoices
+      .filter((inv) => {
+        if (report.from && inv.date < report.from) return false;
+        if (toInclusive && inv.date > toInclusive) return false;
+        return true;
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [invoices, report]);
+
   return (
-    <div className="p-6 bg-gray-50 min-h-screen">
+    <>
+      <div className="p-6 bg-gray-50 min-h-screen">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Invoicing & Financial Reports</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Invoicing & Revenue Reports</h1>
         <p className="text-sm text-gray-500 mt-1">
           Invoices generated from completed orders, and period financial reports
         </p>
@@ -518,6 +644,63 @@ export default function InvoicingReports() {
         </div>
       </div>
 
+      {/* ---------------- Invoices included in the current report ---------------- */}
+      {report && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mt-6">
+          <h2 className="text-base font-semibold text-gray-900 mb-1">
+            Invoices in this period ({reportInvoices.length})
+          </h2>
+          <p className="text-xs text-gray-400 mb-4">
+            {report.from} to {report.to}
+          </p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50 text-left text-xs text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-2 font-medium">Invoice No.</th>
+                <th className="px-4 py-2 font-medium">Order</th>
+                <th className="px-4 py-2 font-medium">Customer</th>
+                <th className="px-4 py-2 font-medium">Date</th>
+                <th className="px-4 py-2 font-medium text-right">Amount</th>
+                <th className="px-4 py-2 font-medium text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportInvoices.map((inv) => (
+                <tr key={inv.id} className="border-b border-gray-50 last:border-0">
+                  <td className="px-4 py-2 font-mono text-xs text-gray-500">
+                    {inv.invoiceNumber}
+                  </td>
+                  <td className="px-4 py-2 text-gray-500">{inv.orderId}</td>
+                  <td className="px-4 py-2 text-gray-800">{inv.customer || "—"}</td>
+                  <td className="px-4 py-2 text-gray-500">{inv.date.slice(0, 10)}</td>
+                  <td className="px-4 py-2 text-right font-medium text-gray-900">
+                    {formatLKR(inv.amount)}
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <span
+                      className={`text-xs px-2 py-1 rounded-full ${
+                        isPaid(inv.paymentStatus)
+                          ? "bg-emerald-50 text-emerald-600"
+                          : "bg-amber-50 text-amber-600"
+                      }`}
+                    >
+                      {isPaid(inv.paymentStatus) ? "Paid" : "Unpaid"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {reportInvoices.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-gray-400 text-sm">
+                    No invoices fall within this period.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* ---------------- Invoice detail modal ---------------- */}
       {selectedInvoice && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -617,6 +800,7 @@ export default function InvoicingReports() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }

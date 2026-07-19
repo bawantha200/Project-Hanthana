@@ -121,7 +121,8 @@ async function getFinancialReport({ dateFrom, dateTo }) {
   let revenue = 0;
   const byPaymentType = { ONLINE: 0, CASH: 0 };
   data.forEach((inv) => {
-    if (inv.orders?.payment_status === "PAID") {
+    const status = (inv.orders?.payment_status || "").toUpperCase();
+    if (status === "PAID" || status === "COMPLETED") {
       revenue += Number(inv.total_amount);
       const method = inv.orders.payment_method;
       byPaymentType[method] = (byPaymentType[method] || 0) + Number(inv.total_amount);
