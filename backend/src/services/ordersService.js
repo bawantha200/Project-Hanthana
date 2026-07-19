@@ -1,6 +1,7 @@
 // backend/src/services/ordersService.js
 const supabase = require('../config/db');
 
+
 // ========== GET ALL ORDERS (Admin) ==========
 const getAllOrders = async () => {
   console.log('🔍 [getAllOrders] Fetching all orders...');
@@ -134,7 +135,18 @@ const createOrder = async (orderData) => {
 
   if (itemsError) throw new Error(`Order items error: ${itemsError.message}`);
 
-  return { id: orderInsert.id, total };
+  // 🆕 customer email එක fetch කරගන්නවා confirmation email එකට
+  const { data: customer, error: customerError } = await supabase
+    .from('users')
+    .select('email')
+    .eq('id', customerId)
+    .maybeSingle();
+
+  if (customerError) {
+    console.warn('⚠️ [createOrder] Could not fetch customer email:', customerError.message);
+  }
+
+  return { id: orderInsert.id, total, customerEmail: customer?.email || null };
 };
 
 // ========== GET ORDERS BY USER ID (Customer) ==========
@@ -343,7 +355,7 @@ const updateDeliveryStatus = async (orderId, status, userId) => {
 // ========== UPDATE ORDER STATUS ==========
 const updateOrderStatus = async (orderId, status, userId) => {
   console.log(`🔄 [updateOrderStatus] Order ${orderId} -> ${status}`);
-
+ 
   const { data, error } = await supabase
     .from('orders')
     .update({
@@ -353,22 +365,24 @@ const updateOrderStatus = async (orderId, status, userId) => {
     .eq('id', orderId)
     .select()
     .single();
-
+ 
   if (error) {
     console.error('❌ [updateOrderStatus] Error:', error);
     throw new Error(`Failed to update order status: ${error.message}`);
   }
-
+  
+ 
   return data;
 };
 
 // ========== ASSIGN DELIVERY PERSON ==========
 const assignDeliveryPerson = async (orderId, deliveryPersonId, assignedBy) => {
   console.log(`👤 [assignDeliveryPerson] Order ${orderId} -> ${deliveryPersonId}`);
-
+ 
   const delivery = await createDelivery(orderId, deliveryPersonId, assignedBy);
   const order = await updateOrderStatus(orderId, 'PROCESSING', assignedBy);
 
+ 
   return { delivery, order };
 };
 

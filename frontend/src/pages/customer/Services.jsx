@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -9,7 +10,7 @@ import {
   CheckCircle,
   ArrowRight,
 } from 'lucide-react';
-import { services } from '../../data/mockData';
+
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -31,6 +32,8 @@ const iconMap = {
   Truck: Truck,
   Siren: Siren,
 };
+
+
 
 const colorSchemes = [
   {
@@ -76,6 +79,27 @@ const colorSchemes = [
 ];
 
 const Services = () => {
+
+  
+  const [services, setServices] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchServices = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/settings/public');
+        const data = await response.json();
+        if (data.success && data.data.services) {
+          setServices(data.data.services);
+        }
+      } catch (error) {
+        console.error('Failed to load services:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchServices();
+  }, []);
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero Section */}
@@ -210,6 +234,12 @@ const Services = () => {
             </p>
           </motion.div>
 
+          {loading ? (
+  <div className="flex justify-center py-20">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+  </div>
+) : (
+
           <motion.div
             initial="hidden"
             whileInView="visible"
@@ -271,6 +301,9 @@ const Services = () => {
               );
             })}
           </motion.div>
+
+)}
+          
         </div>
       </section>
 

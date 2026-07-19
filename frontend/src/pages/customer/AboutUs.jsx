@@ -1,6 +1,7 @@
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Target, Eye, MapPin, Users, Calendar, Award, Heart } from 'lucide-react';
-import { companyTimeline, teamMembers } from '../../data/mockData';
+import { companyTimeline} from '../../data/mockData';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -22,6 +23,26 @@ const getInitials = (name) =>
     .join('');
 
 const AboutUs = () => {
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [loading, setLoading] = useState(true);          
+
+  useEffect(() => {
+    const fetchTeam = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/settings/public');
+        const data = await response.json();
+        if (data.success && data.data.team) {
+          setTeamMembers(data.data.team);
+        }
+      } catch (error) {
+        console.error('Failed to load team:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchTeam();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero / Company Story */}
@@ -306,9 +327,17 @@ const AboutUs = () => {
                 className="group bg-white rounded-2xl p-6 shadow-sm hover:shadow-lg transition-all duration-300 border border-gray-100 text-center"
               >
                 {/* Avatar with initials */}
-                <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-2xl font-bold mb-5 group-hover:scale-105 transition-transform duration-300">
-                  {getInitials(member.name)}
-                </div>
+                {member.photoUrl ? (
+      <img
+        src={member.photoUrl}
+        alt={member.name}
+        className="mx-auto w-20 h-20 rounded-full object-cover mb-5 group-hover:scale-105 transition-transform duration-300"
+      />
+    ) : (
+      <div className="mx-auto w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-2xl font-bold mb-5 group-hover:scale-105 transition-transform duration-300">
+        {getInitials(member.name)}
+      </div>
+    )}
 
                 <h3 className="text-lg font-bold text-gray-900">
                   {member.name}

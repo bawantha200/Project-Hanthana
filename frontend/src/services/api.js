@@ -8,9 +8,10 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
+  withCredentials: true, // if you use cookies/sessions
 });
 
+// ─── Request Interceptor: attach JWT token ───
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -23,6 +24,7 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+// ─── Response Interceptor: global error handling ───
 api.interceptors.response.use(
   (response) => {
     console.log(`📥 ${response.config.url} -> ${response.status}`);
@@ -30,6 +32,19 @@ api.interceptors.response.use(
     return response;
   },
   (error) => {
+    console.error(`❌ Response error from ${error.config?.url || 'unknown'}:`, error.message);
+    if (error.response) {
+      console.error('Status:', error.response.status);
+      console.error('Data:', error.response.data);
+
+      // Optional: redirect to login on 401 Unauthorized
+      if (error.response.status === 401) {
+        // Only redirect if not already on login page to avoid loops
+        if (!window.location.pathname.includes('/login')) {
+          window.location.href = '/login';
+        }
+      }
+    }
     console.error('❌ API Error:', error.response?.data || error.message);
     return Promise.reject(error);
   }

@@ -13,8 +13,81 @@ const {
   getOrderStatusHistory,
   updateDeliveryStatus
 } = require('../services/ordersService');
+const { sendNotificationEmails, sendOrderConfirmationEmail } = require('../utils/mailer');
 
 const supabase = require('../config/db');
+
+// ========== NOTIFICATION HELPER ==========
+async function notifyOrderEvent({ settingsKey, type, message, relatedOrderId = null, targetRole = 'ALL' }) {
+  try {
+    const { data: notifSetting } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'notifications')
+      .maybeSingle();
+
+    const settings = notifSetting?.value || {};
+    const alertEnabled = settings[settingsKey] !== false;
+    if (!alertEnabled) return;
+
+    const { error: insertError } = await supabase.from('notifications').insert({
+      target_role: targetRole,
+      type,
+      message,
+      related_order_id: relatedOrderId,
+    });
+
+    if (insertError) {
+      console.error('Notification insert error:', insertError);
+    }
+
+    if (settings.emailNotifications !== false) {
+      try {
+        if (typeof sendNotificationEmails === 'function') {
+          await sendNotificationEmails({ targetRole, subject: message, message });
+        }
+      } catch (mailErr) {
+        console.warn('Email notification skipped:', mailErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('notifyOrderEvent error:', err);
+  }
+}
+
+// ========== CREATE ORDER ==========
+const postOrder = async (req, res) => {
+  try {
+    const { customerId, orderType, paymentMethod, deliveryLocation, items } = req.body;
+    if (!customerId || !items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Customer ID and at least one item are required.',
+      });
+    }
+    const newOrder = await createOrder({
+      customerId,
+      orderType,
+      paymentMethod,
+      deliveryLocation,
+      items,
+    });
+
+    // Staff notification (existing)
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `New order #${newOrder.id} placed (${orderType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Pickup'})`,
+      relatedOrderId: newOrder.id,
+      targetRole: 'CASHIER,ADMIN',
+    });
+
+    res.status(201).json({ success: true, order: newOrder });
+  } catch (err) {
+    console.error(`💥 [postOrder]`, err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 // ========== GET ORDERS (Admin or Customer) ==========
 const getOrders = async (req, res) => {
@@ -120,30 +193,6 @@ const getProducts = async (req, res) => {
   }
 };
 
-// ========== CREATE ORDER ==========
-const postOrder = async (req, res) => {
-  try {
-    const { customerId, orderType, paymentMethod, deliveryLocation, items } = req.body;
-    if (!customerId || !items || items.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Customer ID and at least one item are required.',
-      });
-    }
-    const newOrder = await createOrder({
-      customerId,
-      orderType,
-      paymentMethod,
-      deliveryLocation,
-      items,
-    });
-    res.status(201).json({ success: true, order: newOrder });
-  } catch (err) {
-    console.error(`💥 [postOrder]`, err);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
 // ========== UPDATE ORDER STATUS ==========
 const updateStatus = async (req, res) => {
   try {
@@ -151,7 +200,7 @@ const updateStatus = async (req, res) => {
     let idParam = req.params.id;
     if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
     const orderId = parseInt(idParam, 10);
-    
+
     if (isNaN(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
@@ -162,10 +211,18 @@ const updateStatus = async (req, res) => {
     }
 
     const order = await updateOrderStatus(orderId, status, userId);
-    
+
     if (status === 'DELIVERED') {
       await updateDeliveryStatus(orderId, 'DELIVERED', userId);
     }
+
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Order #${orderId} status changed to ${status}`,
+      relatedOrderId: orderId,
+      targetRole: 'CASHIER,ADMIN',
+    });
 
     res.json({ success: true, order });
   } catch (err) {
@@ -181,7 +238,7 @@ const assignDelivery = async (req, res) => {
     let idParam = req.params.id;
     if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
     const orderId = parseInt(idParam, 10);
-    
+
     if (isNaN(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
@@ -192,6 +249,15 @@ const assignDelivery = async (req, res) => {
     }
 
     const result = await assignDeliveryPerson(orderId, deliveryPersonId, userId);
+
+    await notifyOrderEvent({
+      settingsKey: 'deliveryUpdates',
+      type: 'delivery',
+      message: `New delivery assigned for order #${orderId}`,
+      relatedOrderId: orderId,
+      targetRole: 'RIDER,ADMIN,SALES_MANAGER',
+    });
+
     res.json({ success: true, ...result });
   } catch (err) {
     console.error('💥 [assignDelivery]', err);
@@ -216,14 +282,14 @@ const getOrderDetails = async (req, res) => {
     let idParam = req.params.id;
     if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
     const orderId = parseInt(idParam, 10);
-    
+
     if (isNaN(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
 
     const order = await getOrderWithDetails(orderId);
     const history = await getOrderStatusHistory(orderId);
-    
+
     res.json({ success: true, order, history });
   } catch (err) {
     console.error('💥 [getOrderDetails]', err);
@@ -238,7 +304,7 @@ const updateDelivery = async (req, res) => {
     let idParam = req.params.id;
     if (idParam.startsWith('ORD-')) idParam = idParam.replace('ORD-', '');
     const orderId = parseInt(idParam, 10);
-    
+
     if (isNaN(orderId)) {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }

@@ -247,9 +247,9 @@ export default function Orders() {
           <p className="text-sm text-gray-500 mt-1">Track and manage all customer orders</p>
         </div>
         <motion.button
-          whileHover={{ scale: 1.04 }}
+         whileHover={{ scale: 1.04 }}
           whileTap={{ scale: 0.97 }}
-          onClick={() => setShowCreateForm(true)}
+          onClick={() => navigate('/admin/pos')}
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
         >
           <Plus size={18} />

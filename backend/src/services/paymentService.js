@@ -1,6 +1,7 @@
 // backend/src/services/paymentService.js
 const crypto = require('crypto');
 const supabase = require('../config/db');
+const { sendOrderConfirmationEmail } = require('../utils/mailer');
 
 // PayHere configuration
 const PAYHERE_CONFIG = {
@@ -203,6 +204,7 @@ const verifyPaymentNotification = async (notificationData) => {
         });
     }
 
+    
     // Update order
     await supabase
       .from('orders')
@@ -213,6 +215,47 @@ const verifyPaymentNotification = async (notificationData) => {
       .eq('id', actualOrderId);
 
     console.log(`✅ Order #${actualOrderId} updated to:`, orderStatus);
+
+    // 🆕 Payment success වුණාට පස්සේ විතරක් customer confirmation email එක යවනවා
+    if (paymentStatus === 'COMPLETED') {
+      try {
+        const { data: notifSetting } = await supabase
+          .from('settings')
+          .select('value')
+          .eq('key', 'notifications')
+          .maybeSingle();
+
+        const settings = notifSetting?.value || {};
+        const emailEnabled = settings.emailNotifications !== false;
+
+        console.log('🔍 [DEBUG] emailNotifications value:', settings.emailNotifications);
+        console.log('🔍 [DEBUG] emailEnabled computed:', emailEnabled);
+
+        if (emailEnabled) {
+          const { data: orderWithCustomer, error: fetchError } = await supabase
+            .from('orders')
+            .select('id, total_amount, users ( email )')
+            .eq('id', actualOrderId)
+            .single();
+
+          if (fetchError) {
+            console.warn('⚠️ [verifyPaymentNotification] Could not fetch customer for email:', fetchError.message);
+          } else if (orderWithCustomer?.users?.email) {
+            await sendOrderConfirmationEmail({
+              customerEmail: orderWithCustomer.users.email,
+              subject: `Order #${actualOrderId} Payment Confirmed`,
+              message: `Thank you! Your payment for Order #${actualOrderId} (Total: Rs. ${orderWithCustomer.total_amount}) has been confirmed and your order is being processed.`,
+            });
+          } else {
+            console.warn(`⚠️ [verifyPaymentNotification] No customer email found for order #${actualOrderId}`);
+          }
+        } else {
+          console.log('📭 [verifyPaymentNotification] Email notifications disabled — skipping confirmation email.');
+        }
+      } catch (mailErr) {
+        console.error('❌ [verifyPaymentNotification] Confirmation email failed:', mailErr.message);
+      }
+    }
 
     return { success: true, orderId: actualOrderId, status: paymentStatus };
   } catch (error) {

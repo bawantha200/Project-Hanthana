@@ -5,7 +5,7 @@ require('dotenv').config();
 // Route imports
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
-const employeeRoutes = require('./src/routes/employeeRoutes'); 
+const employeeRoutes = require('./src/routes/employeeRoutes');
 const ordersRoutes = require('./src/routes/ordersRoutes');
 const productsRoutes = require('./src/routes/productsRoutes');
 const vendorsRoutes = require('./src/routes/vendorsRoutes');
@@ -14,6 +14,9 @@ const settingsRoutes = require('./src/routes/settingsRoutes');
 const roleRoutes = require('./src/routes/roleRoutes');
 const positionRoutes = require('./src/routes/positionRoutes');
 const permissionRoutes = require('./src/routes/permissionRoutes');
+
+const notificationsRoutes = require('./src/routes/notificationsRoutes');
+const { startPaymentReminderJob } = require('./src/jobs/paymentReminderJob');
 
 const forecastRoutes = require('./src/routes/forecastRoutes');
 const inventoryRoutes = require('./src/routes/inventoryRoutes');
@@ -27,12 +30,25 @@ const emptyBottlesRoutes = require('./src/routes/emptyBottlesRoutes');
 const vendorOrdersRoutes = require('./src/routes/vendorOrderRoutes');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
 
+
+
 const app = express();
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
 
 // Global middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy does not allow origin ${origin}`));
+    }
+  },
+  credentials: true,
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -44,15 +60,13 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api', permissionRoutes);
-app.use('/api/positions', positionRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
-app.use('/api/vendors', vendorsRoutes); 
-app.use('/api/customers', customerRoutes);  
-app.use('/api/forecast', forecastRoutes); 
-app.use('/api/inventory', inventoryRoutes);
 app.use('/api/vendors', vendorsRoutes);
 app.use('/api/customers', customerRoutes);
+app.use('/api/forecast', forecastRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/notifications', notificationsRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salaries', salaryRoutes);
@@ -76,4 +90,5 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`[Server] Hanthana core engine actively running on port: ${PORT}`);
+  startPaymentReminderJob(); // 🆕
 });

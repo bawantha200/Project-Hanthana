@@ -24,6 +24,9 @@ import Messages from '../pages/admin/Messages';
 import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
+import POS from '../pages/admin/POS';
+import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
+import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -52,11 +55,12 @@ function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />
-        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* ✅ Admin order details */}
+        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* Admin order details */}
         <Route path="deliveries" element={<Deliveries />} />
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
@@ -70,7 +74,7 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
-        <Route path="*" element={<Navigate to="dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
     </Routes>
   );
@@ -85,7 +89,7 @@ function CustomerRoutes() {
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
         <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* ✅ Customer order details */}
+        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* Customer order details */}
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
         <Route path="register" element={<Register />} />
@@ -102,6 +106,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
+      <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
       <Route path="/admin/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
     </Routes>
