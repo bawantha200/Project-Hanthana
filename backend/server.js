@@ -21,6 +21,7 @@ const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const salaryRoutes = require('./src/routes/salaryRoutes');
 const contactRoutes = require('./src/routes/contactRoutes');
 const deliveryRoutes = require('./src/routes/deliveryRoutes');
+const invoiceRoutes = require('./src/routes/invoiceRoutes');
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.use('/api/vendors', vendorsRoutes);
 app.use('/api/customers', customerRoutes);  
 app.use('/api/forecast', forecastRoutes); 
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/invoices', invoiceRoutes);
 app.use('/api/vendors', vendorsRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/employees', employeeRoutes);

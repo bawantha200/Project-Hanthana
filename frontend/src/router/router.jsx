@@ -40,6 +40,9 @@ import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
 import CustomerOrderDetails from '../pages/customer/OrderDetails'; // ✅ Customer order details
 
+import InvoicingReports from "../pages/admin/InvoicingReports";
+
+
 function AdminRoutes() {
   const { user } = useAuth();
 
@@ -64,6 +67,7 @@ function AdminRoutes() {
         <Route path="vendors" element={<Vendors />} />
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
+        <Route path="invoicing-reports" element={<InvoicingReports />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
