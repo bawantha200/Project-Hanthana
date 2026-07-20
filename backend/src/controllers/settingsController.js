@@ -85,8 +85,35 @@ const getSettingByKey = async (req, res) => {
  */
 const updateSettings = async (req, res) => {
   try {
-    const { general, notifications, security, system } = req.body;
+    const { general, services,team,notifications, security, system } = req.body;
     const userId = req.user?.id;
+
+    const userRole = (req.user?.role?.role_name || req.user?.role || '').toString().trim().toUpperCase();
+
+
+    if (security && userRole !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only administrators can update security settings.'
+      });
+    }
+
+
+    if (security) {
+      const allowedAttempts = ['3', '5', '10'];
+      const allowedTimeout = ['15', '30', '60', '120'];
+      const allowedExpiry = ['30', '60', '90', '180', 'never'];
+
+      if (security.loginAttempts !== undefined && !allowedAttempts.includes(String(security.loginAttempts))) {
+        return res.status(400).json({ success: false, message: 'Invalid loginAttempts value.' });
+      }
+      if (security.sessionTimeout !== undefined && !allowedTimeout.includes(String(security.sessionTimeout))) {
+        return res.status(400).json({ success: false, message: 'Invalid sessionTimeout value.' });
+      }
+      if (security.passwordExpiry !== undefined && !allowedExpiry.includes(String(security.passwordExpiry))) {
+        return res.status(400).json({ success: false, message: 'Invalid passwordExpiry value.' });
+      }
+    }
 
     // Build updates array
     const updates = [];
@@ -95,6 +122,22 @@ const updateSettings = async (req, res) => {
       updates.push({
         key: 'general',
         value: general,
+        updated_by: userId
+      });
+    }
+
+    if (services) {
+      updates.push({
+        key: 'services',
+        value: services,
+        updated_by: userId
+      });
+    }
+
+    if (team) {
+      updates.push({
+        key: 'team',
+        value: team,
         updated_by: userId
       });
     }
@@ -313,20 +356,133 @@ const resetSettings = async (req, res) => {
   
 };
 
-const getPublicSettings = async (req, res) => {
+const getSecuritySettings = async (req, res) => {
   try {
     const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'security')
+      .maybeSingle();
+
+    if (error) throw error;
+
+    // Defaults if no row exists yet
+    const defaults = {
+      twoFactorAuth: false,
+      auditLogging: false,
+      sessionTimeout: '30',
+      passwordExpiry: '90',
+      loginAttempts: '5',
+      ipWhitelist: '',
+    };
+
+    return res.status(200).json({
+      success: true,
+      settings: { ...defaults, ...(data?.value || {}) },
+    });
+  } catch (error) {
+    console.error('Get security settings error:', error);
+    return res.status(500).json({ success: false, message: 'Internal Server Error.' });
+  }
+};
+
+const updateSecuritySettings = async (req, res) => {
+  try {
+    const {
+      twoFactorAuth,
+      auditLogging,
+      sessionTimeout,
+      passwordExpiry,
+      loginAttempts,
+      ipWhitelist,
+    } = req.body;
+
+    // ✅ Basic validation - loginAttempts eka valid number ekak da balanna
+    const allowedAttempts = ['3', '5', '10'];
+    const allowedTimeout = ['15', '30', '60', '120'];
+    const allowedExpiry = ['30', '60', '90', '180', 'never'];
+
+    if (loginAttempts !== undefined && !allowedAttempts.includes(String(loginAttempts))) {
+      return res.status(400).json({ success: false, message: 'Invalid loginAttempts value.' });
+    }
+    if (sessionTimeout !== undefined && !allowedTimeout.includes(String(sessionTimeout))) {
+      return res.status(400).json({ success: false, message: 'Invalid sessionTimeout value.' });
+    }
+    if (passwordExpiry !== undefined && !allowedExpiry.includes(String(passwordExpiry))) {
+      return res.status(400).json({ success: false, message: 'Invalid passwordExpiry value.' });
+    }
+
+    const newValue = {
+      twoFactorAuth: !!twoFactorAuth,
+      auditLogging: !!auditLogging,
+      sessionTimeout: String(sessionTimeout ?? '30'),
+      passwordExpiry: String(passwordExpiry ?? '90'),
+      loginAttempts: String(loginAttempts ?? '5'),
+      ipWhitelist: (ipWhitelist || '').trim(),
+    };
+
+    // upsert - row eka thiyenawa nam update, na nam insert
+    const { error } = await supabase
+      .from('settings')
+      .upsert({ key: 'security', value: newValue }, { onConflict: 'key' });
+
+    if (error) throw error;
+
+    return res.status(200).json({ success: true, message: 'Security settings updated.', settings: newValue });
+  } catch (error) {
+    console.error('Update security settings error:', error);
+    return res.status(500).json({ success: false, message: 'Internal Server Error.' });
+  }
+};
+
+
+
+const getPublicSettings = async (req, res) => {
+  try {
+    // General settings fetch කරන්න
+    const { data: generalData, error: generalError } = await supabase
       .from('settings')
       .select('value')
       .eq('key', 'general')
       .maybeSingle();
 
-    if (error) {
-      console.error('Get public settings error:', error);
-      return res.status(500).json({ success: false, message: 'Database error: ' + error.message });
+    if (generalError) {
+      console.error('Get public settings error:', generalError);
+      return res.status(500).json({ success: false, message: 'Database error: ' + generalError.message });
     }
 
-    const general = data?.value || {};
+    // 👇 services key එකත් fetch කරන්න
+    const { data: servicesData, error: servicesError } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'services')
+      .maybeSingle();
+
+    if (servicesError) {
+      console.error('Get public services error:', servicesError);
+      return res.status(500).json({ success: false, message: 'Database error: ' + servicesError.message });
+    }
+
+
+    const { data: teamData, error: teamError } = await supabase
+  .from('settings')
+  .select('value')
+  .eq('key', 'team')
+  .maybeSingle();
+
+if (teamError) {
+  console.error('Get public team error:', teamError);
+  return res.status(500).json({ success: false, message: 'Database error: ' + teamError.message });
+}
+
+    const general = generalData?.value || {};
+    const services = servicesData?.value || [];
+    const team = teamData?.value || [];
+
+    console.log("GENERAL SETTINGS FROM DB:");
+    console.log(general);
+    console.log("SERVICES FROM DB:");
+    console.log(services);
 
     return res.status(200).json({
       success: true,
@@ -334,10 +490,21 @@ const getPublicSettings = async (req, res) => {
         general: {
           heroImageUrl: general.heroImageUrl || null,
           companyName: general.companyName || null,
+          companyEmail: general.companyEmail || null,
+          companyPhone: general.companyPhone || null,
+          address: general.address || null,
+
           contactPhone: general.contactPhone || null,
           contactEmail: general.contactEmail || null,
-          businessHours: general.businessHours || null,
-        }
+          ordersEmail: general.ordersEmail || null,
+          emergencyPhone: general.emergencyPhone || null,
+
+          businessHours: general.businessHours || {},
+
+          stats: general.stats || []
+        },
+        services: services, // 👈 මේකයි response එකට එකතු කළේ
+        team: team
       }
     });
   } catch (error) {
@@ -353,5 +520,6 @@ module.exports = {
   getSettingByKey,
   updateSettings,
   updateSettingByKey,
-  resetSettings
+  resetSettings,
+  getSecuritySettings, updateSecuritySettings
 };

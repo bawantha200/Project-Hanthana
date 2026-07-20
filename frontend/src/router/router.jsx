@@ -25,6 +25,10 @@ import Messages from '../pages/admin/Messages';
 import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
+import ExpenseManagement from '../pages/admin/ExpenseManagement';
+import POS from '../pages/admin/POS';
+import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
+import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -39,7 +43,9 @@ import ContactUs from '../pages/customer/ContactUs';
 import CustomerOrders from '../pages/customer/Orders';
 import OrderTracking from '../pages/customer/OrderTracking';
 import Profile from '../pages/customer/Profile';
-import CustomerOrderDetails from '../pages/customer/OrderDetails'; // ✅ Customer order details
+import CustomerOrderDetails from '../pages/customer/OrderDetails';
+import PaymentResult from '../pages/customer/PaymentResult';
+import PaymentCancel from '../pages/customer/PaymentCancel';
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -51,12 +57,13 @@ function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="Hrmdashboard" element={<Hrmdashboard />} />
+        <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />
-        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* ✅ Admin order details */}
+        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* Admin order details */}
         <Route path="deliveries" element={<Deliveries />} />
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
@@ -66,11 +73,13 @@ function AdminRoutes() {
         <Route path="vendors" element={<Vendors />} />
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
+        <Route path="finance" element={<Finance />} />
+        <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
-        <Route path="*" element={<Navigate to="dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
     </Routes>
   );
@@ -85,11 +94,13 @@ function CustomerRoutes() {
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
         <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* ✅ Customer order details */}
+        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* Customer order details */}
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
         <Route path="register" element={<Register />} />
         <Route path="login" element={<Login />} />
+        <Route path="payment-result" element={<PaymentResult />} />
+        <Route path="payment-cancel" element={<PaymentCancel />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
@@ -100,6 +111,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
+      <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
       <Route path="/admin/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
     </Routes>
