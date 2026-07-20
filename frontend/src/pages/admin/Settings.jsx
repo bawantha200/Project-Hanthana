@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Settings as SettingsIcon, Bell, Shield, Globe, Save, Loader } from 'lucide-react';
+import { Settings as SettingsIcon, Bell, Shield, Globe, Save, Loader, Home, Package, Plus, Trash2, Users, Phone } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
@@ -19,37 +19,36 @@ const itemVariants = {
 };
 
 const tabs = [
-  { key: 'general', label: 'General', icon: SettingsIcon },
+  { key: 'general', label: 'Home', icon: Home },
+  { key: 'services', label: 'Services', icon: Package },
+  { key: 'aboutus', label: 'About Us', icon: Users },
+  { key: 'contactus', label: 'Contact Us', icon: Phone },
   { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'security', label: 'Security', icon: Shield },
   { key: 'system', label: 'System', icon: Globe },
 ];
 
-
-
 export default function Settings() {
   const [activeTab, setActiveTab] = useState('notifications');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-   const [uploading, setUploading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const { user } = useAuth();
 
-  
+  const role = (user?.role || '').toString().trim().toUpperCase();
+
   const visibleTabs = tabs.filter(tab => {
-  const role = user?.role?.toUpperCase();
+    if (role === 'CEO') {
+      return tab.key === 'general' || tab.key === 'services' || tab.key === 'aboutus' || tab.key === 'contactus';
+    }
+    if (role === 'ADMIN') {
+      return tab.key !== 'general' && tab.key !== 'services' && tab.key !== 'aboutus' && tab.key !== 'contactus';
+      // 👆 aboutus, contactus දෙකම ADMIN branch එකෙන් exclude කළා
+    }
+    return false;
+  });
 
-  if (role === 'CEO') {
-    return tab.key === 'general';
-  }
-
-  if (role === 'ADMIN') {
-    return tab.key !== 'general';
-  }
-
-  return false;
-});
-
-  const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
+  const canManageUsers = role === 'ADMIN';
 
   // Settings state
   const [generalSettings, setGeneralSettings] = useState({
@@ -58,7 +57,36 @@ export default function Settings() {
     companyPhone: '',
     address: '',
     language: 'en',
+    heroImageUrl: '',
+    stats: [
+      { label: 'Happy Customers', value: '5000+' },
+      { label: 'Years of Service', value: '6+' },
+      { label: 'Deliveries Completed', value: '20000+' },
+      { label: 'Cities Covered', value: '15+' },
+    ],
   });
+
+  const [servicesSettings, setServicesSettings] = useState([
+    {
+      id: 1,
+      name: 'Bottled Water Delivery',
+      description: 'Sealed, purified bottled water delivered to your doorstep.',
+      icon: 'Package',
+      features: ['Free delivery', 'Flexible scheduling', 'Bulk discounts'],
+    },
+  ]);
+
+  const [teamMembers, setTeamMembers] = useState([
+    {
+      id: 1,
+      name: '',
+      role: '',
+      description: '',
+      photoUrl: '',
+    },
+  ]);
+
+  const [uploadingMemberId, setUploadingMemberId] = useState(null);
 
   const [notificationSettings, setNotificationSettings] = useState({
     orderAlerts: true,
@@ -89,6 +117,12 @@ export default function Settings() {
     debugMode: false,
   });
 
+  const handleStatChange = (index, field, newValue) => {
+    const updatedStats = [...generalSettings.stats];
+    updatedStats[index] = { ...updatedStats[index], [field]: newValue };
+    setGeneralSettings({ ...generalSettings, stats: updatedStats });
+  };
+
   // ===== FETCH SETTINGS =====
   const fetchSettings = async () => {
     setLoading(true);
@@ -101,7 +135,15 @@ export default function Settings() {
 
       if (data.success) {
         const settings = data.data;
-        if (settings.general) setGeneralSettings(settings.general);
+        if (settings.general) {
+          setGeneralSettings(prev => ({
+            ...prev,
+            ...settings.general,
+            stats: settings.general?.stats || prev.stats,
+          }));
+        }
+        if (settings.services) setServicesSettings(settings.services);
+        if (settings.team) setTeamMembers(settings.team);
         if (settings.notifications) setNotificationSettings(settings.notifications);
         if (settings.security) setSecuritySettings(settings.security);
         if (settings.system) setSystemSettings(settings.system);
@@ -115,6 +157,16 @@ export default function Settings() {
   };
 
   useEffect(() => {
+    if (!user) return;
+    const currentRole = user?.role?.toString().trim().toUpperCase();
+    if (currentRole === 'CEO') {
+      setActiveTab('general');
+    } else if (currentRole === 'ADMIN') {
+      setActiveTab('notifications');
+    }
+  }, [user]);
+
+  useEffect(() => {
     fetchSettings();
   }, []);
 
@@ -123,18 +175,26 @@ export default function Settings() {
     setSaving(true);
     try {
       const token = localStorage.getItem('token');
+
+      // 🆕 Role අනුව payload එක filter කරනවා - CEO ට access නැති sections backend එකට යවන්නෙම නෑ
+      const payload = {};
+      if (role === 'CEO') {
+        payload.general = generalSettings;
+        payload.services = servicesSettings;
+        payload.team = teamMembers;
+      } else if (canManageUsers) {
+        payload.notifications = notificationSettings;
+        payload.security = securitySettings;
+        payload.system = systemSettings;
+      }
+
       const response = await fetch('http://localhost:5000/api/settings', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          general: generalSettings,
-          notifications: notificationSettings,
-          security: securitySettings,
-          system: systemSettings,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -151,7 +211,7 @@ export default function Settings() {
       setSaving(false);
     }
   };
-  
+
   const Toggle = ({ enabled, onToggle }) => (
     <button
       onClick={onToggle}
@@ -175,40 +235,143 @@ export default function Settings() {
     );
   }
 
- 
+  const handleHeroImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-const handleHeroImageUpload = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+    setUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `hero-bg-${Date.now()}.${fileExt}`;
+      const filePath = `hero/${fileName}`;
 
-  setUploading(true);
-  try {
-    const fileExt = file.name.split('.').pop();
-    const fileName = `hero-bg-${Date.now()}.${fileExt}`;
-    const filePath = `hero/${fileName}`;
+      // Upload to bucket
+      const { error: uploadError } = await supabase.storage
+        .from('Home-img')
+        .upload(filePath, file, { upsert: true });
 
-    // Upload to bucket
-    const { error: uploadError } = await supabase.storage
-      .from('Home-img')
-      .upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
 
-    if (uploadError) throw uploadError;
+      // Get public URL
+      const { data } = supabase.storage
+        .from('Home-img')
+        .getPublicUrl(filePath);
 
-    // Get public URL
-    const { data } = supabase.storage
-      .from('Home-img')
-      .getPublicUrl(filePath);
+      // Save URL into your settings state (and DB if you're persisting settings)
+      setGeneralSettings({ ...generalSettings, heroImageUrl: data.publicUrl });
 
-    // Save URL into your settings state (and DB if you're persisting settings)
-    setGeneralSettings({ ...generalSettings, heroImageUrl: data.publicUrl });
+    } catch (err) {
+      console.error('Upload failed:', err);
+      alert('Image upload වුනේ නැහැ, ආයෙත් try කරන්න');
+    } finally {
+      setUploading(false);
+    }
+  };
 
-  } catch (err) {
-    console.error('Upload failed:', err);
-    alert('Image upload වුනේ නැහැ, ආයෙත් try කරන්න');
-  } finally {
-    setUploading(false);
-  }
-};
+  const availableIcons = ['Package', 'Droplets', 'Building', 'Truck', 'Siren'];
+
+  const handleAddService = () => {
+    const newService = {
+      id: Date.now(),
+      name: '',
+      description: '',
+      icon: 'Package',
+      features: [''],
+    };
+    setServicesSettings([...servicesSettings, newService]);
+  };
+
+  const handleRemoveService = (id) => {
+    setServicesSettings(servicesSettings.filter((s) => s.id !== id));
+  };
+
+  const handleServiceChange = (id, field, value) => {
+    setServicesSettings(
+      servicesSettings.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+    );
+  };
+
+  const handleAddFeature = (serviceId) => {
+    setServicesSettings(
+      servicesSettings.map((s) =>
+        s.id === serviceId ? { ...s, features: [...s.features, ''] } : s
+      )
+    );
+  };
+
+  const handleAddMember = () => {
+    const newMember = {
+      id: Date.now(),
+      name: '',
+      role: '',
+      description: '',
+      photoUrl: '',
+    };
+    setTeamMembers([...teamMembers, newMember]);
+  };
+
+  const handleRemoveMember = (id) => {
+    setTeamMembers(teamMembers.filter((m) => m.id !== id));
+  };
+
+  const handleMemberChange = (id, field, value) => {
+    setTeamMembers(
+      teamMembers.map((m) => (m.id === id ? { ...m, [field]: value } : m))
+    );
+  };
+
+  // Hero image upload එකේ pattern එකම follow කරනවා
+  const handleMemberPhotoUpload = async (id, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setUploadingMemberId(id);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `team-${id}-${Date.now()}.${fileExt}`;
+      const filePath = `team/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('team-photos') // existing bucket එකම reuse කරනවා
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage
+        .from('team-photos')
+        .getPublicUrl(filePath);
+
+      handleMemberChange(id, 'photoUrl', data.publicUrl);
+    } catch (err) {
+      console.error('Team photo upload failed:', err);
+      alert('Photo not uploaded ,Try again');
+    } finally {
+      setUploadingMemberId(null);
+    }
+  };
+
+  const handleRemoveFeature = (serviceId, featureIndex) => {
+    setServicesSettings(
+      servicesSettings.map((s) =>
+        s.id === serviceId
+          ? { ...s, features: s.features.filter((_, i) => i !== featureIndex) }
+          : s
+      )
+    );
+  };
+
+  const handleFeatureChange = (serviceId, featureIndex, value) => {
+    setServicesSettings(
+      servicesSettings.map((s) =>
+        s.id === serviceId
+          ? {
+              ...s,
+              features: s.features.map((f, i) => (i === featureIndex ? value : f)),
+            }
+          : s
+      )
+    );
+  };
 
   return (
     <motion.div
@@ -272,7 +435,7 @@ const handleHeroImageUpload = async (e) => {
       </motion.div>
 
       {/* ===== GENERAL SETTINGS ===== */}
-      {activeTab === 'general' &&  (
+      {activeTab === 'general' && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -282,34 +445,347 @@ const handleHeroImageUpload = async (e) => {
               <SettingsIcon size={18} className="text-blue-600" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-gray-900">General Settings</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Company information and basic preferences</p>
+              <h2 className="text-base font-semibold text-gray-900">Home Settings</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Manage Company information shown on the Home page</p>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
 
             <div className="sm:col-span-2">
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Hero Background Image</label>
-  <div className="flex items-center gap-4">
-    {generalSettings.heroImageUrl && (
-      <img
-        src={generalSettings.heroImageUrl}
-        alt="Hero preview"
-        className="w-24 h-16 object-cover rounded-lg border border-gray-200"
-      />
-    )}
-    <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
-      {uploading ? 'Uploading...' : 'Change Image'}
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleHeroImageUpload}
-        disabled={uploading}
-        className="hidden"
-      />
-    </label>
-  </div>
-</div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Hero Background Image</label>
+              <div className="flex items-center gap-4">
+                {generalSettings.heroImageUrl && (
+                  <img
+                    src={generalSettings.heroImageUrl}
+                    alt="Hero preview"
+                    className="w-24 h-16 object-cover rounded-lg border border-gray-200"
+                  />
+                )}
+                <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
+                  {uploading ? 'Uploading...' : 'Change Image'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleHeroImageUpload}
+                    disabled={uploading}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-3">
+                "Hanthana in Numbers" Stats
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {generalSettings.stats?.map((stat, index) => (
+                  <div
+                    key={index}
+                    className="border border-gray-200 rounded-lg p-3 space-y-2"
+                  >
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                        Value (e.g. 5000+)
+                      </label>
+                      <input
+                        type="text"
+                        value={stat.value}
+                        onChange={(e) => handleStatChange(index, 'value', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                        Label
+                      </label>
+                      <input
+                        type="text"
+                        value={stat.label}
+                        onChange={(e) => handleStatChange(index, 'label', e.target.value)}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        </motion.div>
+      )}
+
+      {/* ===== SERVICES SETTINGS ===== */}
+      {activeTab === 'services' && (
+        <motion.div
+          variants={itemVariants}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+                <Package size={18} className="text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">Services</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Manage services shown on the Services page</p>
+              </div>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleAddService}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+            >
+              <Plus size={16} />
+              Add Service
+            </motion.button>
+          </div>
+
+          <div className="space-y-5">
+            {servicesSettings.map((service) => (
+              <div
+                key={service.id}
+                className="border border-gray-200 rounded-xl p-5 relative"
+              >
+                {/* Remove service button */}
+                <button
+                  onClick={() => handleRemoveService(service.id)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition-colors"
+                  title="Remove service"
+                >
+                  <Trash2 size={16} />
+                </button>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pr-8">
+                  {/* Name */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Service Name
+                    </label>
+                    <input
+                      type="text"
+                      value={service.name}
+                      onChange={(e) => handleServiceChange(service.id, 'name', e.target.value)}
+                      placeholder="e.g. Bottled Water Delivery"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                    />
+                  </div>
+
+                  {/* Icon selector */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Icon
+                    </label>
+                    <select
+                      value={service.icon}
+                      onChange={(e) => handleServiceChange(service.id, 'icon', e.target.value)}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                    >
+                      {availableIcons.map((iconName) => (
+                        <option key={iconName} value={iconName}>
+                          {iconName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Description */}
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                      Description
+                    </label>
+                    <textarea
+                      value={service.description}
+                      onChange={(e) => handleServiceChange(service.id, 'description', e.target.value)}
+                      rows={2}
+                      placeholder="Short description of this service"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
+                    />
+                  </div>
+
+                  {/* Features list */}
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-medium text-gray-600">
+                        Features
+                      </label>
+                      <button
+                        onClick={() => handleAddFeature(service.id)}
+                        className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                      >
+                        <Plus size={12} />
+                        Add Feature
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {service.features.map((feature, fIndex) => (
+                        <div key={fIndex} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={feature}
+                            onChange={(e) =>
+                              handleFeatureChange(service.id, fIndex, e.target.value)
+                            }
+                            placeholder="e.g. Free delivery"
+                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                          />
+                          <button
+                            onClick={() => handleRemoveFeature(service.id, fIndex)}
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                            title="Remove feature"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {servicesSettings.length === 0 && (
+              <div className="text-center py-10 text-sm text-gray-400">
+                No services added yet. Click "Add Service" to create one.
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ===== ABOUT US / TEAM SETTINGS ===== */}
+      {activeTab === 'aboutus' && (
+        <motion.div
+          variants={itemVariants}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+                <Users size={18} className="text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-base font-semibold text-gray-900">About Us / Team</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Manage team members shown on the About Us page</p>
+              </div>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={handleAddMember}
+              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+            >
+              <Plus size={16} />
+              Add Member
+            </motion.button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            {teamMembers.map((member) => (
+              <div
+                key={member.id}
+                className="border border-gray-200 rounded-xl p-5 relative"
+              >
+                {/* Remove button */}
+                <button
+                  onClick={() => handleRemoveMember(member.id)}
+                  className="absolute top-4 right-4 text-gray-400 hover:text-red-500 transition-colors"
+                  title="Remove member"
+                >
+                  <Trash2 size={16} />
+                </button>
+
+                {/* Photo upload */}
+                <div className="flex items-center gap-4 mb-4">
+                  {member.photoUrl ? (
+                    <img
+                      src={member.photoUrl}
+                      alt={member.name || 'Team member'}
+                      className="w-16 h-16 rounded-full object-cover border border-gray-200"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-lg font-bold">
+                      {member.name
+                        ? member.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
+                        : '?'}
+                    </div>
+                  )}
+                  <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
+                    {uploadingMemberId === member.id ? 'Uploading...' : 'Upload Photo'}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleMemberPhotoUpload(member.id, e)}
+                      disabled={uploadingMemberId === member.id}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Name */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                    Name
+                  </label>
+                  <input
+                    type="text"
+                    value={member.name}
+                    onChange={(e) => handleMemberChange(member.id, 'name', e.target.value)}
+                    placeholder="e.g. Nimal Perera"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                  />
+                </div>
+
+                {/* Role */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                    Role / Position
+                  </label>
+                  <input
+                    type="text"
+                    value={member.role}
+                    onChange={(e) => handleMemberChange(member.id, 'role', e.target.value)}
+                    placeholder="e.g. Operations Manager"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                  />
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                    Description
+                  </label>
+                  <textarea
+                    value={member.description}
+                    onChange={(e) => handleMemberChange(member.id, 'description', e.target.value)}
+                    rows={3}
+                    placeholder="Short bio or role description"
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
+                  />
+                </div>
+              </div>
+            ))}
+
+            {teamMembers.length === 0 && (
+              <div className="sm:col-span-2 text-center py-10 text-sm text-gray-400">
+                No team members added yet. Click "Add Member" to create one.
+              </div>
+            )}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ===== CONTACT US SETTINGS ===== */}
+      {activeTab === 'contactus' && (
+        <motion.div
+          variants={itemVariants}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+        >
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Company Name</label>
               <input
@@ -358,106 +834,102 @@ const handleHeroImageUpload = async (e) => {
                 <option value="ta">Tamil</option>
               </select>
             </div> */}
-            
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Contact Phone (Hotline)</label>
+              <input
+                type="tel"
+                value={generalSettings.contactPhone || ''}
+                onChange={(e) => setGeneralSettings({ ...generalSettings, contactPhone: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
 
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Contact Phone (Hotline)</label>
-  <input
-    type="tel"
-    value={generalSettings.contactPhone || ''}
-    onChange={(e) => setGeneralSettings({ ...generalSettings, contactPhone: e.target.value })}
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Support Email</label>
+              <input
+                type="email"
+                value={generalSettings.contactEmail || ''}
+                onChange={(e) => setGeneralSettings({ ...generalSettings, contactEmail: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
 
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Support Email</label>
-  <input
-    type="email"
-    value={generalSettings.contactEmail || ''}
-    onChange={(e) => setGeneralSettings({ ...generalSettings, contactEmail: e.target.value })}
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Orders Email</label>
+              <input
+                type="email"
+                value={generalSettings.ordersEmail || ''}
+                onChange={(e) => setGeneralSettings({ ...generalSettings, ordersEmail: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
 
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Orders Email</label>
-  <input
-    type="email"
-    value={generalSettings.ordersEmail || ''}
-    onChange={(e) => setGeneralSettings({ ...generalSettings, ordersEmail: e.target.value })}
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Emergency Phone</label>
+              <input
+                type="tel"
+                value={generalSettings.emergencyPhone || ''}
+                onChange={(e) => setGeneralSettings({ ...generalSettings, emergencyPhone: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
 
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Emergency Phone</label>
-  <input
-    type="tel"
-    value={generalSettings.emergencyPhone || ''}
-    onChange={(e) => setGeneralSettings({ ...generalSettings, emergencyPhone: e.target.value })}
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Business Hours (Mon-Sat)</label>
+              <input
+                type="text"
+                value={generalSettings.businessHours?.mondaySaturday || ''}
+                onChange={(e) => setGeneralSettings({
+                  ...generalSettings,
+                  businessHours: {
+                    ...generalSettings.businessHours,
+                    mondaySaturday: e.target.value
+                  }
+                })}
+                placeholder="7:00 AM - 9:00 PM"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
 
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Business Hours (Mon-Sat)</label>
-  <input
-    type="text"
-    value={generalSettings.businessHours?.mondaySaturday || ''}
-    onChange={(e) => setGeneralSettings({
-      ...generalSettings,
-      businessHours: {
-        ...generalSettings.businessHours,
-        mondaySaturday: e.target.value
-      }
-    })}
-    placeholder="7:00 AM - 9:00 PM"
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Business Hours (Sunday)</label>
+              <input
+                type="text"
+                value={generalSettings.businessHours?.sunday || ''}
+                onChange={(e) => setGeneralSettings({
+                  ...generalSettings,
+                  businessHours: {
+                    ...generalSettings.businessHours,
+                    sunday: e.target.value
+                  }
+                })}
+                placeholder="8:00 AM - 6:00 PM"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
 
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Business Hours (Sunday)</label>
-  <input
-    type="text"
-    value={generalSettings.businessHours?.sunday || ''}
-    onChange={(e) => setGeneralSettings({
-      ...generalSettings,
-      businessHours: {
-        ...generalSettings.businessHours,
-        sunday: e.target.value
-      }
-    })}
-    placeholder="8:00 AM - 6:00 PM"
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
-
-<div>
-  <label className="block text-xs font-medium text-gray-600 mb-1.5">Emergency Hours</label>
-  <input
-    type="text"
-    value={generalSettings.businessHours?.emergency || ''}
-    onChange={(e) => setGeneralSettings({
-      ...generalSettings,
-      businessHours: {
-        ...generalSettings.businessHours,
-        emergency: e.target.value
-      }
-    })}
-    placeholder="24/7 Available"
-    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-  />
-</div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1.5">Emergency Hours</label>
+              <input
+                type="text"
+                value={generalSettings.businessHours?.emergency || ''}
+                onChange={(e) => setGeneralSettings({
+                  ...generalSettings,
+                  businessHours: {
+                    ...generalSettings.businessHours,
+                    emergency: e.target.value
+                  }
+                })}
+                placeholder="24/7 Available"
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+              />
+            </div>
           </div>
         </motion.div>
       )}
 
-      
-      
       {/* ===== NOTIFICATION SETTINGS ===== */}
-      {activeTab === 'notifications'&& canManageUsers  && (
+      {activeTab === 'notifications' && canManageUsers && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -519,10 +991,9 @@ const handleHeroImageUpload = async (e) => {
           </div>
         </motion.div>
       )}
-    
 
       {/* ===== SECURITY SETTINGS ===== */}
-      {activeTab === 'security'&& canManageUsers && (
+      {activeTab === 'security' && canManageUsers && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -619,7 +1090,7 @@ const handleHeroImageUpload = async (e) => {
       )}
 
       {/* ===== SYSTEM SETTINGS ===== */}
-      {activeTab === 'system'&& canManageUsers && (
+      {activeTab === 'system' && canManageUsers && (
         <motion.div
           variants={itemVariants}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
@@ -715,7 +1186,7 @@ const handleHeroImageUpload = async (e) => {
           </div>
         </motion.div>
       )}
-    
+
     </motion.div>
   );
 }

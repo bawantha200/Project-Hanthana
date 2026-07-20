@@ -14,6 +14,7 @@ import {
   ChevronRight,
   ArrowRight,
   Headphones,
+  Calendar,
 } from 'lucide-react';
 
 const fadeInUp = {
@@ -50,8 +51,6 @@ const deliveryHighlights = [
   },
 ];
 
-
-
 const refillServices = [
   {
     icon: Droplets,
@@ -73,18 +72,20 @@ const refillServices = [
   },
 ];
 
-const stats = [
-  { value: '10,000+', label: 'Customers', icon: Users },
-  { value: '50,000+', label: 'Deliveries', icon: Truck },
-  { value: '99.9%', label: 'Quality', icon: Award },
-  { value: '24/7', label: 'Support', icon: Headphones },
-];
-
 // ✅ Component එක ඇතුළේ Hooks භාවිතා කරන්න
 export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [heroImageUrl, setHeroImageUrl] = useState('/images/carousel0.jpeg');
+  const [settings, setSettings] = useState(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  const iconMap = [Users, Calendar, Truck, MapPin];
+
+  const stats = (settings?.general?.stats || []).map((stat, i) => ({
+    ...stat,
+    icon: iconMap[i] || Users,
+  }));
 
   useEffect(() => {
     const fetchProducts = async () => {
@@ -104,19 +105,26 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const fetchHeroImage = async () => {
+    const fetchSettings = async () => {
       try {
         const response = await fetch('http://localhost:5000/api/settings/public');
         const data = await response.json();
-        if (data.success && data.data?.general?.heroImageUrl) {
-          setHeroImageUrl(data.data.general.heroImageUrl);
+
+        console.log('HOME SETTINGS:', data);
+
+        if (data.success) {
+          setSettings(data.data);
+
+          if (data.data?.general?.heroImageUrl) {
+            setHeroImageUrl(data.data.general.heroImageUrl);
+          }
         }
       } catch (error) {
-        console.error('Failed to load hero image:', error);
-        
+        console.error('Failed to load settings:', error);
       }
     };
-    fetchHeroImage();
+
+    fetchSettings();
   }, []);
 
   return (
@@ -124,14 +132,20 @@ export default function Home() {
       {/* Hero Section */}
       <section className="relative overflow-hidden bg-gradient-to-br from-blue-700 via-blue-600 to-cyan-600">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      <img 
-        src={heroImageUrl} 
-        alt="Background" 
-        className="w-full h-full object-cover opacity-100"
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-    </div>
-        
+          {!imageLoaded && (
+            <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+          )}
+          <img
+            src={settings?.general?.heroImageUrl || '/images/default-hero.jpg'}
+            alt="Background"
+            onLoad={() => setImageLoaded(true)}
+            className={`w-full h-full object-cover transition-opacity duration-500 ${
+              imageLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+        </div>
+
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28 lg:py-36">
           <motion.div
             initial="hidden"
@@ -174,7 +188,6 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4"
             >
-             
               <Link
                 to="/services"
                 className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 text-white font-semibold px-8 py-4 rounded-xl hover:bg-white/20 transition-all duration-200 text-lg"
@@ -331,7 +344,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Refill Service Cards Section - No Changes */}
+      {/* Refill Service Cards Section */}
       <section className="py-16 sm:py-20 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -529,7 +542,6 @@ export default function Home() {
               daily water needs. Place your first order today.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-              
               <Link
                 to="/services"
                 className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-8 py-4 rounded-xl transition-colors duration-200 text-lg"

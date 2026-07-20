@@ -17,9 +17,10 @@ import {
   LogIn,
 } from "lucide-react";
 import FloatingOrderButton from "../components/FloatingOrderButton";
-import { useAuth } from '../context/AuthContext';
-import { supabase } from '../supabaseClient';
+import { useAuth } from "../context/AuthContext";
+import { supabase } from "../supabaseClient";
 
+// ─── Constants ────────────────────────────────────────────────
 const baseNavLinks = [
   { name: "Home", path: "/" },
   { name: "Services", path: "/services" },
@@ -27,7 +28,6 @@ const baseNavLinks = [
   { name: "Contact Us", path: "/contact" },
 ];
 
-// 🆕 Default values (will be replaced by settings)
 const defaultSettings = {
   companyName: "Hanthana",
   contactPhone: "+94 76 835 6860",
@@ -41,33 +41,36 @@ const defaultSettings = {
   ],
 };
 
-function Navbar() {
+const quickLinks = [
+  { name: "Home", path: "/" },
+  { name: "Services", path: "/services" },
+  { name: "About", path: "/about" },
+  { name: "Contact", path: "/contact" },
+  { name: "Orders", path: "/orders" },
+];
+
+// ─── Navbar Component ──────────────────────────────────────────
+function Navbar({ showLoginModal, setShowLoginModal }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
   const [loadingRole, setLoadingRole] = useState(true);
-
-  const [showLoginModal, setShowLoginModal] = useState(false);
-  
-  // 🆕 Settings State
   const [settings, setSettings] = useState(defaultSettings);
   const [settingsLoading, setSettingsLoading] = useState(true);
-  
-  // Login form state
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  
+
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, login, loginWithGoogle } = useAuth();
 
-  // 🆕 Fetch Settings
+  // ── Fetch settings ──
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/settings', {
+        const token = localStorage.getItem("token");
+        const response = await fetch("http://localhost:5000/api/settings", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -76,15 +79,20 @@ function Navbar() {
           const general = data.data.general;
           setSettings({
             companyName: general.companyName || defaultSettings.companyName,
-            contactPhone: general.contactPhone || general.companyPhone || defaultSettings.contactPhone,
-            contactEmail: general.contactEmail || general.companyEmail || defaultSettings.contactEmail,
+            contactPhone:
+              general.contactPhone ||
+              general.companyPhone ||
+              defaultSettings.contactPhone,
+            contactEmail:
+              general.contactEmail ||
+              general.companyEmail ||
+              defaultSettings.contactEmail,
             address: general.address || defaultSettings.address,
             services: general.services || defaultSettings.services,
           });
         }
       } catch (error) {
-        console.error('Fetch settings error:', error);
-        // Keep default settings
+        console.error("Fetch settings error:", error);
       } finally {
         setSettingsLoading(false);
       }
@@ -93,7 +101,7 @@ function Navbar() {
     fetchSettings();
   }, []);
 
-  // Fetch user role (unchanged)
+  // ── Fetch user role ──
   useEffect(() => {
     const fetchUserRole = async () => {
       if (!user) {
@@ -104,19 +112,19 @@ function Navbar() {
       setLoadingRole(true);
       try {
         const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('role_id')
-          .eq('id', user.id)
+          .from("profiles")
+          .select("role_id")
+          .eq("id", user.id)
           .maybeSingle();
         if (profileError) throw profileError;
         if (profile?.role_id) {
           const { data: role, error: roleError } = await supabase
-            .from('roles')
-            .select('role_name')
-            .eq('id', profile.role_id)
+            .from("roles")
+            .select("role_name")
+            .eq("id", profile.role_id)
             .single();
           if (roleError) throw roleError;
-          setIsCustomer(role?.role_name === 'CUSTOMER');
+          setIsCustomer(role?.role_name === "CUSTOMER");
         } else {
           setIsCustomer(false);
         }
@@ -130,16 +138,7 @@ function Navbar() {
     fetchUserRole();
   }, [user]);
 
-  const handleSignOut = async () => {
-    try {
-      await logout();
-      navigate("/");
-    } catch (error) {
-      console.error("Sign Out Error:", error);
-      alert("Sign Out Error: " + (error.message || "Something went wrong"));
-    }
-  };
-
+  // ── Scroll listener ──
   useEffect(() => {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 20);
@@ -148,10 +147,12 @@ function Navbar() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // ── Close mobile menu on location change ──
   useEffect(() => {
     setIsMobileMenuOpen(false);
   }, [location.pathname]);
 
+  // ── Prevent body scroll when mobile menu is open ──
   useEffect(() => {
     if (isMobileMenuOpen) {
       document.body.style.overflow = "hidden";
@@ -173,42 +174,76 @@ function Navbar() {
     return links;
   };
 
-  const handleLogin = useCallback(async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  const handleSignOut = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await response.json();
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || 'Login failed');
-      }
-      login(data.user, data.session.access_token, data.permissions || []);
-      setShowLoginModal(false);
-      const targetRole = data.user.role?.toUpperCase();
-      if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
-        navigate('/admin/dashboard', { replace: true });
-      } else {
-        navigate('/customer/dashboard', { replace: true });
-      }
+      await logout();
+      navigate("/");
     } catch (error) {
-      alert("Login Failure: " + error.message);
-    } finally {
-      setLoading(false);
+      console.error("Sign Out Error:", error);
+      alert("Sign Out Error: " + (error.message || "Something went wrong"));
     }
-  }, [email, password, login, navigate, setShowLoginModal]);
+  };
 
-  const handleGoogleLogin = useCallback(async (e) => {
-    e?.preventDefault();
-    try {
-      await loginWithGoogle();
-    } catch (error) {
-      alert("Google Sign-In error: " + error.message);
-    }
-  }, [loginWithGoogle]);
+  const handleLogin = useCallback(
+    async (e) => {
+      e.preventDefault();
+      setLoading(true);
+      try {
+        const response = await fetch("http://localhost:5000/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          if (data.requireTwoFactorSetup) {
+            setShowLoginModal(false);
+            navigate("/admin/2fa-setup", {
+              state: { tempToken: data.tempToken },
+            });
+            setLoading(false);
+            return;
+          }
+          if (data.requireTwoFactor) {
+            setShowLoginModal(false);
+            navigate("/admin/2fa-verify", {
+              state: { tempToken: data.tempToken },
+            });
+            setLoading(false);
+            return;
+          }
+          throw new Error(data.message || "Login failed");
+        }
+
+        login(data.user, data.session.access_token, data.permissions || []);
+        setShowLoginModal(false);
+        const targetRole = data.user.role?.toUpperCase();
+        if (targetRole === "ADMIN" || targetRole === "STAFF") {
+          navigate("/admin/dashboard", { replace: true });
+        } else {
+          navigate("/customer/dashboard", { replace: true });
+        }
+      } catch (error) {
+        alert("Login Failure: " + error.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [email, password, login, navigate, setShowLoginModal]
+  );
+
+  const handleGoogleLogin = useCallback(
+    async (e) => {
+      e?.preventDefault();
+      try {
+        await loginWithGoogle();
+      } catch (error) {
+        alert("Google Sign-In error: " + error.message);
+      }
+    },
+    [loginWithGoogle]
+  );
 
   return (
     <>
@@ -221,18 +256,18 @@ function Navbar() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-18">
-            {/* Logo - 🆕 Company Name Dynamic */}
+            {/* Logo */}
             <Link
               to="/"
               className="flex items-center gap-2 group"
               onClick={() => setIsMobileMenuOpen(false)}
             >
               <div className="relative">
-                <img 
-                    src="/images/logo.png" 
-                    alt="Hanthana Logo" 
-                    className="w-8 h-8 rounded-full object-cover group-hover:scale-105 transition-transform duration-300" 
-                  />
+                <img
+                  src="/images/logo.png"
+                  alt="Hanthana Logo"
+                  className="w-8 h-8 rounded-full object-cover group-hover:scale-105 transition-transform duration-300"
+                />
                 <div className="absolute -inset-1 bg-[#DBEAFE] rounded-full opacity-0 group-hover:opacity-50 transition-opacity duration-300 -z-10" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] bg-clip-text text-transparent">
@@ -240,7 +275,7 @@ function Navbar() {
               </span>
             </Link>
 
-            {/* Desktop Navigation - No changes */}
+            {/* Desktop Navigation */}
             <div className="hidden lg:flex items-center gap-1">
               {getNavLinks().map((link) => (
                 <Link
@@ -268,7 +303,7 @@ function Navbar() {
               ))}
             </div>
 
-            {/* Desktop CTA - No changes */}
+            {/* Desktop CTA */}
             <div className="hidden lg:flex items-center gap-3">
               {!user ? (
                 <>
@@ -294,7 +329,9 @@ function Navbar() {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-800 truncate">
-                          {user.full_name || user.user_metadata?.full_name || "User"}
+                          {user.full_name ||
+                            user.user_metadata?.full_name ||
+                            "User"}
                         </p>
                         <p className="text-xs text-slate-500 truncate">
                           {user.email}
@@ -333,7 +370,7 @@ function Navbar() {
               )}
             </div>
 
-            {/* Mobile Hamburger - No changes */}
+            {/* Mobile Hamburger */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="lg:hidden relative p-2 rounded-xl text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50 transition-all duration-300"
@@ -366,7 +403,7 @@ function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Menu Overlay - No changes */}
+        {/* Mobile Menu Overlay */}
         <AnimatePresence>
           {isMobileMenuOpen && (
             <motion.div
@@ -417,7 +454,7 @@ function Navbar() {
                     ))}
                   </nav>
 
-                  {/* Mobile Auth Section - New */}
+                  {/* Mobile Auth Section */}
                   <motion.div
                     initial={{ y: 10, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
@@ -451,7 +488,9 @@ function Navbar() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-semibold text-slate-800 truncate">
-                              {user.full_name || user.user_metadata?.full_name || "User"}
+                              {user.full_name ||
+                                user.user_metadata?.full_name ||
+                                "User"}
                             </p>
                             <p className="text-xs text-slate-500 truncate">
                               {user.email}
@@ -498,7 +537,7 @@ function Navbar() {
         </AnimatePresence>
       </nav>
 
-      {/* ========== BUILT-IN LOGIN MODAL ========== */}
+      {/* ── Login Modal ── */}
       <AnimatePresence>
         {showLoginModal && (
           <motion.div
@@ -524,13 +563,19 @@ function Navbar() {
 
               <div className="bg-white backdrop-blur-sm py-8 px-10 shadow-2xl rounded-3xl border border-white">
                 <div className="text-center mb-8">
-                  <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
-                  <p className="text-gray-500 text-sm mt-2">Sign in to manage your water deliveries</p>
+                  <h2 className="text-3xl font-bold text-gray-900">
+                    Welcome Back
+                  </h2>
+                  <p className="text-gray-500 text-sm mt-2">
+                    Sign in to manage your water deliveries
+                  </p>
                 </div>
 
                 <form onSubmit={handleLogin} className="space-y-5">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 ml-1">Email</label>
+                    <label className="block text-sm font-medium text-gray-700 ml-1">
+                      Email
+                    </label>
                     <div className="mt-1 relative">
                       <Mail className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       <input
@@ -545,7 +590,9 @@ function Navbar() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 ml-1">Password</label>
+                    <label className="block text-sm font-medium text-gray-700 ml-1">
+                      Password
+                    </label>
                     <div className="mt-1 relative">
                       <Lock className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       <input
@@ -564,14 +611,17 @@ function Navbar() {
                     disabled={loading}
                     className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center disabled:bg-blue-400"
                   >
-                    <LogIn className="w-5 h-5 mr-2" /> {loading ? "Signing In..." : "Sign In"}
+                    <LogIn className="w-5 h-5 mr-2" />{" "}
+                    {loading ? "Signing In..." : "Sign In"}
                   </button>
                 </form>
 
                 <div className="mt-6">
                   <div className="relative flex py-3 items-center">
                     <div className="flex-grow border-t border-gray-400"></div>
-                    <span className="flex-shrink mx-4 text-gray-600 text-sm">OR</span>
+                    <span className="flex-shrink mx-4 text-gray-600 text-sm">
+                      OR
+                    </span>
                     <div className="flex-grow border-t border-gray-400"></div>
                   </div>
 
@@ -608,17 +658,16 @@ function Navbar() {
   );
 }
 
+// ─── Footer Component ──────────────────────────────────────────
 function Footer() {
-  // 🆕 Settings State for Footer
   const [settings, setSettings] = useState(defaultSettings);
   const [settingsLoading, setSettingsLoading] = useState(true);
 
-  // 🆕 Fetch Settings
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/settings', {
+        const token = localStorage.getItem("token");
+        const response = await fetch("http://localhost:5000/api/settings", {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await response.json();
@@ -627,14 +676,20 @@ function Footer() {
           const general = data.data.general;
           setSettings({
             companyName: general.companyName || defaultSettings.companyName,
-            contactPhone: general.contactPhone || general.companyPhone || defaultSettings.contactPhone,
-            contactEmail: general.contactEmail || general.companyEmail || defaultSettings.contactEmail,
+            contactPhone:
+              general.contactPhone ||
+              general.companyPhone ||
+              defaultSettings.contactPhone,
+            contactEmail:
+              general.contactEmail ||
+              general.companyEmail ||
+              defaultSettings.contactEmail,
             address: general.address || defaultSettings.address,
             services: general.services || defaultSettings.services,
           });
         }
       } catch (error) {
-        console.error('Fetch settings error:', error);
+        console.error("Fetch settings error:", error);
       } finally {
         setSettingsLoading(false);
       }
@@ -643,25 +698,25 @@ function Footer() {
     fetchSettings();
   }, []);
 
-  // 🆕 Build contact info from settings
   const contactInfo = [
     { icon: Phone, text: settings.contactPhone },
     { icon: Mail, text: settings.contactEmail },
     { icon: MapPin, text: settings.address },
   ];
 
-  // 🆕 Build services from settings
   const servicesList = settings.services || defaultSettings.services;
 
   return (
     <footer className="bg-[#1E3A8A] text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-          {/* Column 1: Brand Info - 🆕 Company Name Dynamic */}
+          {/* Brand Info */}
           <div className="sm:col-span-2 lg:col-span-1">
             <Link to="/" className="flex items-center gap-2 group mb-4">
               <Droplets className="w-7 h-7 text-[#DBEAFE] group-hover:text-white transition-colors duration-300" />
-              <span className="text-xl font-bold text-white">{settings.companyName}</span>
+              <span className="text-xl font-bold text-white">
+                {settings.companyName}
+              </span>
             </Link>
             <p className="text-blue-200 text-sm leading-relaxed mb-6 max-w-xs">
               Your trusted partner in water management solutions. Delivering
@@ -679,13 +734,18 @@ function Footer() {
             </div>
           </div>
 
-          {/* Column 2: Quick Links - No changes */}
+          {/* Quick Links */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Quick Links</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">
+              Quick Links
+            </h3>
             <ul className="space-y-2.5">
               {quickLinks.map((link) => (
                 <li key={link.name}>
-                  <Link to={link.path} className="text-blue-200 text-sm hover:text-white transition-colors duration-300 flex items-center gap-2 group">
+                  <Link
+                    to={link.path}
+                    className="text-blue-200 text-sm hover:text-white transition-colors duration-300 flex items-center gap-2 group"
+                  >
                     <span className="w-1 h-1 rounded-full bg-blue-400 group-hover:bg-white group-hover:w-1.5 transition-all duration-300" />
                     {link.name}
                   </Link>
@@ -694,9 +754,11 @@ function Footer() {
             </ul>
           </div>
 
-          {/* Column 3: Services - 🆕 Dynamic from Settings */}
+          {/* Services */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Services</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">
+              Services
+            </h3>
             <ul className="space-y-2.5">
               {servicesList.map((service) => (
                 <li key={service}>
@@ -709,16 +771,20 @@ function Footer() {
             </ul>
           </div>
 
-          {/* Column 4: Contact Info - 🆕 Dynamic from Settings */}
+          {/* Contact Info */}
           <div>
-            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Contact Info</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">
+              Contact Info
+            </h3>
             <ul className="space-y-3">
               {contactInfo.map((item) => (
                 <li key={item.text} className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <item.icon className="w-4 h-4 text-[#DBEAFE]" />
                   </div>
-                  <span className="text-blue-200 text-sm leading-relaxed">{item.text}</span>
+                  <span className="text-blue-200 text-sm leading-relaxed">
+                    {item.text}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -726,15 +792,27 @@ function Footer() {
         </div>
       </div>
 
-      {/* Footer Bottom - No changes */}
+      {/* Footer Bottom */}
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-blue-300 text-sm">&copy; 2026 {settings.companyName}. All rights reserved.</p>
+            <p className="text-blue-300 text-sm">
+              &copy; 2026 {settings.companyName}. All rights reserved.
+            </p>
             <div className="flex items-center gap-4 text-blue-300 text-sm">
-              <Link to="#" className="hover:text-white transition-colors duration-300">Privacy Policy</Link>
+              <Link
+                to="#"
+                className="hover:text-white transition-colors duration-300"
+              >
+                Privacy Policy
+              </Link>
               <span className="w-1 h-1 rounded-full bg-blue-500" />
-              <Link to="#" className="hover:text-white transition-colors duration-300">Terms of Service</Link>
+              <Link
+                to="#"
+                className="hover:text-white transition-colors duration-300"
+              >
+                Terms of Service
+              </Link>
             </div>
           </div>
         </div>
@@ -743,6 +821,7 @@ function Footer() {
   );
 }
 
+// ─── CustomerLayout ────────────────────────────────────────────
 export default function CustomerLayout() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
@@ -751,7 +830,7 @@ export default function CustomerLayout() {
 
   const handleOrderClick = useCallback(() => {
     if (user) {
-      navigate('/orders');
+      navigate("/orders");
     } else {
       setShowAuthPrompt(true);
     }
@@ -769,6 +848,7 @@ export default function CustomerLayout() {
       <Footer />
       <FloatingOrderButton onLoginRequired={handleOrderClick} />
 
+      {/* Auth Prompt Modal */}
       <AnimatePresence>
         {showAuthPrompt && (
           <motion.div
@@ -795,7 +875,9 @@ export default function CustomerLayout() {
                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <ShoppingBag className="w-8 h-8 text-blue-600" />
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900">Ready to Order?</h3>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  Ready to Order?
+                </h3>
                 <p className="text-gray-500 mt-2">
                   Please login or create an account to place your water order.
                 </p>
@@ -803,7 +885,7 @@ export default function CustomerLayout() {
                   <button
                     onClick={() => {
                       setShowAuthPrompt(false);
-                      navigate('/login');
+                      navigate("/login");
                     }}
                     className="flex-1 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-200"
                   >
@@ -812,7 +894,7 @@ export default function CustomerLayout() {
                   <button
                     onClick={() => {
                       setShowAuthPrompt(false);
-                      navigate('/register');
+                      navigate("/register");
                     }}
                     className="flex-1 px-6 py-3 bg-gray-100 text-gray-800 font-semibold rounded-xl hover:bg-gray-200 transition"
                   >
@@ -827,12 +909,3 @@ export default function CustomerLayout() {
     </div>
   );
 }
-
-// 🆕 Quick Links (used in Footer) - moved outside
-const quickLinks = [
-  { name: "Home", path: "/" },
-  { name: "Services", path: "/services" },
-  { name: "About", path: "/about" },
-  { name: "Contact", path: "/contact" },
-  { name: "Orders", path: "/orders" },
-];

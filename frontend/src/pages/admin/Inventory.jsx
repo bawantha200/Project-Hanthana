@@ -1,45 +1,14 @@
-import { useState, useEffect } from 'react';
+// frontend/src/pages/admin/Inventory.jsx
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Package,
-  AlertTriangle,
-  Truck,
-  Plus,
-  UserPlus,
-  Search,
-  Factory,
-} from 'lucide-react';
-import InventoryTable from '../../components/InventoryTable';
-import VendorTable from '../../components/VendorTable';
+import { Factory, Package, FlaskConical, ShoppingCart, RefreshCw } from 'lucide-react';
+import StockLevels from '../../components/inventory/StockLevels';
+import EmptyBottles from '../../components/inventory/EmptyBottles';
+import VendorOrders from '../../components/inventory/VendorOrders';
 import JITDashboard from '../../components/JITDashboard';
-import api from '../../services/api';
+import { inventoryAPI } from '../../services/api';
+import toast from 'react-hot-toast';
 
-// --------------------------------------------
-// API helper functions (using the axios instance)
-// --------------------------------------------
-async function fetchProductsWithStock() {
-  const res = await api.get('/inventory/products-with-stock');
-  return res.data.products;
-}
-
-async function fetchVendors() {
-  const res = await api.get('/inventory/vendors');
-  return res.data.vendors;
-}
-
-async function fetchEmptyBottles() {
-  const res = await api.get('/inventory/empty-bottles');
-  return res.data.emptyBottles;
-}
-
-async function fetchMonthlySales() {
-  const res = await api.get('/inventory/monthly-sales');
-  return res.data.monthlySales;
-}
-
-// --------------------------------------------
-// Animation variants
-// --------------------------------------------
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -56,75 +25,72 @@ const itemVariants = {
 const tabs = [
   { key: 'production', label: 'Production', icon: Factory },
   { key: 'stock', label: 'Stock Levels', icon: Package },
-  { key: 'empty', label: 'Empty Bottles', icon: AlertTriangle },
-  { key: 'vendors', label: 'Vendors', icon: Truck },
+  { key: 'empty', label: 'Empty Bottles', icon: FlaskConical },
+  { key: 'orders', label: 'Vendor Orders', icon: ShoppingCart },
 ];
 
 export default function Inventory() {
-  // Tab state
   const [activeTab, setActiveTab] = useState('production');
-
-  // Data states
-  const [inventoryData, setInventoryData] = useState([]);
-  const [vendorData, setVendorData] = useState([]);
-  const [emptyBottleData, setEmptyBottleData] = useState([]);
-  const [waterUsagePrediction, setWaterUsagePrediction] = useState([]);
-
-  // UI states
+  const [products, setProducts] = useState([]);
+  const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [searchVendor, setSearchVendor] = useState('');
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [fromDate, setFromDate] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  // Computed metrics
-  const totalStock = inventoryData.reduce((sum, item) => sum + (item.stock || 0), 0);
-  const totalPredicted = inventoryData.reduce((sum, item) => sum + (item.predicted || 0), 0);
-  const lowStockItems = inventoryData.filter((item) => item.status === 'low').length;
-  const lowStockAlerts = inventoryData.filter((item) => item.status === 'low');
-
-  // Filter vendors
-  const filteredVendors = vendorData.filter(
-    (v) =>
-      v.vendor_name?.toLowerCase().includes(searchVendor.toLowerCase()) ||
-      v.contact_number?.toLowerCase().includes(searchVendor.toLowerCase()) ||
-      v.supply_type?.toLowerCase().includes(searchVendor.toLowerCase())
-  );
-
-  // Load data on mount
-  useEffect(() => {
-    const loadData = async () => {
-      try {
+  const fetchData = useCallback(async (showLoading = true) => {
+    try {
+      if (showLoading) {
         setLoading(true);
-        const [products, vendors, emptyBottles, monthlySales] = await Promise.all([
-          fetchProductsWithStock(),
-          fetchVendors(),
-          fetchEmptyBottles(),
-          fetchMonthlySales(),
-        ]);
-
-        setInventoryData(products);
-        setVendorData(vendors);
-        setEmptyBottleData(emptyBottles);
-        setWaterUsagePrediction(monthlySales);
-        setError(null);
-      } catch (err) {
-        setError(err.message);
-        console.error('Failed to load data:', err);
-      } finally {
-        setLoading(false);
+      } else {
+        setRefreshing(true);
       }
-    };
+      setError(null);
 
-    loadData();
-    const today = new Date().toISOString().split('T')[0];
-    setFromDate(today);
+      console.log('🔄 Fetching inventory data...');
+
+      const [productsRes, vendorsRes] = await Promise.all([
+        inventoryAPI.getProductsWithStock(),
+        inventoryAPI.getVendors()
+      ]);
+
+      console.log('📦 Products response:', productsRes.data);
+      console.log('🏢 Vendors response:', vendorsRes.data);
+
+      // Extract data correctly
+      const newProducts = productsRes.data?.products || [];
+      // Vendors might be in data.vendors or directly in data
+      const newVendors = vendorsRes.data?.vendors || vendorsRes.data || [];
+
+      console.log(`✅ Loaded ${newProducts.length} products and ${newVendors.length} vendors`);
+      console.log('📊 First vendor:', newVendors[0]);
+
+      setProducts(newProducts);
+      setVendors(newVendors);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error('❌ Failed to load data:', err);
+      const errorMsg = err.response?.data?.message || err.message || 'Failed to load data';
+      setError(errorMsg);
+      toast.error(errorMsg);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  // Loading state
+  useEffect(() => {
+    fetchData(true);
+  }, [fetchData]);
+
+  const handleRefresh = useCallback(() => {
+    fetchData(false);
+  }, [fetchData]);
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
         <div className="text-gray-500">Loading inventory data...</div>
       </div>
     );
@@ -132,8 +98,15 @@ export default function Inventory() {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">
-        Error loading data: {error}
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
+        <h3 className="font-semibold text-lg mb-2">Error Loading Data</h3>
+        <p>{error}</p>
+        <button
+          onClick={handleRefresh}
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -145,15 +118,30 @@ export default function Inventory() {
       animate="visible"
       className="space-y-6"
     >
-      {/* Page Header */}
       <motion.div variants={itemVariants}>
-        <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Track stock levels, empty bottles, vendor relationships, and JIT production
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Inventory Management</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Track stock levels, empty bottles, and vendor orders
+            </p>
+            {lastUpdated && (
+              <p className="text-xs text-gray-400 mt-1">
+                Last updated: {lastUpdated.toLocaleTimeString()} | {products.length} products, {vendors.length} vendors
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </motion.div>
 
-      {/* Tab Navigation */}
       <motion.div
         variants={itemVariants}
         className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit flex-wrap"
@@ -177,338 +165,33 @@ export default function Inventory() {
         })}
       </motion.div>
 
-      {/* Production Dashboard */}
-      {activeTab === 'production' && <JITDashboard products={inventoryData} />}
+      {activeTab === 'production' && (
+        <JITDashboard products={products} onRefresh={handleRefresh} />
+      )}
 
-      {/* Other tabs */}
-      {activeTab !== 'production' && (
-        <>
-          {/* Summary Cards */}
-          <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                  <Package size={18} className="text-blue-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 font-medium">Total Stock</p>
-                  <p className="text-xl font-bold text-gray-900">{totalStock.toLocaleString()}</p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
-                  <AlertTriangle size={18} className="text-amber-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 font-medium">Predicted Needed</p>
-                  <p className="text-xl font-bold text-gray-900">{totalPredicted.toLocaleString()}</p>
-                </div>
-              </div>
-            </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-rose-50 flex items-center justify-center">
-                  <AlertTriangle size={18} className="text-rose-600" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-400 font-medium">Low Stock Items</p>
-                  <p className="text-xl font-bold text-gray-900">{lowStockItems}</p>
-                </div>
-              </div>
-            </div>
-          </motion.div>
+      {activeTab === 'stock' && (
+        <StockLevels 
+          products={products} 
+          onRefresh={handleRefresh}
+          loading={loading || refreshing}
+        />
+      )}
 
-          {/* Stock Levels Tab */}
-          {activeTab === 'stock' && (
-            <div className="space-y-6">
-              <motion.div
-                variants={itemVariants}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"
-              >
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <div>
-                    <h2 className="text-base font-semibold text-gray-900">Bottle Stock Levels</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">Current inventory</p>
-                  </div>
-                  <motion.button
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.97 }}
-                    onClick={() => setShowCreateForm(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition-colors shadow-sm"
-                  >
-                    <Plus size={14} />
-                    Add Stock
-                  </motion.button>
-                </div>
-                {showCreateForm && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="bg-white rounded-2xl shadow-sm border border-blue-200 p-6 ring-2 ring-blue-100"
-                  >
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                          <UserPlus size={18} className="text-blue-600" />
-                        </div>
-                        <h2 className="text-base font-semibold text-gray-900">Add Stock</h2>
-                      </div>
-                      <button
-                        onClick={() => setShowCreateForm(false)}
-                        className="text-gray-400 hover:text-gray-600 text-sm font-medium transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Volume</label>
-                        <select className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white">
-                          <option>500ml</option>
-                          <option>1L</option>
-                          <option>1.5L</option>
-                          <option>5L</option>
-                          <option>19L</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Quantity</label>
-                        <input
-                          type="number"
-                          placeholder="Enter quantity"
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
-                        <input
-                          type="date"
-                          value={fromDate}
-                          onChange={(e) => setFromDate(e.target.value)}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
-                      <motion.button
-                        whileHover={{ scale: 1.04 }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => setShowCreateForm(false)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-sm"
-                      >
-                        Clear
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.04 }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => setShowCreateForm(false)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 transition-colors shadow-sm"
-                      >
-                        Edit Stock
-                      </motion.button>
-                      <motion.button
-                        whileHover={{ scale: 1.04 }}
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => setShowCreateForm(false)}
-                        className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                      >
-                        Add Stock
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                )}
-                <InventoryTable data={inventoryData} showPredicted={true} />
-              </motion.div>
+      {activeTab === 'empty' && (
+        <EmptyBottles 
+          products={products}
+          onRefresh={handleRefresh}
+          loading={loading || refreshing}
+        />
+      )}
 
-              {/* Usage Prediction Analytics */}
-              <motion.div
-                variants={itemVariants}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
-              >
-                <div className="flex items-center justify-between mb-5">
-                  <div>
-                    <h2 className="text-base font-semibold text-gray-900">Usage Prediction Analytics</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">Actual vs predicted demand over time</p>
-                  </div>
-                  <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <AlertTriangle size={18} className="text-blue-600" />
-                  </div>
-                </div>
-                {waterUsagePrediction.length > 0 ? (
-                  <div className="space-y-3">
-                    {waterUsagePrediction.map((row) => {
-                      const maxVal = Math.max(
-                        ...waterUsagePrediction.map((r) => Math.max(r.actual, r.predicted))
-                      );
-                      const actualPct = row.actual > 0 ? (row.actual / maxVal) * 100 : 0;
-                      const predictedPct = (row.predicted / maxVal) * 100;
-                      return (
-                        <div key={row.month} className="space-y-1.5">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="font-medium text-gray-700 w-16">{row.month}</span>
-                            <div className="flex items-center gap-4 text-xs">
-                              <span className="text-gray-500">
-                                Actual:{' '}
-                                <span className="font-semibold text-gray-700">
-                                  {row.actual.toLocaleString()}
-                                </span>
-                              </span>
-                              <span className="text-gray-500">
-                                Predicted:{' '}
-                                <span className="font-semibold text-blue-600">
-                                  {row.predicted.toLocaleString()}
-                                </span>
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 h-3">
-                            <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
-                              <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${actualPct}%` }}
-                                transition={{ duration: 0.6, delay: 0.1 }}
-                                className="h-full bg-blue-600 rounded-full"
-                              />
-                            </div>
-                            <div className="flex-1 bg-gray-100 rounded-full overflow-hidden">
-                              <motion.div
-                                initial={{ width: 0 }}
-                                animate={{ width: `${predictedPct}%` }}
-                                transition={{ duration: 0.6, delay: 0.2 }}
-                                className="h-full bg-cyan-400 rounded-full"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-400">No historical sales data available</p>
-                )}
-                <div className="flex items-center gap-5 mt-4 pt-4 border-t border-gray-100 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-sm bg-blue-600" />
-                    <span className="text-gray-500">Actual</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2.5 h-2.5 rounded-sm bg-cyan-400" />
-                    <span className="text-gray-500">Predicted</span>
-                  </div>
-                </div>
-              </motion.div>
-
-              {/* Low Stock Alerts */}
-              <motion.div
-                variants={itemVariants}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"
-              >
-                <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center">
-                    <AlertTriangle size={16} className="text-rose-600" />
-                  </div>
-                  <div>
-                    <h2 className="text-base font-semibold text-gray-900">Low Stock Alerts</h2>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {lowStockAlerts.length} items require restocking
-                    </p>
-                  </div>
-                </div>
-                <InventoryTable data={lowStockAlerts} showPredicted={true} />
-              </motion.div>
-            </div>
-          )}
-
-          {/* Empty Bottles Tab */}
-          {activeTab === 'empty' && (
-            <div className="space-y-6">
-              <motion.div
-                variants={itemVariants}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"
-              >
-                <div className="px-6 py-4 border-b border-gray-100">
-                  <h2 className="text-base font-semibold text-gray-900">Empty Bottle Tracking</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Returned empty bottles awaiting refill across branches
-                  </p>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100">
-                        <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Product
-                        </th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Stock
-                        </th>
-                        <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {emptyBottleData.map((item) => (
-                        <tr
-                          key={item.id}
-                          className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors"
-                        >
-                          <td className="py-3 px-4 font-medium text-gray-900">{item.product}</td>
-                          <td className="py-3 px-4 text-gray-700 font-medium">
-                            {item.stock.toLocaleString()}
-                          </td>
-                          <td className="py-3 px-4">
-                            {item.status === 'low' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-rose-50 text-rose-700">
-                                <AlertTriangle size={10} />
-                                Low
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-50 text-emerald-700">
-                                Sufficient
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </motion.div>
-            </div>
-          )}
-
-          {/* Vendors Tab */}
-          {activeTab === 'vendors' && (
-            <motion.div
-              variants={itemVariants}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"
-            >
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
-                <div>
-                  <h2 className="text-base font-semibold text-gray-900">Vendor Management</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Manage suppliers and delivery partners</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="relative">
-                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      type="text"
-                      placeholder="Search vendors..."
-                      value={searchVendor}
-                      onChange={(e) => setSearchVendor(e.target.value)}
-                      className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-48"
-                    />
-                  </div>
-                </div>
-              </div>
-              <VendorTable vendors={filteredVendors} />
-            </motion.div>
-          )}
-        </>
+      {activeTab === 'orders' && (
+        <VendorOrders 
+          vendors={vendors}
+          products={products}
+          onRefresh={handleRefresh}
+          loading={loading || refreshing}
+        />
       )}
     </motion.div>
   );

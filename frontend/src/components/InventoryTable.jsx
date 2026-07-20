@@ -1,8 +1,8 @@
 import StatusBadge from './StatusBadge';
 import { formatCurrency } from '../utils/helpers';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Edit, Trash2 } from 'lucide-react';
 
-export default function InventoryTable({ data, showPredicted = true }) {
+export default function InventoryTable({ data, showPredicted = true, onEdit, onDelete }) {
   // If no data, show empty state
   if (!data || data.length === 0) {
     return <div className="p-4 text-center text-gray-400">No inventory items</div>;
@@ -21,15 +21,14 @@ export default function InventoryTable({ data, showPredicted = true }) {
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Available Stock</th>
             <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
             {showPrice && <th className="text-left py-3 px-4 font-semibold text-gray-600">Price</th>}
+            <th className="text-left py-3 px-4 font-semibold text-gray-600">Actions</th>
           </tr>
         </thead>
         <tbody>
           {data.map((item) => {
-            // deficit = predicted - stock (only if showPredicted is true)
             const deficit = showPredicted ? (item.predicted || 0) - (item.stock || 0) : 0;
             const isLow = item.status === 'low';
             
-            // Normalize type for display
             const displayType = item.type?.toLowerCase() === 'sealed' ? 'Sealed' : 'Refill';
             const typeClass = item.type?.toLowerCase() === 'sealed' ? 'bg-blue-50 text-blue-700' : 'bg-cyan-50 text-cyan-700';
 
@@ -57,6 +56,26 @@ export default function InventoryTable({ data, showPredicted = true }) {
                     {formatCurrency(item.unit_price)}
                   </td>
                 )}
+                <td className="py-3 px-4">
+                  <div className="flex items-center gap-1">
+                    {onEdit && (
+                      <button
+                        onClick={() => onEdit(item)}
+                        className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                      >
+                        <Edit size={14} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button
+                        onClick={() => onDelete(item)}
+                        className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             );
           })}
