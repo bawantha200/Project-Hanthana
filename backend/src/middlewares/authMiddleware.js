@@ -1,43 +1,23 @@
+// backend/src/middlewares/authMiddleware.js
 const supabase = require('../config/db');
 
 const protect = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'No token provided' });
+  }
+  const token = authHeader.split(' ')[1];
   try {
-    const authHeader = req.headers.authorization;
-
-    console.log("AUTH HEADER:", authHeader);
-
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'Token missing'
-      });
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      console.error('Auth error:', error?.message);
+      return res.status(401).json({ error: 'Invalid or expired token' });
     }
-
-    const token = authHeader.split(' ')[1];
-
-    console.log("TOKEN:", token);
-
-    const { data, error } = await supabase.auth.getUser(token);
-
-    console.log("SUPABASE DATA:", data);
-    console.log("SUPABASE ERROR:", error);
-
-    if (error || !data.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Not authorized, token invalid.'
-      });
-    }
-
-    req.user = data.user;
+    req.user = { id: user.id };
     next();
-
   } catch (err) {
-    console.log("PROTECT ERROR:", err);
-    return res.status(401).json({
-      success: false,
-      message: 'Not authorized.'
-    });
+    console.error('Auth middleware error:', err);
+    res.status(401).json({ error: 'Authentication failed' });
   }
 };
 

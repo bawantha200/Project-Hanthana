@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
+import toast from 'react-hot-toast';
+import axios from 'axios';
 
 const fadeInUp = {
   hidden: { opacity: 0, y: 30 },
@@ -25,33 +27,124 @@ const ContactUs = () => {
   });
 
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  
+  // 🆕 Settings State
+  const [settings, setSettings] = useState({
+    contactPhone: '+94 76 835 686',
+    contactEmail: 'support@hanthana.com',
+    ordersEmail: 'orders@hanthana.com',
+    businessHours: {
+      mondaySaturday: '7:00 AM - 9:00 PM',
+      sunday: '8:00 AM - 6:00 PM',
+      emergency: '24/7 Available'
+    },
+    emergencyPhone: '+94 76 835 6860',
+    address: 'Colombo, Sri Lanka',
+    companyName: 'Hanthana Water'
+  });
+
+  // ===== FETCH SETTINGS =====
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/settings', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            contactPhone: general.contactPhone || '+94 76 835 6860',
+            contactEmail: general.contactEmail || 'support@hanthana.com',
+            ordersEmail: general.ordersEmail || 'orders@hanthana.com',
+            businessHours: general.businessHours || {
+              mondaySaturday: '7:00 AM - 9:00 PM',
+              sunday: '8:00 AM - 6:00 PM',
+              emergency: '24/7 Available'
+            },
+            emergencyPhone: general.emergencyPhone || '+94 76 835 6860',
+            address: general.address || 'Colombo, Sri Lanka',
+            companyName: general.companyName || 'Hanthana Water'
+          });
+        }
+      } catch (error) {
+        console.error('Fetch settings error:', error);
+        // Fallback values already set in state
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  
+  const [serverError, setServerError] = useState(''); 
+
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e) => {
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setSubmitted(true);
-    setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
-    setTimeout(() => setSubmitted(false), 4000);
+    setLoading(true);
+    setServerError('');
+    setSubmitted(false);
+
+    try {
+      
+      const response = await axios.post('http://localhost:5000/api/contact/send-message', formData);
+
+      if (response.data.success) {
+        setSubmitted(true);
+       
+        setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
+      
+        setTimeout(() => setSubmitted(false), 5000);
+      }
+    } catch (error) {
+      console.error('Frontend Submit Error:', error);
+      
+      setServerError(error.response?.data?.message || 'Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
+
+  // Business hours data for detailed section
+  const businessHoursList = [
+    { day: 'Monday - Saturday', hours: settings.businessHours.mondaySaturday || '7:00 AM - 9:00 PM' },
+    { day: 'Sunday', hours: settings.businessHours.sunday || '8:00 AM - 6:00 PM' },
+    { day: 'Emergency Delivery', hours: settings.businessHours.emergency || '24/7 Available' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Hero */}
       <section className="relative overflow-hidden bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600">
-
         {/* Image Background – visible and with dark overlay for text contrast */}
-          <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            <img 
-              src="/images/contactus.jpeg" 
-              alt="Background" 
-              className="w-full h-full object-cover opacity-100"
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
-          </div>
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <img 
+            src="/images/contactus.jpeg" 
+            alt="Background" 
+            className="w-full h-full object-cover opacity-100"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent"></div>
+        </div>
 
         <div className="absolute -top-24 -left-24 w-96 h-96 bg-white/5 rounded-full" />
         <div className="absolute top-1/2 -right-32 w-80 h-80 bg-white/5 rounded-full" />
@@ -92,7 +185,6 @@ const ContactUs = () => {
           </motion.div>
         </div>
 
-        {/* Truly seamless infinite wave – right‑to‑left */}
         <style>
           {`
             .wave-wrap {
@@ -132,7 +224,6 @@ const ContactUs = () => {
               0%, 100% { transform: translateX(-50%) translateY(0); }
               50% { transform: translateX(-50%) translateY(-14px); }
             }
-            /* Responsive heights */
             @media (max-width: 1024px) { .wave-wrap { height: 120px; } }
             @media (max-width: 768px) { .wave-wrap { height: 90px; } }
             @media (max-width: 480px) { .wave-wrap { height: 60px; } }
@@ -166,6 +257,7 @@ const ContactUs = () => {
                 24 hours.
               </p>
 
+              {/* Success Alert */}
               {submitted && (
                 <motion.div
                   initial={{ opacity: 0, y: -10 }}
@@ -177,14 +269,21 @@ const ContactUs = () => {
                 </motion.div>
               )}
 
+              {/* Error Alert */}
+              {serverError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-medium"
+                >
+                  {serverError}
+                </motion.div>
+              )}
+
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {/* Name */}
                   <div>
-                    <label
-                      htmlFor="name"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Name
                     </label>
                     <input
@@ -194,17 +293,13 @@ const ContactUs = () => {
                       value={formData.name}
                       onChange={handleChange}
                       required
+                      disabled={loading}
                       placeholder="Your full name"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
-
-                  {/* Email */}
                   <div>
-                    <label
-                      htmlFor="email"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Email
                     </label>
                     <input
@@ -214,38 +309,31 @@ const ContactUs = () => {
                       value={formData.email}
                       onChange={handleChange}
                       required
+                      disabled={loading}
                       placeholder="you@example.com"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {/* Phone */}
                   <div>
-                    <label
-                      htmlFor="phone"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Phone
                     </label>
                     <input
-                      type="tel"
+                      type="text"
                       id="phone"
                       name="phone"
                       value={formData.phone}
                       onChange={handleChange}
-                      placeholder="+91-XXXXXXXXXX"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      disabled={loading}
+                      placeholder="+94 7X XXX XXXX"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
-
-                  {/* Subject */}
                   <div>
-                    <label
-                      htmlFor="subject"
-                      className="block text-sm font-medium text-gray-700 mb-1.5"
-                    >
+                    <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1.5">
                       Subject
                     </label>
                     <input
@@ -255,18 +343,15 @@ const ContactUs = () => {
                       value={formData.subject}
                       onChange={handleChange}
                       required
+                      disabled={loading}
                       placeholder="How can we help?"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
                     />
                   </div>
                 </div>
 
-                {/* Message */}
                 <div>
-                  <label
-                    htmlFor="message"
-                    className="block text-sm font-medium text-gray-700 mb-1.5"
-                  >
+                  <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1.5">
                     Message
                   </label>
                   <textarea
@@ -275,24 +360,35 @@ const ContactUs = () => {
                     value={formData.message}
                     onChange={handleChange}
                     required
+                    disabled={loading}
                     rows={5}
                     placeholder="Tell us more about your inquiry..."
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none"
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none disabled:opacity-60"
                   />
                 </div>
 
-                {/* Submit */}
+                {/* Submit Button with Loading Indicator */}
                 <button
                   type="submit"
-                  className="inline-flex items-center gap-2 bg-blue-600 hover:bg-[#1E3A8A] text-white font-semibold px-8 py-3.5 rounded-xl transition-colors duration-200 shadow-lg shadow-blue-600/20"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 bg-blue-600 hover:bg-[#1E3A8A] text-white font-semibold px-8 py-3.5 rounded-xl transition-all duration-200 shadow-lg shadow-blue-600/20 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
-                  <Send className="w-5 h-5" />
-                  Submit Message
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      Submit Message
+                    </>
+                  )}
                 </button>
               </form>
             </motion.div>
 
-            {/* Info Cards */}
+            {/* Info Cards - 🆕 Dynamic Data */}
             <motion.div
               initial="hidden"
               whileInView="visible"
@@ -300,7 +396,7 @@ const ContactUs = () => {
               variants={staggerContainer}
               className="lg:col-span-2 space-y-6"
             >
-              {/* Hotline Card */}
+              {/* Hotline Card - 🆕 Dynamic */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -316,16 +412,13 @@ const ContactUs = () => {
                       Available 24/7 for orders and support
                     </p>
                     <p className="mt-2 text-blue-600 font-semibold text-base">
-                      +94 76 835 6860
-                    </p>
-                    <p className="mt-1 text-gray-500 text-sm">
-                      
+                      {settings.contactPhone}
                     </p>
                   </div>
                 </div>
               </motion.div>
 
-              {/* Email Card */}
+              {/* Email Card - 🆕 Dynamic */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -341,13 +434,13 @@ const ContactUs = () => {
                       We respond within 24 hours
                     </p>
                     <p className="mt-2 text-blue-600 font-semibold text-base">
-                      support@hanthana.com
+                      {settings.contactEmail}
                     </p>
                     <p className="mt-1 text-gray-500 text-sm">
                       For general inquiries
                     </p>
                     <p className="mt-2 text-blue-600 font-semibold text-base">
-                      orders@hanthana.com
+                      {settings.ordersEmail}
                     </p>
                     <p className="mt-1 text-gray-500 text-sm">
                       For order-related queries
@@ -356,7 +449,7 @@ const ContactUs = () => {
                 </div>
               </motion.div>
 
-              {/* Business Hours Card */}
+              {/* Business Hours Card - 🆕 Dynamic */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -374,19 +467,19 @@ const ContactUs = () => {
                       <div className="flex justify-between text-sm gap-2">
                         <span className="text-gray-600">Monday - Saturday</span>
                         <span className="font-semibold text-gray-900">
-                          7:00 AM - 9:00 PM
+                          {settings.businessHours.mondaySaturday || '7:00 AM - 9:00 PM'}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Sunday</span>
                         <span className="font-semibold text-gray-900">
-                          8:00 AM - 6:00 PM
+                          {settings.businessHours.sunday || '8:00 AM - 6:00 PM'}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Emergency Delivery</span>
                         <span className="font-semibold text-blue-600">
-                          24/7 Available
+                          {settings.businessHours.emergency || '24/7 Available'}
                         </span>
                       </div>
                     </div>
@@ -398,7 +491,7 @@ const ContactUs = () => {
         </div>
       </section>
 
-      {/* Business Hours Detailed Section */}
+      {/* Business Hours Detailed Section - 🆕 Dynamic */}
       <section className="py-16 sm:py-20 bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600 relative overflow-hidden">
         <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/5 rounded-full" />
         <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/5 rounded-full" />
@@ -428,15 +521,7 @@ const ContactUs = () => {
             variants={staggerContainer}
             className="grid grid-cols-1 sm:grid-cols-2 gap-5"
           >
-            {[
-              { day: 'Monday', hours: '7:00 AM - 9:00 PM', open: true },
-              { day: 'Tuesday', hours: '7:00 AM - 9:00 PM', open: true },
-              { day: 'Wednesday', hours: '7:00 AM - 9:00 PM', open: true },
-              { day: 'Thursday', hours: '7:00 AM - 9:00 PM', open: true },
-              { day: 'Friday', hours: '7:00 AM - 9:00 PM', open: true },
-              { day: 'Saturday', hours: '7:00 AM - 9:00 PM', open: true },
-              { day: 'Sunday', hours: '8:00 AM - 6:00 PM', open: true },
-            ].map((schedule, index) => (
+            {businessHoursList.map((schedule, index) => (
               <motion.div
                 key={index}
                 variants={fadeInUp}
@@ -456,7 +541,7 @@ const ContactUs = () => {
             ))}
           </motion.div>
 
-          {/* Emergency note */}
+          {/* Emergency note - 🆕 Dynamic */}
           <motion.div
             initial="hidden"
             whileInView="visible"
@@ -469,7 +554,7 @@ const ContactUs = () => {
               <Phone className="w-4 h-4" />
               <span>
                 Emergency delivery available <strong>24/7</strong> -- Call{' '}
-                <strong>+94 76 835 6860</strong>
+                <strong>{settings.emergencyPhone}</strong>
               </span>
             </div>
           </motion.div>

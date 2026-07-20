@@ -54,3 +54,17 @@ export const customerAPI = {
     return data;
   }
 };
+
+// Add delivery-specific API calls
+export const deliveryApi = {
+  // Admin
+  getAll: (params) => api.get('/deliveries', { params }),
+  getById: (id) => api.get(`/deliveries/${id}`),
+  assignRider: (id, riderId) => api.put(`/deliveries/${id}/assign`, { riderId }),
+  
+  // Rider
+  getMyDeliveries: (status) => api.get('/deliveries/my-deliveries', { params: { status } }),
+  getMyStats: () => api.get('/deliveries/my-stats'),
+  updateStatus: (id, status, emptyBottles = 0) => 
+    api.put(`/deliveries/${id}/status`, { status, emptyBottles })
+};

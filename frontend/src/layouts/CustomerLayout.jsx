@@ -16,47 +16,42 @@ import {
   Lock,
   LogIn,
 } from "lucide-react";
+import FloatingOrderButton from "../components/FloatingOrderButton";
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
-const navLinks = [
+const baseNavLinks = [
   { name: "Home", path: "/" },
   { name: "Services", path: "/services" },
   { name: "About Us", path: "/about" },
   { name: "Contact Us", path: "/contact" },
 ];
 
-const quickLinks = [
-  { name: "Home", path: "/" },
-  { name: "Services", path: "/services" },
-  { name: "About", path: "/about" },
-  { name: "Contact", path: "/contact" },
-  { name: "Orders", path: "/orders" },
-];
-
-const services = [
-  "Sealed Bottle Delivery",
-  "Water Refill",
-  "Office Supply",
-  "Bulk Distribution",
-];
-
-const contactInfo = [
-  { icon: Phone, text: "+94 76 835 6860" },
-  { icon: Mail, text: "support@hanthana.com" },
-  { icon: MapPin, text: "No 01, Ja Ela, Sri Lanka" },
-];
-
-const socialLinks = [
-  { icon: Globe, href: "#", label: "Website" },
-];
+// 🆕 Default values (will be replaced by settings)
+const defaultSettings = {
+  companyName: "Hanthana",
+  contactPhone: "+94 76 835 6860",
+  contactEmail: "support@hanthana.com",
+  address: "No 01, Ja Ela, Sri Lanka",
+  services: [
+    "Sealed Bottle Delivery",
+    "Water Refill",
+    "Office Supply",
+    "Bulk Distribution",
+  ],
+};
 
 function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
   const [loadingRole, setLoadingRole] = useState(true);
+
   const [showLoginModal, setShowLoginModal] = useState(false);
+  
+  // 🆕 Settings State
+  const [settings, setSettings] = useState(defaultSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   
   // Login form state
   const [email, setEmail] = useState('');
@@ -66,6 +61,37 @@ function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, login, loginWithGoogle } = useAuth();
+
+  // 🆕 Fetch Settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/settings', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            companyName: general.companyName || defaultSettings.companyName,
+            contactPhone: general.contactPhone || general.companyPhone || defaultSettings.contactPhone,
+            contactEmail: general.contactEmail || general.companyEmail || defaultSettings.contactEmail,
+            address: general.address || defaultSettings.address,
+            services: general.services || defaultSettings.services,
+          });
+        }
+      } catch (error) {
+        console.error('Fetch settings error:', error);
+        // Keep default settings
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
 
   // Fetch user role (unchanged)
   useEffect(() => {
@@ -105,7 +131,6 @@ function Navbar() {
   }, [user]);
 
   const handleSignOut = async () => {
-    console.log("Signing out user via AuthContext...");
     try {
       await logout();
       navigate("/");
@@ -140,7 +165,14 @@ function Navbar() {
 
   const isActive = (path) => location.pathname === path;
 
-  // ----- Built‑in login handlers -----
+  const getNavLinks = () => {
+    const links = [...baseNavLinks];
+    if (user) {
+      links.push({ name: "My Orders", path: "/orders" });
+    }
+    return links;
+  };
+
   const handleLogin = useCallback(async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -155,8 +187,7 @@ function Navbar() {
         throw new Error(data.message || 'Login failed');
       }
       login(data.user, data.session.access_token, data.permissions || []);
-      setShowLoginModal(false); // close modal on success
-      // Navigate based on role
+      setShowLoginModal(false);
       const targetRole = data.user.role?.toUpperCase();
       if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
         navigate('/admin/dashboard', { replace: true });
@@ -168,13 +199,12 @@ function Navbar() {
     } finally {
       setLoading(false);
     }
-  }, [email, password, login, navigate]);
+  }, [email, password, login, navigate, setShowLoginModal]);
 
   const handleGoogleLogin = useCallback(async (e) => {
     e?.preventDefault();
     try {
       await loginWithGoogle();
-      // OAuth redirects – modal will disappear on page change
     } catch (error) {
       alert("Google Sign-In error: " + error.message);
     }
@@ -191,7 +221,7 @@ function Navbar() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-18">
-            {/* Logo */}
+            {/* Logo - 🆕 Company Name Dynamic */}
             <Link
               to="/"
               className="flex items-center gap-2 group"
@@ -206,13 +236,13 @@ function Navbar() {
                 <div className="absolute -inset-1 bg-[#DBEAFE] rounded-full opacity-0 group-hover:opacity-50 transition-opacity duration-300 -z-10" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-[#2563EB] to-[#1E3A8A] bg-clip-text text-transparent">
-                Hanthana
+                {settings.companyName}
               </span>
             </Link>
 
-            {/* Desktop Navigation */}
+            {/* Desktop Navigation - No changes */}
             <div className="hidden lg:flex items-center gap-1">
-              {navLinks.map((link) => (
+              {getNavLinks().map((link) => (
                 <Link
                   key={link.name}
                   to={link.path}
@@ -238,7 +268,7 @@ function Navbar() {
               ))}
             </div>
 
-            {/* Desktop CTA */}
+            {/* Desktop CTA - No changes */}
             <div className="hidden lg:flex items-center gap-3">
               {!user ? (
                 <>
@@ -283,22 +313,13 @@ function Navbar() {
                       </Link>
                     )}
                     {!loadingRole && isCustomer && (
-                      <>
-                        <Link
-                          to="/orders"
-                          className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                        >
-                          <ShoppingBag size={16} />
-                          Orders
-                        </Link>
-                        <Link
-                          to="/profile"
-                          className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                        >
-                          <Settings size={16} />
-                          Profile
-                        </Link>
-                      </>
+                      <Link
+                        to="/profile"
+                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
+                      >
+                        <Settings size={16} />
+                        Profile
+                      </Link>
                     )}
                     <button
                       onClick={handleSignOut}
@@ -312,7 +333,7 @@ function Navbar() {
               )}
             </div>
 
-            {/* Mobile Hamburger */}
+            {/* Mobile Hamburger - No changes */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               className="lg:hidden relative p-2 rounded-xl text-gray-600 hover:text-[#2563EB] hover:bg-[#DBEAFE]/50 transition-all duration-300"
@@ -345,7 +366,7 @@ function Navbar() {
           </div>
         </div>
 
-        {/* Mobile Menu Overlay */}
+        {/* Mobile Menu Overlay - No changes */}
         <AnimatePresence>
           {isMobileMenuOpen && (
             <motion.div
@@ -371,7 +392,7 @@ function Navbar() {
               >
                 <div className="max-w-7xl mx-auto px-4 py-6">
                   <nav className="flex flex-col gap-1">
-                    {navLinks.map((link, index) => (
+                    {getNavLinks().map((link, index) => (
                       <motion.div
                         key={link.name}
                         initial={{ x: -20, opacity: 0 }}
@@ -395,20 +416,79 @@ function Navbar() {
                       </motion.div>
                     ))}
                   </nav>
+
+                  {/* Mobile Auth Section - New */}
                   <motion.div
                     initial={{ y: 10, opacity: 0 }}
                     animate={{ y: 0, opacity: 1 }}
                     transition={{ delay: 0.35, duration: 0.3 }}
-                    className="mt-6 pt-6 border-t border-gray-100"
+                    className="mt-6 pt-6 border-t border-gray-200"
                   >
-                    {!loadingRole && isCustomer && (
-                      <Link
-                        to="/orders"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                        className="block w-full text-center px-5 py-3 bg-[#2563EB] text-white font-semibold rounded-2xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
-                      >
-                        My Orders
-                      </Link>
+                    {!user ? (
+                      <div className="flex flex-col gap-3">
+                        <button
+                          onClick={() => {
+                            setIsMobileMenuOpen(false);
+                            setShowLoginModal(true);
+                          }}
+                          className="w-full px-5 py-3 text-center text-sm font-semibold text-[#2563EB] border border-[#2563EB] rounded-xl hover:bg-blue-50 transition-all duration-300"
+                        >
+                          Login
+                        </button>
+                        <Link
+                          to="/register"
+                          onClick={() => setIsMobileMenuOpen(false)}
+                          className="w-full px-5 py-3 text-center bg-[#2563EB] text-white text-sm font-semibold rounded-xl hover:bg-[#1E3A8A] transition-all duration-300 shadow-md shadow-blue-200"
+                        >
+                          Sign Up
+                        </Link>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-3 px-2 py-2 rounded-xl bg-gray-50">
+                          <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md shadow-blue-600/20">
+                            {user.email?.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-slate-800 truncate">
+                              {user.full_name || user.user_metadata?.full_name || "User"}
+                            </p>
+                            <p className="text-xs text-slate-500 truncate">
+                              {user.email}
+                            </p>
+                          </div>
+                        </div>
+                        {!loadingRole && !isCustomer && (
+                          <Link
+                            to="/admin/dashboard"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className="flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] rounded-xl transition"
+                          >
+                            <LayoutDashboard size={16} />
+                            Dashboard
+                          </Link>
+                        )}
+                        {!loadingRole && isCustomer && (
+                          <Link
+                            to="/profile"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                            className="flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] rounded-xl transition"
+                          >
+                            <Settings size={16} />
+                            Profile
+                          </Link>
+                        )}
+                        <button
+                          onClick={() => {
+                            setIsMobileMenuOpen(false);
+                            handleSignOut();
+                          }}
+                          className="flex items-center gap-2 px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-xl transition w-full"
+                        >
+                          <LogOut size={16} />
+                          Sign Out
+                        </button>
+                      </div>
                     )}
                   </motion.div>
                 </div>
@@ -418,7 +498,7 @@ function Navbar() {
         </AnimatePresence>
       </nav>
 
-      {/* ========== BUILT-IN LOGIN MODAL (no external import) ========== */}
+      {/* ========== BUILT-IN LOGIN MODAL ========== */}
       <AnimatePresence>
         {showLoginModal && (
           <motion.div
@@ -442,7 +522,6 @@ function Navbar() {
                 <X className="w-5 h-5 text-white" />
               </button>
 
-              {/* Login Form – fully self-contained */}
               <div className="bg-white backdrop-blur-sm py-8 px-10 shadow-2xl rounded-3xl border border-white">
                 <div className="text-center mb-8">
                   <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
@@ -530,14 +609,59 @@ function Navbar() {
 }
 
 function Footer() {
+  // 🆕 Settings State for Footer
+  const [settings, setSettings] = useState(defaultSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+
+  // 🆕 Fetch Settings
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:5000/api/settings', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            companyName: general.companyName || defaultSettings.companyName,
+            contactPhone: general.contactPhone || general.companyPhone || defaultSettings.contactPhone,
+            contactEmail: general.contactEmail || general.companyEmail || defaultSettings.contactEmail,
+            address: general.address || defaultSettings.address,
+            services: general.services || defaultSettings.services,
+          });
+        }
+      } catch (error) {
+        console.error('Fetch settings error:', error);
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
+
+    fetchSettings();
+  }, []);
+
+  // 🆕 Build contact info from settings
+  const contactInfo = [
+    { icon: Phone, text: settings.contactPhone },
+    { icon: Mail, text: settings.contactEmail },
+    { icon: MapPin, text: settings.address },
+  ];
+
+  // 🆕 Build services from settings
+  const servicesList = settings.services || defaultSettings.services;
+
   return (
     <footer className="bg-[#1E3A8A] text-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+          {/* Column 1: Brand Info - 🆕 Company Name Dynamic */}
           <div className="sm:col-span-2 lg:col-span-1">
             <Link to="/" className="flex items-center gap-2 group mb-4">
               <Droplets className="w-7 h-7 text-[#DBEAFE] group-hover:text-white transition-colors duration-300" />
-              <span className="text-xl font-bold text-white">Hanthana</span>
+              <span className="text-xl font-bold text-white">{settings.companyName}</span>
             </Link>
             <p className="text-blue-200 text-sm leading-relaxed mb-6 max-w-xs">
               Your trusted partner in water management solutions. Delivering
@@ -545,19 +669,17 @@ function Footer() {
               and care since 2010.
             </p>
             <div className="flex items-center gap-3">
-              {socialLinks.map((social) => (
-                <a
-                  key={social.label}
-                  href={social.href}
-                  aria-label={social.label}
-                  className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-[#2563EB] hover:scale-110 transition-all duration-300"
-                >
-                  <social.icon className="w-4 h-4" />
-                </a>
-              ))}
+              <a
+                href="#"
+                aria-label="Website"
+                className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-[#2563EB] hover:scale-110 transition-all duration-300"
+              >
+                <Globe className="w-4 h-4" />
+              </a>
             </div>
           </div>
 
+          {/* Column 2: Quick Links - No changes */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Quick Links</h3>
             <ul className="space-y-2.5">
@@ -572,10 +694,11 @@ function Footer() {
             </ul>
           </div>
 
+          {/* Column 3: Services - 🆕 Dynamic from Settings */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Services</h3>
             <ul className="space-y-2.5">
-              {services.map((service) => (
+              {servicesList.map((service) => (
                 <li key={service}>
                   <span className="text-blue-200 text-sm flex items-center gap-2 group">
                     <span className="w-1 h-1 rounded-full bg-blue-400 group-hover:w-1.5 transition-all duration-300" />
@@ -586,6 +709,7 @@ function Footer() {
             </ul>
           </div>
 
+          {/* Column 4: Contact Info - 🆕 Dynamic from Settings */}
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wider text-[#DBEAFE] mb-4">Contact Info</h3>
             <ul className="space-y-3">
@@ -602,10 +726,11 @@ function Footer() {
         </div>
       </div>
 
+      {/* Footer Bottom - No changes */}
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-blue-300 text-sm">&copy; 2026 Hanthana. All rights reserved.</p>
+            <p className="text-blue-300 text-sm">&copy; 2026 {settings.companyName}. All rights reserved.</p>
             <div className="flex items-center gap-4 text-blue-300 text-sm">
               <Link to="#" className="hover:text-white transition-colors duration-300">Privacy Policy</Link>
               <span className="w-1 h-1 rounded-full bg-blue-500" />
@@ -619,13 +744,95 @@ function Footer() {
 }
 
 export default function CustomerLayout() {
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  const handleOrderClick = useCallback(() => {
+    if (user) {
+      navigate('/orders');
+    } else {
+      setShowAuthPrompt(true);
+    }
+  }, [user, navigate]);
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
-      <Navbar />
+      <Navbar
+        showLoginModal={showLoginModal}
+        setShowLoginModal={setShowLoginModal}
+      />
       <main className="flex-1 pt-16 lg:pt-18">
         <Outlet />
       </main>
       <Footer />
+      <FloatingOrderButton onLoginRequired={handleOrderClick} />
+
+      <AnimatePresence>
+        {showAuthPrompt && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowAuthPrompt(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              className="relative max-w-md w-full bg-white rounded-3xl shadow-2xl p-8"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setShowAuthPrompt(false)}
+                className="absolute top-4 right-4 p-2 rounded-full hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-600" />
+              </button>
+              <div className="text-center">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ShoppingBag className="w-8 h-8 text-blue-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Ready to Order?</h3>
+                <p className="text-gray-500 mt-2">
+                  Please login or create an account to place your water order.
+                </p>
+                <div className="mt-6 flex flex-col sm:flex-row gap-3">
+                  <button
+                    onClick={() => {
+                      setShowAuthPrompt(false);
+                      navigate('/login');
+                    }}
+                    className="flex-1 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-200"
+                  >
+                    Login
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAuthPrompt(false);
+                      navigate('/register');
+                    }}
+                    className="flex-1 px-6 py-3 bg-gray-100 text-gray-800 font-semibold rounded-xl hover:bg-gray-200 transition"
+                  >
+                    Sign Up
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+
+// 🆕 Quick Links (used in Footer) - moved outside
+const quickLinks = [
+  { name: "Home", path: "/" },
+  { name: "Services", path: "/services" },
+  { name: "About", path: "/about" },
+  { name: "Contact", path: "/contact" },
+  { name: "Orders", path: "/orders" },
+];

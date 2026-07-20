@@ -1,319 +1,222 @@
-const crypto = require("crypto");
-const { supabase } = require("../config/db");
+const userService = require('../services/userService');
 
-const createUser = async (req, res) => {
-  try {
-    const {
-      fullName,
-      email,
-      phone,
-      address,
-      password,
-      role,
-      departmentId,
-      positionId,
-      jobType,
-      hireDate,
-      status,
-    } = req.body;
-
-    if (
-      !fullName ||
-      !email ||
-      !password ||
-      !role ||
-      !jobType ||
-      !hireDate
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide all required fields.",
-      });
-    }
-
-    // Create auth user
-    const { data: authData, error: authError } =
-      await supabase.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: fullName,
-          phone_number: phone,
-        },
-      });
-
-    if (authError) {
-      return res.status(400).json({
-        success: false,
-        message: authError.message,
-      });
-    }
-
-    const authUser = authData.user;
-
-    // Update profile created by trigger
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .update({
-        full_name: fullName,
-        email,
-        phone_number: phone,
-        address,
-        role_id: role,
-      })
-      .eq("id", authUser.id);
-
-    if (profileError) {
-      await supabase.auth.admin.deleteUser(authUser.id);
-
-      return res.status(400).json({
-        success: false,
-        message: profileError.message,
-      });
-    }
-
-    // Insert employee only for MANAGER and EMPLOYEE
-if (role === 2 || role === 3) {
-  const employeeId = crypto.randomUUID();
-
-  const { error: employeeError } = await supabase
-    .from("employees")
-    .insert({
-      id: employeeId,
-      profile_id: authUser.id,
-      department_id: departmentId,
-      position_id: positionId,
-      job_type: jobType,
-      hire_date: hireDate,
-      status: status || "active",
-    });
-
-  if (employeeError) {
-    await supabase
-      .from("profiles")
-      .delete()
-      .eq("id", authUser.id);
-
-    await supabase.auth.admin.deleteUser(authUser.id);
-
-    return res.status(400).json({
-      success: false,
-      message: employeeError.message,
-    });
-  }
-}
-
-    res.status(201).json({
-      success: true,
-      message: "User created successfully.",
-      data: {
-        id: authUser.id,
-        email,
-        fullName,
-      },
-    });
-  } catch (error) {
-    console.error("Create User Error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error.",
-    });
-  }
-};
-
+// ===== GET ALL USERS (Profiles only) =====
 const getUsers = async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select(`
-        id,
-        full_name,
-        email,
-        phone_number,
-        address,
-        created_at,
-        roles (
-          id,
-          role_name
-        ),
-        employees (
-          id,
-          job_type,
-          status,
-          hire_date,
-          departments (
-            department_name
-          ),
-          positions (
-            position_name
-          )
-        )
-      `);
+    console.log('[Users] 🚀 Fetching all users...');
+    const users = await userService.getAllUsers();
 
-    if (error) throw error;
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      data,
+      data: users || []
     });
   } catch (error) {
-    console.error("Get Users Error:", error);
-
-    res.status(500).json({
+    console.error('[Users] ❌ Error:', error);
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || 'Internal server error'
     });
   }
 };
 
+// ===== GET USER BY ID =====
+const getUserById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await userService.getUserById(id);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: user
+    });
+  } catch (error) {
+    console.error('[Users] ❌ Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+};
+
+// ===== CREATE USER =====
+const createUser = async (req, res) => {
+  try {
+    const { fullName, email, phone, address, role, password } = req.body;
+
+    if (!fullName || !email || !password || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name, email, password and role are required.'
+      });
+    }
+
+    const user = await userService.createUser({
+      fullName, email, phone, address, role, password
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('[Users] ❌ Create error:', error);
+
+    if (error.message.includes('already exists')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+};
+
+// ===== CREATE USER FROM EMPLOYEE =====
+const createUserFromEmployee = async (req, res) => {
+  try {
+    const { employeeId, password } = req.body;
+
+    if (!employeeId || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Employee ID and password are required.'
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters.'
+      });
+    }
+
+    const user = await userService.createUserFromEmployee(employeeId, password);
+
+    return res.status(201).json({
+      success: true,
+      message: 'User account created successfully',
+      data: user
+    });
+  } catch (error) {
+    console.error('[Users] ❌ Create from employee error:', error);
+
+    if (error.message === 'Employee not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    if (error.message.includes('already exists')) {
+      return res.status(409).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+};
+
+// ===== UPDATE USER =====
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
+    const { fullName, email, phone, address, role, status } = req.body;
 
-    const {
-      fullName,
-      email,
-      phone,
-      address,
-      role,
-      departmentId,
-      positionId,
-      jobType,
-      hireDate,
-      status,
-    } = req.body;
+    if (!fullName || !email || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Full name, email and role are required.'
+      });
+    }
 
-    // update profile
-    const { error: profileError } =
-      await supabase
-        .from("profiles")
-        .update({
-          full_name: fullName,
-          email,
-          phone_number: phone,
-          address,
-          role_id: role,
-        })
-        .eq("id", id);
+    const updated = await userService.updateUser(id, {
+      fullName, email, phone, address, role, status
+    });
 
-    if (profileError) throw profileError;
-
-    // update employee
-    const { error: employeeError } =
-      await supabase
-        .from("employees")
-        .update({
-          department_id: departmentId,
-          position_id: positionId,
-          job_type: jobType,
-          hire_date: hireDate,
-          status,
-        })
-        .eq("profile_id", id);
-
-    if (employeeError) throw employeeError;
-
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: "User updated successfully",
+      message: 'User updated successfully',
+      data: updated
     });
   } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
+    console.error('[Users] ❌ Update error:', error);
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || 'Internal server error'
     });
   }
 };
 
+// ===== DELETE USER =====
 const deleteUser = async (req, res) => {
   try {
     const { id } = req.params;
+    await userService.deleteUser(id);
 
-    // Delete employee
-    const { error: employeeError } = await supabase
-      .from("employees")
-      .delete()
-      .eq("profile_id", id);
-
-    if (employeeError) throw employeeError;
-
-    // Delete profile
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .delete()
-      .eq("id", id);
-
-    if (profileError) throw profileError;
-
-    // Delete auth user
-    const { error: authError } =
-      await supabase.auth.admin.deleteUser(id);
-
-    if (authError) throw authError;
-
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
-      message: "User deleted successfully",
+      message: 'User deleted successfully'
     });
   } catch (error) {
-    console.error("Delete User Error:", error);
-
-    res.status(500).json({
+    console.error('[Users] ❌ Delete error:', error);
+    return res.status(500).json({
       success: false,
-      message: error.message,
+      message: error.message || 'Internal server error'
     });
   }
 };
 
-
-// userController.js හි අනෙක් functions එක්ක එකතු කරන්න
-
+// ===== UPDATE USER STATUS =====
 const updateUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    // Validate status
-    if (!status || !['active', 'inactive', 'on_leave'].includes(status)) {
+    if (!status || !['pending', 'active'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be "active", "inactive", or "on_leave".'
+        message: 'Invalid status. Must be "pending" or "active".'
       });
     }
 
-    // Update employees table status
-    const { error } = await supabase
-      .from('employees')
-      .update({ status })
-      .eq('profile_id', id);
+    await userService.updateUserStatus(id, status);
 
-    if (error) throw error;
-
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: 'User status updated successfully.'
+      message: `User status updated to ${status}`
     });
   } catch (error) {
-    console.error('Update status error:', error);
-    res.status(500).json({
+    console.error('[Users] ❌ Status update error:', error);
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message || 'Internal server error'
     });
   }
 };
 
-
-
-
 module.exports = {
-  createUser,
   getUsers,
+  getUserById,
+  createUser,
+  createUserFromEmployee,
   updateUser,
   deleteUser,
-  updateUserStatus,
-  
+  updateUserStatus
 };

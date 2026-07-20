@@ -42,6 +42,8 @@ const NAV_ITEMS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
   { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
+  { id: 'Hrmdashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/Hrmdashboard' },
+
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin/finance' },
@@ -49,6 +51,8 @@ const NAV_ITEMS = [
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
+  { id: 'manage-permission', label: 'Manage Permission', icon: Settings, path: '/admin/manage-permission' },
+
 ];
 
 // Helper: get initials
@@ -689,7 +693,7 @@ export default function AdminLayout() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false); // single modal for all account actions
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false); 
 
   // Permissions & roles
   const [permissions, setPermissions] = useState([]);

@@ -5,15 +5,22 @@ require('dotenv').config();
 // Route imports
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
-const departmentRoutes = require('./src/routes/departmentRoutes');
-const positionRoutes = require('./src/routes/positionRoutes');
+const employeeRoutes = require('./src/routes/employeeRoutes'); 
 const ordersRoutes = require('./src/routes/ordersRoutes');
 const productsRoutes = require('./src/routes/productsRoutes');
 const vendorsRoutes = require('./src/routes/vendorsRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
-const employeeRoutes = require('./src/routes/employeeRoutes');
+const settingsRoutes = require('./src/routes/settingsRoutes');
+const roleRoutes = require('./src/routes/roleRoutes');
+const positionRoutes = require('./src/routes/positionRoutes');
+const permissionRoutes = require('./src/routes/permissionRoutes');
+
+const forecastRoutes = require('./src/routes/forecastRoutes');
+const inventoryRoutes = require('./src/routes/inventoryRoutes');
 const attendanceRoutes = require('./src/routes/attendanceRoutes');
 const salaryRoutes = require('./src/routes/salaryRoutes');
+const contactRoutes = require('./src/routes/contactRoutes');
+const deliveryRoutes = require('./src/routes/deliveryRoutes');
 
 const app = express();
 
@@ -28,15 +35,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // API route mounting
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
-app.use('/api/departments', departmentRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/roles', roleRoutes);
+app.use('/api/positions', positionRoutes);
+app.use('/api', permissionRoutes);
 app.use('/api/positions', positionRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
+app.use('/api/vendors', vendorsRoutes); 
+app.use('/api/customers', customerRoutes);  
+app.use('/api/forecast', forecastRoutes); 
+app.use('/api/inventory', inventoryRoutes);
 app.use('/api/vendors', vendorsRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/salaries', salaryRoutes);
+app.use('/api/deliveries', deliveryRoutes);
+
+
+app.use('/api/contact', contactRoutes); 
 
 // Health check
 app.get('/', (req, res) => {
