@@ -124,14 +124,14 @@ const Orders = () => {
               Track and manage your water orders
             </p>
           </div>
-          <motion.button
+          {/* <motion.button
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.97 }}
             onClick={() => navigate("/tracking")}
             className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
           >
             Order Tracking
-          </motion.button>
+          </motion.button> */}
         </motion.div>
 
         {/* Summary Cards */}

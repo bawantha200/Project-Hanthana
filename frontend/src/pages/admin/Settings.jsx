@@ -4,6 +4,7 @@ import { Settings as SettingsIcon, Bell, Shield, Globe, Save, Loader, Home, Pack
 import toast from 'react-hot-toast';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
+ 
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -1112,11 +1113,32 @@ export default function Settings() {
                 <p className="text-xs text-gray-400 mt-0.5">Automatically backup data at scheduled intervals</p>
               </div>
               <Toggle
-                enabled={systemSettings.autoBackup}
-                onToggle={() =>
-                  setSystemSettings({ ...systemSettings, autoBackup: !systemSettings.autoBackup })
-                }
-              />
+  enabled={systemSettings.autoBackup}
+  onToggle={async () => {
+    const newValue = !systemSettings.autoBackup;
+    setSystemSettings({ ...systemSettings, autoBackup: newValue });
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/settings/system', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ...systemSettings, autoBackup: newValue }),
+      });
+      const result = await response.json();
+      if (!result.success) {
+        setSystemSettings({ ...systemSettings, autoBackup: !newValue });
+        alert('Failed to update auto backup: ' + (result.message || 'Unknown error'));
+      }
+    } catch (err) {
+      setSystemSettings({ ...systemSettings, autoBackup: !newValue });
+      console.error('Auto backup toggle failed:', err);
+    }
+  }}
+/>
             </div>
             <div className="flex items-center justify-between py-3 border-b border-gray-50">
               <div>
@@ -1124,11 +1146,37 @@ export default function Settings() {
                 <p className="text-xs text-gray-400 mt-0.5">Temporarily disable system access for maintenance</p>
               </div>
               <Toggle
-                enabled={systemSettings.maintenanceMode}
-                onToggle={() =>
-                  setSystemSettings({ ...systemSettings, maintenanceMode: !systemSettings.maintenanceMode })
-                }
-              />
+  enabled={systemSettings.maintenanceMode}
+  onToggle={async () => {
+    const newValue = !systemSettings.maintenanceMode;
+    setSystemSettings({ ...systemSettings, maintenanceMode: newValue });
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/maintenance/mode', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          enabled: newValue,
+          message: newValue ? 'Scheduled maintenance in progress. We will be back shortly.' : '',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!result.success) {
+        setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
+        alert('Failed to update maintenance mode: ' + (result.message || 'Unknown error'));
+      }
+    } catch (err) {
+      setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
+      console.error('Maintenance mode toggle failed:', err);
+    }
+  }}
+/>
             </div>
             <div className="flex items-center justify-between py-3 border-b border-gray-50">
               <div>

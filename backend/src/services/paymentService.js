@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const supabase = require('../config/db');
 const { sendOrderConfirmationEmail } = require('../utils/mailer');
+const { sendSMS } = require('../utils/smsService');
 
 // PayHere configuration
 const PAYHERE_CONFIG = {
@@ -99,12 +100,12 @@ const verifyPaymentNotification = async (notificationData) => {
   try {
     const {
       merchant_id,
-      order_id,          // e.g., "000212"
+      order_id,
       payment_id,
-      status_code,       // e.g., "2"
-      payhere_amount,    // e.g., "360.00"
-      payhere_currency,  // e.g., "LKR"
-      md5sig,            // PayHere එකෙන් එවපු original hash එක
+      status_code,
+      payhere_amount,
+      payhere_currency,
+      md5sig,
       custom_1,
     } = notificationData;
 
@@ -119,33 +120,30 @@ const verifyPaymentNotification = async (notificationData) => {
       const match = custom_1.match(/OrderID:(\d+)/);
       if (match) numericOrderId = match[1];
     }
-    
+
     if (!numericOrderId) {
       throw new Error('Invalid order ID format');
     }
 
     console.log('  Numeric Order ID (for DB):', numericOrderId);
 
-    // 2. PayHere IPN (Notify) verification string එක හදනවා
-    // A. Merchant Secret එක MD5 කරලා Capital කරගන්නවා
+    // 2. Hash verification
     const hashedSecret = crypto
       .createHash('md5')
       .update(PAYHERE_CONFIG.merchantSecret)
       .digest('hex')
       .toUpperCase();
 
-    // B. PayHere IPN එකට අදාල පිළිවෙලට String එක සකස් කරනවා
-    const hashString = 
-      (merchant_id || PAYHERE_CONFIG.merchantId) + 
-      order_id + 
-      payhere_amount + 
-      (payhere_currency || 'LKR') + 
-      status_code + 
+    const hashString =
+      (merchant_id || PAYHERE_CONFIG.merchantId) +
+      order_id +
+      payhere_amount +
+      (payhere_currency || 'LKR') +
+      status_code +
       hashedSecret;
 
     console.log('🔑 IPN Verification Hash String:', hashString);
 
-    // C. මුළු String එකම නැවත MD5 කරලා Capital කරනවා
     const generatedHash = crypto
       .createHash('md5')
       .update(hashString)
@@ -164,7 +162,7 @@ const verifyPaymentNotification = async (notificationData) => {
     // Determine payment status
     let paymentStatus = 'FAILED';
     let orderStatus = 'PENDING';
-    
+
     if (status_code === '2') {
       paymentStatus = 'COMPLETED';
       orderStatus = 'PLACED';
@@ -204,7 +202,6 @@ const verifyPaymentNotification = async (notificationData) => {
         });
     }
 
-    
     // Update order
     await supabase
       .from('orders')
@@ -216,7 +213,6 @@ const verifyPaymentNotification = async (notificationData) => {
 
     console.log(`✅ Order #${actualOrderId} updated to:`, orderStatus);
 
-    // 🆕 Payment success වුණාට පස්සේ විතරක් customer confirmation email එක යවනවා
     if (paymentStatus === 'COMPLETED') {
       try {
         const { data: notifSetting } = await supabase
@@ -226,34 +222,59 @@ const verifyPaymentNotification = async (notificationData) => {
           .maybeSingle();
 
         const settings = notifSetting?.value || {};
+        const alertEnabled = settings.orderAlerts !== false;
         const emailEnabled = settings.emailNotifications !== false;
+        const smsEnabled = settings.smsNotifications !== false;
 
-        console.log('🔍 [DEBUG] emailNotifications value:', settings.emailNotifications);
-        console.log('🔍 [DEBUG] emailEnabled computed:', emailEnabled);
+        console.log('🔍 [DEBUG] alertEnabled:', alertEnabled, 'emailEnabled:', emailEnabled, 'smsEnabled:', smsEnabled);
 
-        if (emailEnabled) {
-          const { data: orderWithCustomer, error: fetchError } = await supabase
-            .from('orders')
-            .select('id, total_amount, users ( email )')
-            .eq('id', actualOrderId)
-            .single();
+        const { data: orderWithCustomer, error: fetchError } = await supabase
+          .from('orders')
+          .select('id, total_amount, customer_id, users ( email, phone )')
+          .eq('id', actualOrderId)
+          .single();
 
-          if (fetchError) {
-            console.warn('⚠️ [verifyPaymentNotification] Could not fetch customer for email:', fetchError.message);
-          } else if (orderWithCustomer?.users?.email) {
+        if (fetchError) {
+          console.warn('⚠️ [verifyPaymentNotification] Could not fetch order for notification:', fetchError.message);
+        } else {
+          if (alertEnabled) {
+            const { error: notifError } = await supabase.from('notifications').insert({
+              target_role: null,
+              user_id: orderWithCustomer.customer_id,
+              type: 'payment',
+              message: `Payment for Order #${actualOrderId} (Rs. ${orderWithCustomer.total_amount}) has been confirmed. Your order is being processed.`,
+              related_order_id: actualOrderId,
+              read: false,
+            });
+
+            if (notifError) {
+              console.error('❌ [verifyPaymentNotification] Notification insert error:', notifError.message);
+            } else {
+              console.log(`📬 [verifyPaymentNotification] Notification sent to customer for order #${actualOrderId}`);
+            }
+          }
+
+          if (emailEnabled && orderWithCustomer?.users?.email) {
             await sendOrderConfirmationEmail({
               customerEmail: orderWithCustomer.users.email,
               subject: `Order #${actualOrderId} Payment Confirmed`,
               message: `Thank you! Your payment for Order #${actualOrderId} (Total: Rs. ${orderWithCustomer.total_amount}) has been confirmed and your order is being processed.`,
             });
-          } else {
+          } else if (emailEnabled) {
             console.warn(`⚠️ [verifyPaymentNotification] No customer email found for order #${actualOrderId}`);
           }
-        } else {
-          console.log('📭 [verifyPaymentNotification] Email notifications disabled — skipping confirmation email.');
+
+          if (smsEnabled && orderWithCustomer?.users?.phone) {
+            await sendSMS({
+              toPhone: orderWithCustomer.users.phone,
+              message: `Hanthana Water: Payment for Order #${actualOrderId} (Rs. ${orderWithCustomer.total_amount}) confirmed. Your order is being processed.`,
+            });
+          } else if (smsEnabled) {
+            console.warn(`⚠️ [verifyPaymentNotification] No customer phone found for order #${actualOrderId}`);
+          }
         }
       } catch (mailErr) {
-        console.error('❌ [verifyPaymentNotification] Confirmation email failed:', mailErr.message);
+        console.error('❌ [verifyPaymentNotification] Notification/Email/SMS failed:', mailErr.message);
       }
     }
 

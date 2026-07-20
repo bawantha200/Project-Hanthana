@@ -17,6 +17,12 @@ const permissionRoutes = require('./src/routes/permissionRoutes');
 
 const notificationsRoutes = require('./src/routes/notificationsRoutes');
 const { startPaymentReminderJob } = require('./src/jobs/paymentReminderJob');
+const { startInventoryReminderJob } = require('./src/jobs/inventoryReminderJob');
+const { maintenanceMiddleware } = require('./src/middlewares/maintenanceMiddleware');
+
+const maintenanceRoutes = require('./src/routes/maintenanceRoutes'); // 🆕
+const { startMaintenanceReminderJob } = require('./src/jobs/maintenanceReminderJob'); // 🆕
+const { initBackupScheduler } = require('./src/utils/backupScheduler');
 
 const forecastRoutes = require('./src/routes/forecastRoutes');
 const inventoryRoutes = require('./src/routes/inventoryRoutes');
@@ -39,6 +45,7 @@ const allowedOrigins = [
   'http://localhost:3000',
 ];
 
+
 // Global middleware
 app.use(cors({
   origin: (origin, callback) => {
@@ -52,6 +59,7 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(maintenanceMiddleware);
 
 // API route mounting
 app.use('/api/auth', authRoutes);
@@ -76,6 +84,9 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/empty-bottles', emptyBottlesRoutes);
 app.use('/api/vendor-orders', vendorOrdersRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/maintenance', maintenanceRoutes); // 🆕
+app.use('/api/contact', contactRoutes);
+
 
 app.use('/api/contact', contactRoutes); 
 
@@ -90,5 +101,8 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`[Server] Hanthana core engine actively running on port: ${PORT}`);
-  startPaymentReminderJob(); // 🆕
+  startPaymentReminderJob(); 
+  startInventoryReminderJob();
+  startMaintenanceReminderJob();
+  initBackupScheduler();
 });

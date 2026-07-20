@@ -103,13 +103,16 @@ const createOrder = async (orderData) => {
     return sum + (product ? product.unit_price * item.quantity : 0);
   }, 0);
 
+
+  const isCash = paymentMethod === 'CASH';
+
   const { data: orderInsert, error: orderError } = await supabase
     .from('orders')
     .insert({
       customer_id: customerId,
       order_type: orderType,
       payment_method: paymentMethod,
-      payment_status: 'PENDING',
+      payment_status: isCash ? 'COMPLETED' : 'PENDING',   // ✅ cash = paid immediately
       order_status: 'PLACED',
       total_amount: total,
       delivery_location: deliveryLocation || null,
@@ -138,7 +141,7 @@ const createOrder = async (orderData) => {
   // 🆕 customer email එක fetch කරගන්නවා confirmation email එකට
   const { data: customer, error: customerError } = await supabase
     .from('users')
-    .select('email')
+    .select('email, phone')
     .eq('id', customerId)
     .maybeSingle();
 
@@ -146,7 +149,7 @@ const createOrder = async (orderData) => {
     console.warn('⚠️ [createOrder] Could not fetch customer email:', customerError.message);
   }
 
-  return { id: orderInsert.id, total, customerEmail: customer?.email || null };
+  return { id: orderInsert.id, total, customerEmail: customer?.email || null,customerPhone: customer?.phone || null,isCash,};
 };
 
 // ========== GET ORDERS BY USER ID (Customer) ==========

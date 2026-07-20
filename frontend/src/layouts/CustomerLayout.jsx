@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react"; 
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -14,11 +14,181 @@ import {
   ShoppingBag,
   LayoutDashboard,
   Lock,
+  Bell,
   LogIn,
+  ShoppingCart,   
+  Truck,         
+  Package,        
+  DollarSign, 
 } from "lucide-react";
 import FloatingOrderButton from "../components/FloatingOrderButton";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../supabaseClient";
+
+
+
+// ─── Notification Panel (Customer) ──────────────────────────────
+const NOTIFICATION_ICONS = {
+  order: ShoppingCart,
+  delivery: Truck,
+  inventory: Package,
+  payment: DollarSign,
+  system: Settings,
+  maintenance: Settings,
+};
+
+const timeAgo = (dateString) => {
+  const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours > 1 ? "s" : ""} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days > 1 ? "s" : ""} ago`;
+};
+
+function NotificationPanel({ isOpen, onClose, onMarkedRead }) {
+  const panelRef = useRef(null);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const fetchNotifications = useCallback(async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch("http://localhost:5000/api/notifications", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) setNotifications(data.notifications || []);
+    } catch (err) {
+      console.error("Failed to fetch notifications:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isOpen) fetchNotifications();
+  }, [isOpen, fetchNotifications]);
+
+  const handleMarkAsRead = async (id) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    onMarkedRead?.();
+    try {
+      const token = localStorage.getItem("token");
+      await fetch(`http://localhost:5000/api/notifications/${id}/read`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      console.error("Failed to mark as read:", err);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    onMarkedRead?.();
+    try {
+      const token = localStorage.getItem("token");
+      await fetch("http://localhost:5000/api/notifications/read-all", {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (err) {
+      console.error("Failed to mark all as read:", err);
+    }
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (panelRef.current && !panelRef.current.contains(event.target)) onClose();
+    }
+    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen, onClose]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
+            onClick={onClose}
+          />
+          <motion.div
+            ref={panelRef}
+            initial={{ opacity: 0, y: -10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.95 }}
+            className="absolute right-0 top-full mt-2 z-50 w-80 sm:w-96 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl overflow-hidden"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-slate-800">Notifications</h3>
+                {unreadCount > 0 && (
+                  <span className="inline-flex items-center justify-center h-5 min-w-[20px] px-1.5 rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                    {unreadCount}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {unreadCount > 0 && (
+                  <button onClick={handleMarkAllAsRead} className="text-[11px] font-medium text-blue-600 hover:text-blue-700">
+                    Mark all read
+                  </button>
+                )}
+                <button onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-slate-600">
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+            <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+              {loading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600" />
+                </div>
+              )}
+              {!loading && notifications.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-10 text-center">
+                  <Bell size={22} className="text-slate-300 mb-2" />
+                  <p className="text-xs text-slate-400">No notifications yet</p>
+                </div>
+              )}
+              {!loading &&
+                notifications.map((n) => {
+                  const Icon = NOTIFICATION_ICONS[n.type] || Bell;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => !n.read && handleMarkAsRead(n.id)}
+                      className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors ${
+                        !n.read ? "bg-blue-50/40 hover:bg-blue-50" : "hover:bg-slate-50"
+                      }`}
+                    >
+                      <div className={`p-1.5 rounded-lg ${!n.read ? "bg-blue-100 text-blue-600" : "bg-slate-100 text-slate-400"}`}>
+                        <Icon size={14} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-sm ${!n.read ? "font-medium text-slate-800" : "text-slate-500"}`}>{n.message}</p>
+                        <p className="text-xs text-slate-400 mt-1">{timeAgo(n.created_at)}</p>
+                      </div>
+                      {!n.read && <div className="h-2 w-2 rounded-full bg-blue-500 mt-1.5 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
 
 // ─── Constants ────────────────────────────────────────────────
 const baseNavLinks = [
@@ -60,6 +230,8 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -172,6 +344,36 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
       links.push({ name: "My Orders", path: "/orders" });
     }
     return links;
+  };
+
+
+  const fetchUnreadCount = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/notifications/unread-count', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) setUnreadCount(data.count || 0);
+    } catch (err) {
+      console.error('Failed to fetch unread count:', err);
+    }
+  };
+
+
+  useEffect(() => {
+  if (!user) {
+    setUnreadCount(0);
+    return;
+  }
+  fetchUnreadCount();
+  const interval = setInterval(fetchUnreadCount, 30000);
+  return () => clearInterval(interval);
+  }, [user]);
+
+  const handleToggle = () => {
+    setIsOpen((prev) => !prev);
+    if (!isOpen) fetchUnreadCount(); // panel open karanna kalin count eka refresh karanna
   };
 
   const handleSignOut = async () => {
@@ -303,8 +505,32 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
               ))}
             </div>
 
+
+            
+
             {/* Desktop CTA */}
             <div className="hidden lg:flex items-center gap-3">
+
+              {user && (
+                <div className="relative">
+                  <button
+                    onClick={handleToggle}
+                    className="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                  >
+                    <Bell size={20} />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded-full bg-red-500 text-[10px] font-bold text-white">
+                        {unreadCount > 9 ? '9+' : unreadCount}
+                      </span>
+                    )}
+                  </button>
+                  <NotificationPanel
+                    isOpen={isOpen}
+                    onClose={() => setIsOpen(false)}
+                    onMarkedRead={fetchUnreadCount}
+                  />
+                </div>
+              )}
               {!user ? (
                 <>
                   <button
