@@ -1,6 +1,10 @@
-import { useState } from 'react';
+// frontend/src/pages/Finance.jsx
 import { motion } from 'framer-motion';
-import { DollarSign, TrendingUp, TrendingDown, ArrowUpRight, CreditCard, Truck, Package, Users } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { 
+  DollarSign, TrendingUp, TrendingDown, ArrowUpRight, 
+  CreditCard, Truck, Package, Users, Receipt
+} from 'lucide-react';
 import RevenueChart from '../../components/RevenueChart';
 import ExpenseChart from '../../components/ExpenseChart';
 import StatCard from '../../components/StatCard';
@@ -21,15 +25,13 @@ const itemVariants = {
 };
 
 export default function Finance() {
+  const navigate = useNavigate();
+
   const latestMonth = financialData[financialData.length - 1];
   const previousMonth = financialData[financialData.length - 2];
-
   const totalIncome = latestMonth.income;
   const totalExpenses = latestMonth.expenses;
   const netProfit = latestMonth.profit;
-
-  const pendingPayments = 57900;
-
   const incomeGrowth = ((latestMonth.income - previousMonth.income) / previousMonth.income * 100).toFixed(1);
   const expenseGrowth = ((latestMonth.expenses - previousMonth.expenses) / previousMonth.expenses * 100).toFixed(1);
   const profitGrowth = ((latestMonth.profit - previousMonth.profit) / previousMonth.profit * 100).toFixed(1);
@@ -42,11 +44,20 @@ export default function Finance() {
       className="space-y-6"
     >
       {/* Page Header */}
-      <motion.div variants={itemVariants}>
-        <h1 className="text-2xl font-bold text-gray-900">Finance</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Financial overview — Income, expenses, and profit analysis
-        </p>
+      <motion.div variants={itemVariants} className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Finance</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Financial overview — Income, expenses, and profit analysis
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/admin/finance/expenses')}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+        >
+          <Receipt size={16} />
+          Manage Expenses
+        </button>
       </motion.div>
 
       {/* Summary Cards */}
@@ -105,54 +116,29 @@ export default function Finance() {
         />
       </motion.div>
 
-      {/* Expense Tracking Breakdown */}
+      {/* Expense Breakdown Cards */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Vehicle Costs */}
-        <motion.div
-          variants={itemVariants}
-          whileHover={{ y: -2 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200"
-        >
+        <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
-              <Truck size={18} className="text-blue-600" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">Vehicle Costs</h3>
-              <p className="text-xs text-gray-400">Fuel, maintenance & repairs</p>
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><Truck size={18} className="text-blue-600" /></div>
+            <div><h3 className="text-sm font-semibold text-gray-900">Vehicle Costs</h3><p className="text-xs text-gray-400">Fuel, maintenance & repairs</p></div>
           </div>
           <p className="text-2xl font-bold text-gray-900">{formatCurrency(latestMonth.vehicleCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
             <ArrowUpRight size={14} className="text-rose-500" />
-            <span className="text-xs font-medium text-rose-600">
-              +{((latestMonth.vehicleCosts - previousMonth.vehicleCosts) / previousMonth.vehicleCosts * 100).toFixed(1)}%
-            </span>
+            <span className="text-xs font-medium text-rose-600">+{((latestMonth.vehicleCosts - previousMonth.vehicleCosts) / previousMonth.vehicleCosts * 100).toFixed(1)}%</span>
             <span className="text-xs text-gray-400 ml-1">vs last month</span>
           </div>
           <div className="mt-4 w-full bg-gray-100 rounded-full h-1.5">
-            <div
-              className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
-              style={{ width: `${(latestMonth.vehicleCosts / latestMonth.expenses * 100).toFixed(0)}%` }}
-            />
+            <div className="h-1.5 rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${(latestMonth.vehicleCosts / latestMonth.expenses * 100).toFixed(0)}%` }} />
           </div>
           <p className="text-xs text-gray-400 mt-1">{(latestMonth.vehicleCosts / latestMonth.expenses * 100).toFixed(1)}% of total expenses</p>
         </motion.div>
 
-        {/* Salary Costs */}
-        <motion.div
-          variants={itemVariants}
-          whileHover={{ y: -2 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200"
-        >
+        <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center">
-              <Users size={18} className="text-indigo-600" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">Salary Costs</h3>
-              <p className="text-xs text-gray-400">Base + OT + bonuses</p>
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center"><Users size={18} className="text-indigo-600" /></div>
+            <div><h3 className="text-sm font-semibold text-gray-900">Salary Costs</h3><p className="text-xs text-gray-400">Base + OT + bonuses</p></div>
           </div>
           <p className="text-2xl font-bold text-gray-900">{formatCurrency(latestMonth.salaryCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
@@ -160,42 +146,24 @@ export default function Finance() {
             <span className="text-xs text-gray-400 ml-1">no change</span>
           </div>
           <div className="mt-4 w-full bg-gray-100 rounded-full h-1.5">
-            <div
-              className="h-1.5 rounded-full bg-indigo-500 transition-all duration-500"
-              style={{ width: `${(latestMonth.salaryCosts / latestMonth.expenses * 100).toFixed(0)}%` }}
-            />
+            <div className="h-1.5 rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(latestMonth.salaryCosts / latestMonth.expenses * 100).toFixed(0)}%` }} />
           </div>
           <p className="text-xs text-gray-400 mt-1">{(latestMonth.salaryCosts / latestMonth.expenses * 100).toFixed(1)}% of total expenses</p>
         </motion.div>
 
-        {/* Bottle Purchase Costs */}
-        <motion.div
-          variants={itemVariants}
-          whileHover={{ y: -2 }}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200"
-        >
+        <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-cyan-50 flex items-center justify-center">
-              <Package size={18} className="text-cyan-600" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-gray-900">Bottle Purchase Costs</h3>
-              <p className="text-xs text-gray-400">Sealed & empty bottles</p>
-            </div>
+            <div className="w-10 h-10 rounded-xl bg-cyan-50 flex items-center justify-center"><Package size={18} className="text-cyan-600" /></div>
+            <div><h3 className="text-sm font-semibold text-gray-900">Bottle Purchase Costs</h3><p className="text-xs text-gray-400">Sealed & empty bottles</p></div>
           </div>
           <p className="text-2xl font-bold text-gray-900">{formatCurrency(latestMonth.bottleCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
             <ArrowUpRight size={14} className="text-rose-500" />
-            <span className="text-xs font-medium text-rose-600">
-              +{((latestMonth.bottleCosts - previousMonth.bottleCosts) / previousMonth.bottleCosts * 100).toFixed(1)}%
-            </span>
+            <span className="text-xs font-medium text-rose-600">+{((latestMonth.bottleCosts - previousMonth.bottleCosts) / previousMonth.bottleCosts * 100).toFixed(1)}%</span>
             <span className="text-xs text-gray-400 ml-1">vs last month</span>
           </div>
           <div className="mt-4 w-full bg-gray-100 rounded-full h-1.5">
-            <div
-              className="h-1.5 rounded-full bg-cyan-500 transition-all duration-500"
-              style={{ width: `${(latestMonth.bottleCosts / latestMonth.expenses * 100).toFixed(0)}%` }}
-            />
+            <div className="h-1.5 rounded-full bg-cyan-500 transition-all duration-500" style={{ width: `${(latestMonth.bottleCosts / latestMonth.expenses * 100).toFixed(0)}%` }} />
           </div>
           <p className="text-xs text-gray-400 mt-1">{(latestMonth.bottleCosts / latestMonth.expenses * 100).toFixed(1)}% of total expenses</p>
         </motion.div>
@@ -203,35 +171,21 @@ export default function Finance() {
 
       {/* Revenue Growth & P&L Summary */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Revenue Growth */}
-        <motion.div
-          variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
-        >
+        <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Revenue Growth</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Month-over-month income trend</p>
-            </div>
-            <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
-              <TrendingUp size={18} className="text-emerald-600" />
-            </div>
+            <div><h2 className="text-base font-semibold text-gray-900">Revenue Growth</h2><p className="text-xs text-gray-400 mt-0.5">Month-over-month income trend</p></div>
+            <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center"><TrendingUp size={18} className="text-emerald-600" /></div>
           </div>
           <div className="space-y-4">
             {financialData.map((entry, idx) => {
-              const growth = idx > 0
-                ? ((entry.income - financialData[idx - 1].income) / financialData[idx - 1].income * 100).toFixed(1)
-                : 0;
+              const growth = idx > 0 ? ((entry.income - financialData[idx - 1].income) / financialData[idx - 1].income * 100).toFixed(1) : 0;
               const isPositive = growth >= 0;
               return (
                 <div key={entry.month} className="flex items-center gap-4">
                   <span className="text-sm font-medium text-gray-600 w-8">{entry.month}</span>
                   <div className="flex-1 min-w-0">
                     <div className="w-full bg-gray-100 rounded-full h-2">
-                      <div
-                        className="h-2 rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 to-blue-600"
-                        style={{ width: `${(entry.income / 400000 * 100).toFixed(0)}%` }}
-                      />
+                      <div className="h-2 rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 to-blue-600" style={{ width: `${(entry.income / 400000 * 100).toFixed(0)}%` }} />
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-gray-900 w-24 text-right">{formatCurrency(entry.income)}</span>
@@ -248,19 +202,10 @@ export default function Finance() {
           </div>
         </motion.div>
 
-        {/* Monthly P&L Summary */}
-        <motion.div
-          variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
-        >
+        <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-5">
-            <div>
-              <h2 className="text-base font-semibold text-gray-900">Monthly P&L Summary</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Profit and loss breakdown</p>
-            </div>
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-              <DollarSign size={18} className="text-blue-600" />
-            </div>
+            <div><h2 className="text-base font-semibold text-gray-900">Monthly P&L Summary</h2><p className="text-xs text-gray-400 mt-0.5">Profit and loss breakdown</p></div>
+            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center"><DollarSign size={18} className="text-blue-600" /></div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -287,9 +232,7 @@ export default function Finance() {
                         </span>
                       </td>
                       <td className="py-3 px-3 text-right">
-                        <span className={`inline-flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${
-                          entry.profit >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
-                        }`}>
+                        <span className={`inline-flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${entry.profit >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                           {entry.profit >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
                           {margin}%
                         </span>

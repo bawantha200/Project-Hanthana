@@ -4,6 +4,7 @@ const {
   getAllUsers,
   getAllProducts,
   createOrder,
+  completeOrder,
   getOrdersByUserId,
   getOrderById,
   updateOrderStatus,
@@ -11,7 +12,8 @@ const {
   getDeliveryPersonnel,
   getOrderWithDetails,
   getOrderStatusHistory,
-  updateDeliveryStatus
+  updateDeliveryStatus,
+  getOrderItems
 } = require('../services/ordersService');
 
 const { notifyOrderEvent } = require('../utils/notifications');   // ✅ ADD THIS
@@ -30,6 +32,7 @@ const postOrder = async (req, res) => {
         message: 'Customer ID and at least one item are required.',
       });
     }
+
     const newOrder = await createOrder({
       customerId,
       orderType,
@@ -62,7 +65,75 @@ const postOrder = async (req, res) => {
 
     res.status(201).json({ success: true, order: newOrder });
   } catch (err) {
-    console.error(`💥 [postOrder]`, err);
+    console.error('[postOrder] Error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== COMPLETE ORDER (After Payment) ==========
+const completeOrderPayment = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const userId = req.user.id;
+
+    console.log('[completeOrderPayment] Completing order:', orderId);
+
+    // Verify user has access to this order
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('customer_id, payment_status')
+      .eq('id', orderId)
+      .single();
+
+    if (orderError) {
+      console.error('[completeOrderPayment] Order not found:', orderError);
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check authorization
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role_id')
+      .eq('id', userId)
+      .single();
+
+    let isAdmin = false;
+    if (profile) {
+      const { data: role } = await supabase
+        .from('roles')
+        .select('role_name')
+        .eq('id', profile.role_id)
+        .single();
+      isAdmin = role?.role_name === 'ADMIN';
+    }
+
+    if (order.customer_id !== userId && !isAdmin) {
+      console.warn('[completeOrderPayment] Unauthorized access attempt by user:', userId);
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (order.payment_status === 'COMPLETED') {
+      return res.status(400).json({ success: false, message: 'Order already completed' });
+    }
+
+    // Get order items
+    const orderItems = await getOrderItems(orderId);
+
+    // Complete order and deduct inventory
+    const completedOrder = await completeOrder(orderId, orderItems);
+
+    // Notification
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Order #${orderId} payment completed and inventory updated`,
+      relatedOrderId: orderId,
+      targetRole: 'CASHIER,ADMIN',
+    });
+
+    res.json({ success: true, order: completedOrder });
+  } catch (err) {
+    console.error('[completeOrderPayment] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -71,7 +142,6 @@ const postOrder = async (req, res) => {
 const getOrders = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log(`🔍 [getOrders] User ID: ${userId}`);
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -80,7 +150,7 @@ const getOrders = async (req, res) => {
       .single();
 
     if (profileError) {
-      console.error(`❌ [getOrders] Profile error:`, profileError.message);
+      console.error('[getOrders] Profile error:', profileError.message);
       const orders = await getOrdersByUserId(userId);
       return res.json({ success: true, orders });
     }
@@ -92,13 +162,12 @@ const getOrders = async (req, res) => {
       .single();
 
     if (roleError) {
-      console.error(`❌ [getOrders] Role error:`, roleError.message);
+      console.error('[getOrders] Role error:', roleError.message);
       const orders = await getOrdersByUserId(userId);
       return res.json({ success: true, orders });
     }
 
     const isAdmin = role?.role_name === 'ADMIN';
-    console.log(`👤 [getOrders] Role: ${role.role_name}, isAdmin: ${isAdmin}`);
 
     let orders;
     if (isAdmin) {
@@ -109,7 +178,7 @@ const getOrders = async (req, res) => {
 
     res.json({ success: true, orders });
   } catch (err) {
-    console.error(`💥 [getOrders]`, err);
+    console.error('[getOrders] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -144,7 +213,7 @@ const getOrder = async (req, res) => {
     const order = await getOrderById(orderId, userId, isAdmin);
     res.json({ success: true, order });
   } catch (err) {
-    console.error(`💥 [getOrder]`, err);
+    console.error('[getOrder] Error:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch order' });
   }
 };
@@ -155,7 +224,7 @@ const getUsers = async (req, res) => {
     const users = await getAllUsers();
     res.json({ success: true, users });
   } catch (err) {
-    console.error(`💥 [getUsers]`, err);
+    console.error('[getUsers] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -166,7 +235,7 @@ const getProducts = async (req, res) => {
     const products = await getAllProducts();
     res.json({ success: true, products });
   } catch (err) {
-    console.error(`💥 [getProducts]`, err);
+    console.error('[getProducts] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -215,7 +284,7 @@ const updateStatus = async (req, res) => {
 
     res.json({ success: true, order });
   } catch (err) {
-    console.error('💥 [updateStatus]', err);
+    console.error('[updateStatus] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -249,7 +318,7 @@ const assignDelivery = async (req, res) => {
 
     res.json({ success: true, ...result });
   } catch (err) {
-    console.error('💥 [assignDelivery]', err);
+    console.error('[assignDelivery] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -260,7 +329,7 @@ const getDeliveryPersonnelList = async (req, res) => {
     const personnel = await getDeliveryPersonnel();
     res.json({ success: true, personnel });
   } catch (err) {
-    console.error('💥 [getDeliveryPersonnelList]', err);
+    console.error('[getDeliveryPersonnelList] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -281,7 +350,7 @@ const getOrderDetails = async (req, res) => {
 
     res.json({ success: true, order, history });
   } catch (err) {
-    console.error('💥 [getOrderDetails]', err);
+    console.error('[getOrderDetails] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -306,7 +375,7 @@ const updateDelivery = async (req, res) => {
     const delivery = await updateDeliveryStatus(orderId, status, userId);
     res.json({ success: true, delivery });
   } catch (err) {
-    console.error('💥 [updateDelivery]', err);
+    console.error('[updateDelivery] Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -317,6 +386,7 @@ module.exports = {
   getUsers,
   getProducts,
   postOrder,
+  completeOrderPayment,
   updateStatus,
   assignDelivery,
   getDeliveryPersonnelList,

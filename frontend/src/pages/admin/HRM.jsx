@@ -4,7 +4,7 @@ import {
   Users, Clock, DollarSign, Search, TrendingUp, Award, Loader, 
   Plus, X, Calendar, User, Edit, Trash2, CheckCircle, AlertCircle,
   FileText, Smartphone, Mail, Building, Home, Heart, CreditCard,
-  Briefcase, Save, RefreshCw
+  Briefcase, Save, RefreshCw, MoreVertical
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import { formatCurrency } from '../../utils/helpers';
@@ -33,6 +33,16 @@ const tabs = [
   { key: 'salaries', label: 'Salaries & OT', icon: DollarSign },
 ];
 
+// ========== HELPER FUNCTION FOR AUTH ==========
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  };
+};
+
 export default function HRM() {
   const [activeTab, setActiveTab] = useState('attendance');
   const [searchQuery, setSearchQuery] = useState('');
@@ -45,9 +55,23 @@ export default function HRM() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Attendance Form States
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
-  const [showSalaryForm, setShowSalaryForm] = useState(false);
+  const [isEditingAttendance, setIsEditingAttendance] = useState(false);
+  const [editingAttendanceId, setEditingAttendanceId] = useState(null);
 
+  // Salary Form States
+  const [showSalaryForm, setShowSalaryForm] = useState(false);
+  const [isEditingSalary, setIsEditingSalary] = useState(false);
+  const [editingSalaryId, setEditingSalaryId] = useState(null);
+
+  // Delete Confirmation
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteType, setDeleteType] = useState(''); // 'attendance' or 'salary'
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleteName, setDeleteName] = useState('');
+
+  // Attendance Form Data
   const [attendanceForm, setAttendanceForm] = useState({
     employeeId: '',
     employeeName: '',
@@ -57,6 +81,7 @@ export default function HRM() {
     status: 'present'
   });
 
+  // Salary Form Data
   const [salaryForm, setSalaryForm] = useState({
     employeeId: '',
     employeeName: '',
@@ -66,51 +91,78 @@ export default function HRM() {
     finalSalary: ''
   });
 
-  // ========== FETCH FUNCTIONS ==========
+  // ========== FETCH FUNCTIONS WITH AUTH ==========
   
   const fetchEmployees = async () => {
     try {
-      const response = await axios.get(EMPLOYEES_API);
+      const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
       if (response.data.success) {
         setEmployees(response.data.data);
+        console.log('✅ Employees loaded:', response.data.data.length);
       }
     } catch (err) {
-      console.error('Error fetching employees:', err);
+      console.error('❌ Error fetching employees:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      }
     }
   };
 
   const fetchAttendance = async () => {
     try {
-      const response = await axios.get(ATTENDANCE_API);
+      const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
       if (response.data.success) {
         setAttendanceData(response.data.data);
+        console.log('✅ Attendance loaded:', response.data.data.length);
       }
     } catch (err) {
-      console.error('Error fetching attendance:', err);
+      console.error('❌ Error fetching attendance:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      }
     }
   };
 
   const fetchSalaries = async () => {
     try {
-      const response = await axios.get(SALARIES_API);
+      const response = await axios.get(SALARIES_API, getAuthHeaders());
       if (response.data.success) {
         setSalaryData(response.data.data);
+        console.log('✅ Salaries loaded:', response.data.data.length);
       }
     } catch (err) {
-      console.error('Error fetching salaries:', err);
+      console.error('❌ Error fetching salaries:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      }
     }
   };
 
   // ========== LOAD DATA ==========
   useEffect(() => {
     const loadData = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login to access HRM data');
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
-      await Promise.all([
-        fetchEmployees(),
-        fetchAttendance(),
-        fetchSalaries()
-      ]);
-      setLoading(false);
+      setError(null);
+      
+      try {
+        await Promise.all([
+          fetchEmployees(),
+          fetchAttendance(),
+          fetchSalaries()
+        ]);
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError('Failed to load data. Please refresh the page.');
+      } finally {
+        setLoading(false);
+      }
     };
     loadData();
   }, []);
@@ -127,12 +179,10 @@ export default function HRM() {
   // ========== STATUS CALCULATION ==========
   
   const calculateAttendanceStatus = (checkIn, checkOut) => {
-    // If no check-in and no check-out -> Absent
     if (!checkIn && !checkOut) {
       return 'absent';
     }
     
-    // If only check-in, no check-out -> Present (default)
     if (checkIn && !checkOut) {
       return 'present';
     }
@@ -140,42 +190,34 @@ export default function HRM() {
     const checkInTime = checkIn || '00:00';
     const checkOutTime = checkOut || '00:00';
     
-    // Full day - 8:00 AM to 5:00 PM -> Present
     if (checkInTime === '08:00' && checkOutTime === '17:00') {
       return 'present';
     }
     
-    // Check-in at 8:00 AM, Check-out before 5:00 PM -> Half Day
     if (checkInTime === '08:00' && checkOutTime < '17:00') {
       return 'half_day';
     }
     
-    // Check-in after 8:00 AM, Check-out at 5:00 PM -> Half Day
     if (checkInTime > '08:00' && checkOutTime === '17:00') {
       return 'half_day';
     }
     
-    // Check-in after 8:00 AM, Check-out before 5:00 PM -> Half Day
     if (checkInTime > '08:00' && checkOutTime < '17:00') {
       return 'half_day';
     }
     
-    // 8:00 AM to after 5:00 PM -> Present (with OT)
     if (checkInTime === '08:00' && checkOutTime > '17:00') {
       return 'present';
     }
     
-    // Before 8:00 AM to 5:00 PM -> Present
     if (checkInTime < '08:00' && checkOutTime === '17:00') {
       return 'present';
     }
     
-    // Before 8:00 AM to before 5:00 PM -> Half Day
     if (checkInTime < '08:00' && checkOutTime < '17:00') {
       return 'half_day';
     }
     
-    // Before 8:00 AM to after 5:00 PM -> Present
     if (checkInTime < '08:00' && checkOutTime > '17:00') {
       return 'present';
     }
@@ -191,8 +233,9 @@ export default function HRM() {
     return baseNum + (otNum * otRate) + bonusNum;
   };
 
-  // ========== CRUD OPERATIONS ==========
+  // ========== ATTENDANCE CRUD OPERATIONS ==========
 
+  // Create Attendance
   const handleAttendanceSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -210,26 +253,81 @@ export default function HRM() {
         status: status
       };
 
-      const response = await axios.post(ATTENDANCE_API, data);
-      
-      if (response.data.success) {
-        await fetchAttendance();
-        setShowAttendanceForm(false);
-        resetAttendanceForm();
-        showSuccessNotification(`Attendance added! Status: ${status}`);
+      let response;
+      if (isEditingAttendance && editingAttendanceId) {
+        // UPDATE Attendance
+        response = await axios.put(`${ATTENDANCE_API}/${editingAttendanceId}`, data, getAuthHeaders());
+        if (response.data.success) {
+          await fetchAttendance();
+          setShowAttendanceForm(false);
+          resetAttendanceForm();
+          showSuccessNotification('Attendance updated successfully!');
+        }
+      } else {
+        // CREATE Attendance
+        response = await axios.post(ATTENDANCE_API, data, getAuthHeaders());
+        if (response.data.success) {
+          await fetchAttendance();
+          setShowAttendanceForm(false);
+          resetAttendanceForm();
+          showSuccessNotification(`Attendance added! Status: ${status}`);
+        }
       }
     } catch (err) {
       console.error('Error:', err);
-      if (err.response?.status === 409) {
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      } else if (err.response?.status === 409) {
         setError('Attendance already recorded for this date.');
       } else {
-        setError(err.response?.data?.message || 'Failed to add attendance.');
+        setError(err.response?.data?.message || 'Failed to save attendance.');
       }
     } finally {
       setSubmitting(false);
     }
   };
 
+  // Delete Attendance
+  const handleDeleteAttendance = async () => {
+    if (!deleteId) return;
+    
+    try {
+      setSubmitting(true);
+      await axios.delete(`${ATTENDANCE_API}/${deleteId}`, getAuthHeaders());
+      await fetchAttendance();
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+      showSuccessNotification('Attendance record deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting attendance:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      } else {
+        setError('Failed to delete attendance record.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Edit Attendance - Open form with data
+  const editAttendance = (record) => {
+    setIsEditingAttendance(true);
+    setEditingAttendanceId(record.id);
+    setAttendanceForm({
+      employeeId: record.employee_id || record.employeeId || '',
+      employeeName: record.employee_name || record.name || '',
+      date: record.date || '',
+      checkIn: record.check_in || record.checkIn || '',
+      checkOut: record.check_out || record.checkOut || '',
+      status: record.status || 'present'
+    });
+    setShowAttendanceForm(true);
+  };
+
+  // ========== SALARY CRUD OPERATIONS ==========
+
+  // Create/Update Salary
   const handleSalarySubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -245,25 +343,79 @@ export default function HRM() {
         bonus: parseFloat(salaryForm.bonus) || 0
       };
 
-      const response = await axios.post(SALARIES_API, data);
-      
-      if (response.data.success) {
-        await fetchSalaries();
-        setShowSalaryForm(false);
-        resetSalaryForm();
-        showSuccessNotification('Salary added successfully!');
+      let response;
+      if (isEditingSalary && editingSalaryId) {
+        // UPDATE Salary
+        response = await axios.put(`${SALARIES_API}/${editingSalaryId}`, data, getAuthHeaders());
+        if (response.data.success) {
+          await fetchSalaries();
+          setShowSalaryForm(false);
+          resetSalaryForm();
+          showSuccessNotification('Salary updated successfully!');
+        }
+      } else {
+        // CREATE Salary
+        response = await axios.post(SALARIES_API, data, getAuthHeaders());
+        if (response.data.success) {
+          await fetchSalaries();
+          setShowSalaryForm(false);
+          resetSalaryForm();
+          showSuccessNotification('Salary added successfully!');
+        }
       }
     } catch (err) {
       console.error('Error:', err);
-      if (err.response?.status === 409) {
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      } else if (err.response?.status === 409) {
         setError('Salary already recorded for this month.');
       } else {
-        setError(err.response?.data?.message || 'Failed to add salary.');
+        setError(err.response?.data?.message || 'Failed to save salary.');
       }
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Delete Salary
+  const handleDeleteSalary = async () => {
+    if (!deleteId) return;
+    
+    try {
+      setSubmitting(true);
+      await axios.delete(`${SALARIES_API}/${deleteId}`, getAuthHeaders());
+      await fetchSalaries();
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+      showSuccessNotification('Salary record deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting salary:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      } else {
+        setError('Failed to delete salary record.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Edit Salary - Open form with data
+  const editSalary = (record) => {
+    setIsEditingSalary(true);
+    setEditingSalaryId(record.id);
+    setSalaryForm({
+      employeeId: record.employee_id || record.employeeId || '',
+      employeeName: record.employee_name || record.name || '',
+      baseSalary: record.base_salary || record.base || '',
+      otHours: record.ot_hours || record.otHours || '',
+      bonus: record.bonus || '',
+      finalSalary: record.total_salary || record.total || ''
+    });
+    setShowSalaryForm(true);
+  };
+
+  // ========== FORM RESET FUNCTIONS ==========
 
   const resetAttendanceForm = () => {
     setAttendanceForm({
@@ -274,6 +426,8 @@ export default function HRM() {
       checkOut: '',
       status: 'present'
     });
+    setIsEditingAttendance(false);
+    setEditingAttendanceId(null);
   };
 
   const resetSalaryForm = () => {
@@ -285,6 +439,8 @@ export default function HRM() {
       bonus: '',
       finalSalary: ''
     });
+    setIsEditingSalary(false);
+    setEditingSalaryId(null);
   };
 
   const showSuccessNotification = (message) => {
@@ -292,29 +448,64 @@ export default function HRM() {
     setShowSuccess(true);
   };
 
-  const openAttendanceForm = (employee) => {
-    setAttendanceForm({
-      employeeId: employee.id,
-      employeeName: employee.name,
-      date: new Date().toISOString().split('T')[0],
-      checkIn: '',
-      checkOut: '',
-      status: 'present'
-    });
+  // ========== OPEN FORM FUNCTIONS ==========
+
+  const openAttendanceForm = (employee = null) => {
+    if (employee) {
+      setAttendanceForm({
+        employeeId: employee.id,
+        employeeName: employee.name,
+        date: new Date().toISOString().split('T')[0],
+        checkIn: '',
+        checkOut: '',
+        status: 'present'
+      });
+    }
     setShowAttendanceForm(true);
   };
 
-  const openSalaryForm = (employee) => {
-    setSalaryForm({
-      employeeId: employee.id,
-      employeeName: employee.name,
-      baseSalary: '',
-      otHours: '',
-      bonus: '',
-      finalSalary: ''
-    });
+  const openSalaryForm = (employee = null) => {
+    if (employee) {
+      // Auto-fill baseSalary and bonus from employee data
+      setSalaryForm({
+        employeeId: employee.id,
+        employeeName: employee.name,
+        baseSalary: employee.base_salary || employee.baseSalary || '',
+        otHours: '',
+        bonus: employee.bonus || '',
+        finalSalary: ''
+      });
+    } else {
+      setSalaryForm({
+        employeeId: '',
+        employeeName: '',
+        baseSalary: '',
+        otHours: '',
+        bonus: '',
+        finalSalary: ''
+      });
+    }
     setShowSalaryForm(true);
   };
+
+  // ========== DELETE CONFIRMATION ==========
+
+  const confirmDelete = (type, id, name) => {
+    setDeleteType(type);
+    setDeleteId(id);
+    setDeleteName(name);
+    setShowDeleteConfirm(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteType === 'attendance') {
+      handleDeleteAttendance();
+    } else if (deleteType === 'salary') {
+      handleDeleteSalary();
+    }
+  };
+
+  // ========== AUTO-CALCULATE FUNCTIONS ==========
 
   useEffect(() => {
     if (attendanceForm.checkIn || attendanceForm.checkOut) {
@@ -404,10 +595,36 @@ export default function HRM() {
       )}
 
       <motion.div variants={itemVariants}>
-        <h1 className="text-2xl font-bold text-gray-900">HRM</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Human Resource Management — Attendance, salaries, and employee performance
-        </p>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">HRM</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Human Resource Management — Attendance, salaries, and employee performance
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              setLoading(true);
+              setError(null);
+              try {
+                await Promise.all([
+                  fetchEmployees(),
+                  fetchAttendance(),
+                  fetchSalaries()
+                ]);
+                showSuccessNotification('Data refreshed successfully!');
+              } catch (err) {
+                setError('Failed to refresh data.');
+              } finally {
+                setLoading(false);
+              }
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+          >
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
       </motion.div>
 
       <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-3 gap-5">
@@ -471,7 +688,7 @@ export default function HRM() {
               className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
             >
               <Plus size={16} />
-              Update Attendance
+              Add Attendance
             </button>
           )}
           {activeTab === 'salaries' && (
@@ -493,17 +710,17 @@ export default function HRM() {
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search employees..."
+              placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
+              className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-48 bg-white"
             />
           </div>
         </div>
       </motion.div>
 
       {/* ============================================ */}
-      {/* ATTENDANCE TAB */}
+      {/* ATTENDANCE TAB WITH CRUD */}
       {/* ============================================ */}
       {activeTab === 'attendance' && (
         <motion.div
@@ -522,18 +739,13 @@ export default function HRM() {
                     <span className="ml-2 text-blue-600 font-medium">{attendanceData.length} records</span>
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={fetchAttendance}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="Refresh attendance"
-                  >
-                    <RefreshCw size={16} className="text-gray-400 hover:text-blue-600 transition-colors" />
-                  </button>
-                  <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <Clock size={18} className="text-blue-600" />
-                  </div>
-                </div>
+                <button
+                  onClick={fetchAttendance}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Refresh attendance"
+                >
+                  <RefreshCw size={16} className="text-gray-400 hover:text-blue-600 transition-colors" />
+                </button>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -545,6 +757,7 @@ export default function HRM() {
                     <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Check In</th>
                     <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Check Out</th>
                     <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -558,11 +771,29 @@ export default function HRM() {
                         <td className="py-3 px-6">
                           <StatusBadge status={record.status} />
                         </td>
+                        <td className="py-3 px-6">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => editAttendance(record)}
+                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit size={15} />
+                            </button>
+                            <button
+                              onClick={() => confirmDelete('attendance', record.id, record.employee_name || record.name)}
+                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="5" className="text-center py-10 text-gray-500">
+                      <td colSpan="6" className="text-center py-10 text-gray-500">
                         <Clock size={36} className="mx-auto mb-3 text-gray-300" />
                         <p className="font-medium">No attendance records found</p>
                         <p className="text-xs mt-1">Try adjusting your search criteria</p>
@@ -577,7 +808,7 @@ export default function HRM() {
       )}
 
       {/* ============================================ */}
-      {/* SALARIES TAB - Status column removed */}
+      {/* SALARIES TAB WITH CRUD */}
       {/* ============================================ */}
       {activeTab === 'salaries' && (
         <motion.div
@@ -596,18 +827,13 @@ export default function HRM() {
                     <span className="ml-2 text-emerald-600 font-medium">{salaryData.length} records</span>
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={fetchSalaries}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="Refresh salaries"
-                  >
-                    <RefreshCw size={16} className="text-gray-400 hover:text-emerald-600 transition-colors" />
-                  </button>
-                  <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
-                    <DollarSign size={18} className="text-emerald-600" />
-                  </div>
-                </div>
+                <button
+                  onClick={fetchSalaries}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                  title="Refresh salaries"
+                >
+                  <RefreshCw size={16} className="text-gray-400 hover:text-emerald-600 transition-colors" />
+                </button>
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -620,6 +846,7 @@ export default function HRM() {
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Amount</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Bonus</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Final Salary</th>
+                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -632,11 +859,29 @@ export default function HRM() {
                         <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.ot_amount || salary.otAmount || 0)}</td>
                         <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
                         <td className="py-3 px-6 text-right font-semibold text-gray-900">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
+                        <td className="py-3 px-6">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => editSalary(salary)}
+                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit size={15} />
+                            </button>
+                            <button
+                              onClick={() => confirmDelete('salary', salary.id, salary.employee_name || salary.name)}
+                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="6" className="text-center py-10 text-gray-500">
+                      <td colSpan="7" className="text-center py-10 text-gray-500">
                         <DollarSign size={36} className="mx-auto mb-3 text-gray-300" />
                         <p className="font-medium">No salary records found</p>
                         <p className="text-xs mt-1">Try adjusting your search criteria</p>
@@ -663,6 +908,7 @@ export default function HRM() {
                       <td className="py-3 px-6 text-right font-semibold text-gray-900">
                         {formatCurrency(filteredSalary.reduce((s, r) => s + (r.total_salary || r.total || 0), 0))}
                       </td>
+                      <td className="py-3 px-6"></td>
                     </tr>
                   </tfoot>
                 )}
@@ -673,7 +919,7 @@ export default function HRM() {
       )}
 
       {/* ============================================ */}
-      {/* ATTENDANCE UPDATE MODAL */}
+      {/* ATTENDANCE FORM MODAL (Create & Update) */}
       {/* ============================================ */}
       <AnimatePresence>
         {showAttendanceForm && (
@@ -714,14 +960,16 @@ export default function HRM() {
                   <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
                     <Clock size={20} className="text-blue-600" />
                   </div>
-                  <h2 className="text-xl font-semibold text-gray-900">Update Attendance</h2>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {isEditingAttendance ? 'Edit Attendance' : 'Add Attendance'}
+                  </h2>
                 </div>
 
                 <form onSubmit={handleAttendanceSubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <User size={14} className="inline mr-1" /> Employee Name *
+                        <User size={14} className="inline mr-1" /> Employee *
                       </label>
                       <select
                         value={attendanceForm.employeeId}
@@ -735,13 +983,19 @@ export default function HRM() {
                         }}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                         required
-                        disabled={submitting}
+                        disabled={submitting || isEditingAttendance}
                       >
                         <option value="">Select Employee</option>
                         {employees.map((emp) => (
                           <option key={emp.id} value={emp.id}>{emp.name}</option>
                         ))}
                       </select>
+                      {isEditingAttendance && (
+                        <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
+                      )}
+                      {employees.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
+                      )}
                     </div>
 
                     <div>
@@ -800,31 +1054,11 @@ export default function HRM() {
                           <StatusBadge status={attendanceForm.status} />
                           <span className="text-xs text-gray-500 ml-2">
                             {attendanceForm.status === 'present' && '✓ Full day present'}
-                            {attendanceForm.status === 'half_day' && '⚠️ Half day (Not full day)'}
+                            {attendanceForm.status === 'half_day' && '⚠️ Half day'}
                             {attendanceForm.status === 'absent' && '❌ No check-in/out recorded'}
                           </span>
                         </div>
                       </div>
-                      <p className="text-xs text-gray-400 mt-1">
-                        Status auto-calculated based on check-in and check-out times
-                      </p>
-                    </div>
-
-                    <div className="md:col-span-2">
-                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Edit size={14} className="inline mr-1" /> Status Override (Optional)
-                      </label>
-                      <select
-                        value={attendanceForm.status}
-                        onChange={(e) => setAttendanceForm({ ...attendanceForm, status: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        disabled={submitting}
-                      >
-                        <option value="present">Present</option>
-                        <option value="half_day">Half Day</option>
-                        <option value="absent">Absent</option>
-                      </select>
-                      <p className="text-xs text-gray-400 mt-1">Auto-generated based on times, but you can manually override</p>
                     </div>
                   </div>
 
@@ -852,12 +1086,12 @@ export default function HRM() {
                       {submitting ? (
                         <>
                           <Loader size={16} className="animate-spin" />
-                          Saving...
+                          {isEditingAttendance ? 'Updating...' : 'Saving...'}
                         </>
                       ) : (
                         <>
                           <Save size={16} />
-                          Save Attendance
+                          {isEditingAttendance ? 'Update Attendance' : 'Save Attendance'}
                         </>
                       )}
                     </motion.button>
@@ -870,7 +1104,7 @@ export default function HRM() {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* SALARY UPDATE MODAL */}
+      {/* SALARY FORM MODAL (Create & Update) - WITH AUTO-FILL */}
       {/* ============================================ */}
       <AnimatePresence>
         {showSalaryForm && (
@@ -908,37 +1142,60 @@ export default function HRM() {
                 </button>
 
                 <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-                    <DollarSign size={20} className="text-blue-600" />
+                  <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <DollarSign size={20} className="text-emerald-600" />
                   </div>
-                  <h2 className="text-xl font-semibold text-gray-900">Add Salary & OT</h2>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {isEditingSalary ? 'Edit Salary & OT' : 'Add Salary & OT'}
+                  </h2>
                 </div>
 
                 <form onSubmit={handleSalarySubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <User size={14} className="inline mr-1" /> Employee Name *
+                        <User size={14} className="inline mr-1" /> Employee *
                       </label>
                       <select
                         value={salaryForm.employeeId}
                         onChange={(e) => {
                           const emp = employees.find(emp => emp.id === parseInt(e.target.value));
-                          setSalaryForm({
-                            ...salaryForm,
-                            employeeId: e.target.value,
-                            employeeName: emp ? emp.name : ''
-                          });
+                          if (emp) {
+                            // Auto-fill baseSalary and bonus from employee data
+                            setSalaryForm({
+                              ...salaryForm,
+                              employeeId: e.target.value,
+                              employeeName: emp.name,
+                              baseSalary: emp.base_salary || emp.baseSalary || '',
+                              bonus: emp.bonus || ''
+                            });
+                          } else {
+                            setSalaryForm({
+                              ...salaryForm,
+                              employeeId: e.target.value,
+                              employeeName: '',
+                              baseSalary: '',
+                              bonus: ''
+                            });
+                          }
                         }}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all bg-white"
                         required
-                        disabled={submitting}
+                        disabled={submitting || isEditingSalary}
                       >
                         <option value="">Select Employee</option>
                         {employees.map((emp) => (
-                          <option key={emp.id} value={emp.id}>{emp.name}</option>
+                          <option key={emp.id} value={emp.id}>
+                            {emp.name} {emp.base_salary ? `- Rs. ${emp.base_salary.toLocaleString()}` : ''}
+                          </option>
                         ))}
                       </select>
+                      {isEditingSalary && (
+                        <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
+                      )}
+                      {employees.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
+                      )}
                     </div>
 
                     <div>
@@ -949,11 +1206,12 @@ export default function HRM() {
                         type="number"
                         value={salaryForm.baseSalary}
                         onChange={(e) => setSalaryForm({ ...salaryForm, baseSalary: e.target.value })}
-                        placeholder="Enter base salary"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        placeholder="Auto-filled from employee"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all bg-gray-50 cursor-not-allowed"
                         required
-                        disabled={submitting}
+                        disabled={true}
                       />
+                      <p className="text-xs text-emerald-600 mt-1">✓ Auto-filled from employee profile</p>
                     </div>
 
                     <div>
@@ -966,7 +1224,7 @@ export default function HRM() {
                         value={salaryForm.otHours}
                         onChange={(e) => setSalaryForm({ ...salaryForm, otHours: e.target.value })}
                         placeholder="Enter OT hours"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
                         disabled={submitting}
                       />
                       <p className="text-xs text-gray-400 mt-1">OT Rate: 500 LKR/hr</p>
@@ -980,10 +1238,11 @@ export default function HRM() {
                         type="number"
                         value={salaryForm.bonus}
                         onChange={(e) => setSalaryForm({ ...salaryForm, bonus: e.target.value })}
-                        placeholder="Enter bonus amount"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        disabled={submitting}
+                        placeholder="Auto-filled from employee"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all bg-gray-50 cursor-not-allowed"
+                        disabled={true}
                       />
+                      <p className="text-xs text-emerald-600 mt-1">✓ Auto-filled from employee profile</p>
                     </div>
 
                     <div className="md:col-span-2">
@@ -1019,23 +1278,95 @@ export default function HRM() {
                       whileHover={{ scale: 1.04 }}
                       whileTap={{ scale: 0.97 }}
                       type="submit"
-                      className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={submitting}
                     >
                       {submitting ? (
                         <>
                           <Loader size={16} className="animate-spin" />
-                          Saving...
+                          {isEditingSalary ? 'Updating...' : 'Saving...'}
                         </>
                       ) : (
                         <>
                           <Save size={16} />
-                          Save Salary
+                          {isEditingSalary ? 'Update Salary' : 'Save Salary'}
                         </>
                       )}
                     </motion.button>
                   </div>
                 </form>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ============================================ */}
+      {/* DELETE CONFIRMATION MODAL */}
+      {/* ============================================ */}
+      <AnimatePresence>
+        {showDeleteConfirm && deleteId && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
+              onClick={() => {
+                if (!submitting) {
+                  setShowDeleteConfirm(false);
+                  setDeleteId(null);
+                }
+              }}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="fixed inset-0 flex items-center justify-center z-50 p-4"
+            >
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                <div className="text-center">
+                  <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+                    <Trash2 size={32} className="text-red-500" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                    Delete {deleteType === 'attendance' ? 'Attendance Record' : 'Salary Record'}
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-6">
+                    Are you sure you want to delete this {deleteType} record for{' '}
+                    <span className="font-semibold text-gray-900">{deleteName}</span>? 
+                    This action cannot be undone.
+                  </p>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => {
+                        if (!submitting) {
+                          setShowDeleteConfirm(false);
+                          setDeleteId(null);
+                        }
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                      disabled={submitting}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleConfirmDelete}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+                      disabled={submitting}
+                    >
+                      {submitting ? (
+                        <>
+                          <Loader size={16} className="animate-spin" />
+                          Deleting...
+                        </>
+                      ) : (
+                        'Delete Record'
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </motion.div>
           </>

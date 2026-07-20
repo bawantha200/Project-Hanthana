@@ -15,6 +15,7 @@ import Reports from '../pages/admin/Reports';
 import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
 import Employees from '../pages/admin/Employees';
+import Hrmdashboard from '../pages/admin/Hrmdashboard';
 import HRM from '../pages/admin/HRM';
 import Vendors from '../pages/admin/Vendors';
 import Customers from '../pages/admin/Customers';
@@ -24,6 +25,7 @@ import Messages from '../pages/admin/Messages';
 import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
+import ExpenseManagement from '../pages/admin/ExpenseManagement';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
@@ -45,6 +47,9 @@ import CustomerOrderDetails from '../pages/customer/OrderDetails';
 import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
 
+import InvoicingReports from "../pages/admin/InvoicingReports";
+
+
 function AdminRoutes() {
   const { user } = useAuth();
 
@@ -57,6 +62,7 @@ function AdminRoutes() {
       <Route element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="Hrmdashboard" element={<Hrmdashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />
@@ -70,6 +76,9 @@ function AdminRoutes() {
         <Route path="vendors" element={<Vendors />} />
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
+        <Route path="invoicing-reports" element={<InvoicingReports />} />
+        <Route path="finance" element={<Finance />} />
+        <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />

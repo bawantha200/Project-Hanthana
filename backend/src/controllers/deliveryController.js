@@ -9,6 +9,73 @@ const {
 } = require('../services/deliveryService');
 const supabase = require('../config/db');
 
+// ========== GET DELIVERY PERSONNEL (RIDERS) ==========
+const getDeliveryPersonnel = async (req, res) => {
+  try {
+    console.log('🔍 [getDeliveryPersonnel] Fetching all RIDERS...');
+
+    // Get RIDER role ID
+    const { data: role, error: roleError } = await supabase
+      .from('roles')
+      .select('id')
+      .eq('role_name', 'RIDER')
+      .single();
+
+    if (roleError) {
+      console.error('❌ [getDeliveryPersonnel] Role error:', roleError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to find RIDER role'
+      });
+    }
+
+    console.log(`✅ Found RIDER role with ID: ${role.id}`);
+
+    // Get all profiles with RIDER role
+    const { data: personnel, error } = await supabase
+      .from('profiles')
+      .select(`
+        id,
+        full_name,
+        phone_number,
+        email,
+        address
+      `)
+      .eq('role_id', role.id)
+      .order('full_name', { ascending: true });
+
+    if (error) {
+      console.error('❌ [getDeliveryPersonnel] Error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch delivery personnel'
+      });
+    }
+
+    console.log(`✅ Found ${personnel?.length || 0} riders`);
+
+    // Format response
+    const formattedPersonnel = (personnel || []).map(person => ({
+      id: person.id,
+      name: person.full_name || 'Unknown Rider',
+      phone: person.phone_number || '',
+      email: person.email || '',
+      address: person.address || ''
+    }));
+
+    res.json({
+      success: true,
+      personnel: formattedPersonnel
+    });
+  } catch (err) {
+    console.error('💥 [getDeliveryPersonnel]', err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Internal server error'
+    });
+  }
+};
+
 // ========== GET ALL DELIVERIES (Admin) ==========
 const getDeliveries = async (req, res) => {
   try {
@@ -187,5 +254,6 @@ module.exports = {
   getMyDeliveries,
   updateDelivery,
   getMyStats,
-  assignRider
+  assignRider,
+  getDeliveryPersonnel // Added
 };

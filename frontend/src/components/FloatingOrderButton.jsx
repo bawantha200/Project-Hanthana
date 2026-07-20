@@ -10,6 +10,8 @@ import {
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../supabaseClient";
 import toast from "react-hot-toast";
+// IMPORT THE API SERVICE
+import api from '../services/api';
 
 const DELIVERY_CHARGE = 350;
 
@@ -23,20 +25,10 @@ const PAYHERE_CONFIG = {
   notifyUrl: "https://straggler-capitol-unseeing.ngrok-free.dev/api/payments/notify",
 };
 
-/**
- * VIVA EXAMINER QUESTION: How does PayHere secure requests from tampering?
- * ANSWER: Using an MD5 Integrity Verification Hash checksum.
- * Formula: UpperCase(MD5(merchant_id + order_id + amount + currency + UpperCase(MD5(merchant_secret))))
- */
 const generatePayHereHash = (merchantId, orderId, amount, currency, merchantSecret) => {
-  // Step 1: Hash the merchant secret itself first and convert to uppercase
   const hashedSecret = CryptoJS.MD5(merchantSecret).toString().toUpperCase();
-  
-  // Step 2: Concatenate all parameters including the uppercase secret hash
   const hashString = `${merchantId}${orderId}${amount}${currency}${hashedSecret}`;
   console.log('🔑 Hash Composition String:', hashString);
-  
-  // Step 3: Generate ultimate validation parameter hash signature string
   const hash = CryptoJS.MD5(hashString).toString().toUpperCase();
   console.log('🔑 Final Generated Hash Signature:', hash);
   return hash;
@@ -131,13 +123,9 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         .eq("id", user.id)
         .single();
 
-      // Pad order number with leading zeros to maintain uniform invoice references
       const orderRef = String(order.id).padStart(6, "0");
-      
-      // VIVA POINT: PayHere demands amounts strictly formatted to 2 decimal places (string format e.g., "1250.00")
       const amount = Number(total).toFixed(2);
 
-      // Generate verification signature token
       const hash = generatePayHereHash(
         PAYHERE_CONFIG.merchantId,
         orderRef,
@@ -146,7 +134,6 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         PAYHERE_CONFIG.merchantSecret
       );
 
-      // Log intermediate pending payment state row inside internal DB
       await supabase.from("payments").insert({
         order_id: order.id,
         amount: total,
@@ -155,7 +142,6 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         transaction_id: `TXN-${Date.now()}`,
       });
 
-      // Construct payload for PayHere checkout server interface
       const formData = {
         merchant_id: PAYHERE_CONFIG.merchantId,
         order_id: orderRef,
@@ -179,9 +165,6 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
         notify_url: PAYHERE_CONFIG.notifyUrl,
       };
 
-      // VIVA POINT: Programmatic Form Submission Method.
-      // Dynamically constructs a hidden HTML Form element and triggers POST submit 
-      // to securely transfer customer context directly into PayHere checkout servers.
       const form = document.createElement("form");
       form.method = "POST";
       form.action = `${PAYHERE_CONFIG.baseUrl}/pay/checkout`;
@@ -228,39 +211,63 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
       const total = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? DELIVERY_CHARGE : 0);
       const isOnline = orderData.deliveryType === "HOME_DELIVERY" || selectedPaymentMethod === "ONLINE";
 
-      // Transaction step A: Create new Order record entry inside Database
-      const { data: order, error } = await supabase
-        .from("orders")
-        .insert({
-          customer_id: user.id,
-          order_type: orderData.deliveryType,
-          payment_method: isOnline ? "ONLINE" : "CASH",
-          payment_status: isOnline ? "PENDING" : "COMPLETED",
-          order_status: "PLACED",
-          total_amount: total,
-          delivery_location: orderData.deliveryType === "HOME_DELIVERY" ? orderData.address : null,
-        })
-        .select()
-        .single();
+      // =============================================
+      // FIX: Call the BACKEND API instead of direct Supabase
+      // =============================================
+      console.log('📝 [FloatingOrderButton] Calling backend API to create order...');
+      
+      // Prepare items for API (match backend expected format)
+      const apiItems = orderItems.map(item => ({
+        productId: item.product_id,
+        quantity: item.quantity
+      }));
 
-      if (error) throw error;
+      const response = await api.post('/orders', {
+        customerId: user.id,
+        orderType: orderData.deliveryType,
+        paymentMethod: isOnline ? "ONLINE" : "CASH",
+        deliveryLocation: orderData.deliveryType === "HOME_DELIVERY" ? orderData.address : null,
+        items: apiItems
+      });
 
-      // Transaction step B: Map cart relational collection rows into order items table entries
-      await supabase.from("order_items").insert(orderItems.map(item => ({ ...item, order_id: order.id })));
+      console.log('📝 [FloatingOrderButton] API response:', response.data);
 
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Failed to create order');
+      }
+
+      const order = response.data.order;
       setOrderId(order.id);
 
+      // Check if it's an inventory error
+      if (response.data.code === 'INSUFFICIENT_STOCK') {
+        toast.error(response.data.message);
+        setLoading(false);
+        return;
+      }
+
       if (isOnline) {
-        // Handover session context flow execution to outer network gateway integration loop
         await initiatePayHerePayment(order);
       } else {
         setStep(4);
         toast.success("Order placed successfully!");
         setLoading(false);
       }
+
     } catch (error) {
       console.error("Order process failure exception:", error);
-      toast.error("Failed to place order.");
+      
+      // Check for inventory error in response
+      if (error.response && error.response.data) {
+        const data = error.response.data;
+        if (data.code === 'INSUFFICIENT_STOCK' || data.message.includes('Insufficient stock')) {
+          toast.error(data.message);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      toast.error(error.message || "Failed to place order.");
       setLoading(false);
     }
   };
