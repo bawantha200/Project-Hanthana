@@ -24,6 +24,7 @@ import Messages from '../pages/admin/Messages';
 import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
+import ExpenseManagement from '../pages/admin/ExpenseManagement';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
@@ -70,6 +71,8 @@ function AdminRoutes() {
         <Route path="vendors" element={<Vendors />} />
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
+        <Route path="finance" element={<Finance />} />
+        <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
