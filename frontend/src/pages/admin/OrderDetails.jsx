@@ -89,12 +89,19 @@ export default function OrderDetails() {
 
   const loadDeliveryPersonnel = async () => {
     try {
-      const response = await api.get('/orders/delivery/personnel');
+      console.log('📡 Fetching delivery personnel...');
+      const response = await api.get('/deliveries/personnel');
+      console.log('✅ Delivery personnel response:', response.data);
+      
       if (response.data.success) {
         setDeliveryPersonnel(response.data.personnel || []);
+        console.log(`✅ Loaded ${response.data.personnel?.length || 0} riders`);
+      } else {
+        console.error('❌ Failed to load delivery personnel:', response.data.message);
       }
     } catch (error) {
-      console.error('Failed to load delivery personnel:', error);
+      console.error('❌ Failed to load delivery personnel:', error);
+      toast.error('Failed to load delivery personnel');
     }
   };
 

@@ -7,28 +7,31 @@ const {
   getUsers,
   getProducts,
   postOrder,
+  completeOrderPayment,
   updateStatus,
   assignDelivery,
   getDeliveryPersonnelList,
   getOrderDetails,
-  updateDelivery
+  updateDelivery,
 } = require('../controllers/ordersController');
 const { protect } = require('../middlewares/authMiddleware');
 
 router.use(protect);
 
-// Existing routes
 router.get('/', getOrders);
 router.get('/users', getUsers);
 router.get('/products', getProducts);
 router.post('/', postOrder);
-router.get('/:id', getOrder);
 
-// New routes for order processing
+router.get('/:id', getOrder);
 router.get('/:id/details', getOrderDetails);
 router.put('/:id/status', updateStatus);
 router.put('/:id/assign', assignDelivery);
 router.put('/:id/delivery', updateDelivery);
+
+// Complete order after payment (deduct inventory)
+router.put('/:id/complete', completeOrderPayment);
+
 router.get('/delivery/personnel', getDeliveryPersonnelList);
 
 module.exports = router;
