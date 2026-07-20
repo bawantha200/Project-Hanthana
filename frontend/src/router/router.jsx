@@ -47,6 +47,9 @@ import CustomerOrderDetails from '../pages/customer/OrderDetails';
 import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
 
+import InvoicingReports from "../pages/admin/InvoicingReports";
+
+
 function AdminRoutes() {
   const { user } = useAuth();
 
@@ -73,6 +76,7 @@ function AdminRoutes() {
         <Route path="vendors" element={<Vendors />} />
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
+        <Route path="invoicing-reports" element={<InvoicingReports />} />
         <Route path="finance" element={<Finance />} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="products" element={<Products />} />
