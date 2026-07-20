@@ -9,7 +9,7 @@ const employeeRoutes = require('./src/routes/employeeRoutes');
 const ordersRoutes = require('./src/routes/ordersRoutes');
 const productsRoutes = require('./src/routes/productsRoutes');
 const vendorsRoutes = require('./src/routes/vendorsRoutes');
-const vendorOrdersRoutes = require('./src/routes/vendorOrdersRoutes');
+const vendorOrdersRoutes = require('./src/routes/vendorOrderRoutes');
 const reportRoutes = require('./src/routes/reportRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
 const settingsRoutes = require('./src/routes/settingsRoutes');
@@ -37,7 +37,6 @@ const expenseRoutes = require('./src/routes/expenseRoutes');
 const paymentRoutes = require('./src/routes/paymentRoutes');
 const stockRoutes = require('./src/routes/stockRoutes');
 const emptyBottlesRoutes = require('./src/routes/emptyBottlesRoutes');
-const vendorOrdersRoutes = require('./src/routes/vendorOrderRoutes');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
 
 

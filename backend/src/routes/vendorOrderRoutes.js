@@ -1,8 +1,8 @@
+// backend/src/routes/vendorOrderRoutes.js
 const express = require('express');
 const router = express.Router();
 const vendorOrderController = require('../controllers/vendorOrderController');
 
-// Make sure all controller methods exist before using them
 // GET routes
 router.get('/', vendorOrderController.getVendorOrders);
 router.get('/summary', vendorOrderController.getVendorPurchaseSummary);
