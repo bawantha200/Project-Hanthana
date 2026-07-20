@@ -7,7 +7,8 @@ const {
   paymentCancel,
   paymentNotify,
   getPaymentStatusById,
-  getPaymentHistoryByUser
+  getPaymentHistoryByUser,
+  manuallyCompleteOrder
 } = require('../controllers/paymentController');
 const { protect } = require('../middlewares/authMiddleware');
 
@@ -21,5 +22,6 @@ router.use(protect);
 router.post('/initiate', initiatePayment);
 router.get('/status/:orderId', getPaymentStatusById);
 router.get('/history', getPaymentHistoryByUser);
+router.put('/complete/:orderId', manuallyCompleteOrder);
 
 module.exports = router;
