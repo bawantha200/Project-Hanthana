@@ -3,8 +3,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Truck, MapPin, Navigation, User, Clock, CheckCircle2,
-  DollarSign, Package, Phone, Mail, RefreshCw, 
-  Check, XCircle, AlertCircle, Plus, Minus, Bike
+  Package, Phone, Mail, RefreshCw, 
+  Check, Bike, ListChecks
 } from 'lucide-react';
 import api from '../../services/api';
 import { formatCurrency } from '../../utils/helpers';
@@ -28,7 +28,6 @@ export default function RiderDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedDelivery, setSelectedDelivery] = useState(null);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
-  const [emptyBottles, setEmptyBottles] = useState(0);
   const [updating, setUpdating] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
 
@@ -52,19 +51,18 @@ export default function RiderDashboard() {
     }
   };
 
-  const updateDeliveryStatus = async (deliveryId, status, bottles = 0) => {
+  const updateDeliveryStatus = async (deliveryId, status) => {
     try {
       setUpdating(true);
       const response = await api.put(`/deliveries/${deliveryId}/status`, {
-        status,
-        emptyBottles: bottles
+        status
+        // ✅ No emptyBottles needed - auto-calculated on backend
       });
       
       if (response.data.success) {
         toast.success(`Delivery ${status === 'DELIVERED' ? 'completed' : 'updated'} successfully!`);
         setShowCompleteModal(false);
         setSelectedDelivery(null);
-        setEmptyBottles(0);
         await loadDeliveries();
       }
     } catch (error) {
@@ -85,6 +83,11 @@ export default function RiderDashboard() {
     if (activeFilter === 'All') return true;
     return delivery.status === activeFilter;
   });
+
+  // Calculate active deliveries (assigned + picked up)
+  const activeDeliveries = deliveries.filter(d => 
+    d.status === 'ASSIGNED' || d.status === 'PICKED_UP'
+  ).length;
 
   if (loading) {
     return (
@@ -118,31 +121,31 @@ export default function RiderDashboard() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { key: 'total', label: 'Total', icon: Truck, color: 'blue' },
-          { key: 'assigned', label: 'Assigned', icon: User, color: 'indigo' },
-          { key: 'pickedUp', label: 'Picked Up', icon: Navigation, color: 'cyan' },
-          { key: 'delivered', label: 'Delivered', icon: CheckCircle2, color: 'emerald' },
-          { key: 'totalEarnings', label: 'Earnings', icon: DollarSign, color: 'green' },
-          { key: 'totalBottlesCollected', label: 'Bottles', icon: Package, color: 'amber' }
-        ].map((card) => (
-          <div key={card.key} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow">
-            <div className="flex items-center gap-2">
-              <div className={`w-8 h-8 rounded-lg bg-${card.color}-50 flex items-center justify-center`}>
-                <card.icon size={16} className={`text-${card.color}-600`} />
-              </div>
-              <div>
-                <p className="text-[10px] text-gray-400 font-medium uppercase">{card.label}</p>
-                <p className="text-lg font-bold text-gray-900">
-                  {card.key === 'totalEarnings' 
-                    ? formatCurrency(stats[card.key] || 0)
-                    : stats[card.key] || 0}
-                </p>
+          { key: 'total', label: 'Total Deliveries', icon: Truck, color: 'blue' },
+          { key: 'active', label: 'Active Deliveries', icon: Navigation, color: 'cyan' },
+          { key: 'delivered', label: 'Completed', icon: CheckCircle2, color: 'emerald' },
+          { key: 'totalBottlesCollected', label: 'Bottles Collected', icon: Package, color: 'amber' }
+        ].map((card) => {
+          const value = card.key === 'active' 
+            ? activeDeliveries 
+            : stats[card.key] || 0;
+          
+          return (
+            <div key={card.key} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl bg-${card.color}-50 flex items-center justify-center`}>
+                  <card.icon size={18} className={`text-${card.color}-600`} />
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 font-medium uppercase">{card.label}</p>
+                  <p className="text-xl font-bold text-gray-900">{value}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Filter Tabs */}
@@ -219,17 +222,13 @@ export default function RiderDashboard() {
 
                 {/* Delivery Details */}
                 <div className="grid grid-cols-2 gap-2 text-sm bg-gray-50 rounded-lg p-3">
-                  <div>
+                  <div className="col-span-2">
                     <p className="text-xs text-gray-400">Total Amount</p>
                     <p className="font-semibold">{formatCurrency(delivery.order?.totalAmount || 0)}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-400">Delivery Fee</p>
-                    <p className="font-semibold">{formatCurrency(delivery.deliveryFee || 0)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-400">Bottles Collected</p>
-                    <p className="font-semibold">{delivery.collectingEmptyBottles || 0}</p>
+                    <p className="text-xs text-gray-400">Bottles to Collect</p>
+                    <p className="font-semibold">{delivery.refillCount || 0}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400">Order Type</p>
@@ -238,6 +237,16 @@ export default function RiderDashboard() {
                     </p>
                   </div>
                 </div>
+
+                {/* REFILL 19L Badge */}
+                {delivery.hasRefill19LBottles && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full flex items-center gap-1">
+                      <Package size={10} />
+                      {delivery.refillCount} × REFILL 19L to collect
+                    </span>
+                  </div>
+                )}
 
                 {/* Status Progress */}
                 <div className="relative pt-2">
@@ -290,7 +299,6 @@ export default function RiderDashboard() {
                     <button
                       onClick={() => {
                         setSelectedDelivery(delivery);
-                        setEmptyBottles(0);
                         setShowCompleteModal(true);
                       }}
                       className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
@@ -322,7 +330,7 @@ export default function RiderDashboard() {
         </div>
       )}
 
-      {/* Complete Delivery Modal */}
+      {/* Complete Delivery Modal - No Manual Bottle Input */}
       {showCompleteModal && selectedDelivery && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
@@ -341,37 +349,26 @@ export default function RiderDashboard() {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Empty Bottles Collected (19L)
-                </label>
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setEmptyBottles(Math.max(0, emptyBottles - 1))}
-                    className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-                  >
-                    <Minus size={18} />
-                  </button>
-                  <span className="text-2xl font-bold text-gray-900 w-16 text-center">{emptyBottles}</span>
-                  <button
-                    onClick={() => setEmptyBottles(emptyBottles + 1)}
-                    className="w-10 h-10 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-                  >
-                    <Plus size={18} />
-                  </button>
+              {/* Show bottle collection summary - auto-calculated */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-600 flex justify-between">
+                    <span>Delivery Status</span>
+                    <span className="font-semibold text-emerald-600">Complete</span>
+                  </p>
+                  {selectedDelivery.hasRefill19LBottles ? (
+                    <p className="text-sm text-gray-600 flex justify-between">
+                      <span>Empty Bottles to Collect</span>
+                      <span className="font-semibold text-amber-600">
+                        {selectedDelivery.refillCount} × 19L REFILL
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-sm text-blue-600 text-center">
+                      ✅ No REFILL 19L bottles to collect
+                    </p>
+                  )}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Only 19L bottles can be collected
-                </p>
-              </div>
-
-              <div className="bg-blue-50 rounded-lg p-3">
-                <p className="text-sm text-blue-700">
-                  <strong>Delivery Fee:</strong> {formatCurrency(selectedDelivery.deliveryFee || 0)}
-                </p>
-                <p className="text-sm text-blue-700">
-                  <strong>Bottles Collected:</strong> {emptyBottles} × 19L
-                </p>
               </div>
 
               <div className="flex gap-3">
@@ -379,18 +376,13 @@ export default function RiderDashboard() {
                   onClick={() => {
                     setShowCompleteModal(false);
                     setSelectedDelivery(null);
-                    setEmptyBottles(0);
                   }}
                   className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={() => updateDeliveryStatus(
-                    selectedDelivery.deliveryId,
-                    'DELIVERED',
-                    emptyBottles
-                  )}
+                  onClick={() => updateDeliveryStatus(selectedDelivery.deliveryId, 'DELIVERED')}
                   disabled={updating}
                   className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-colors disabled:opacity-50"
                 >

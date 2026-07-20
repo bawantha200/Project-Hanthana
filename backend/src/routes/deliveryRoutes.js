@@ -7,19 +7,24 @@ const {
   getMyDeliveries,
   updateDelivery,
   getMyStats,
-  assignRider
+  assignRider,
+  getDeliveryPersonnel // Added
 } = require('../controllers/deliveryController');
 const { protect } = require('../middlewares/authMiddleware');
 
 // All routes require authentication
 router.use(protect);
 
-// Rider routes (for delivery personnel)
+// ========== DELIVERY PERSONNEL ROUTE ==========
+// GET /api/deliveries/personnel - Get all riders
+router.get('/personnel', getDeliveryPersonnel);
+
+// ========== RIDER ROUTES ==========
 router.get('/my-deliveries', getMyDeliveries);
 router.get('/my-stats', getMyStats);
 router.put('/:id/status', updateDelivery);
 
-// Admin routes
+// ========== ADMIN ROUTES ==========
 router.get('/', getDeliveries);
 router.get('/:id', getDelivery);
 router.put('/:id/assign', assignRider);
