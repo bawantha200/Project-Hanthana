@@ -15,6 +15,7 @@ import Reports from '../pages/admin/Reports';
 import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
 import Employees from '../pages/admin/Employees';
+import Hrmdashboard from '../pages/admin/Hrmdashboard';
 import HRM from '../pages/admin/HRM';
 import Vendors from '../pages/admin/Vendors';
 import Customers from '../pages/admin/Customers';
@@ -58,6 +59,7 @@ function AdminRoutes() {
       <Route element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="Hrmdashboard" element={<Hrmdashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />
