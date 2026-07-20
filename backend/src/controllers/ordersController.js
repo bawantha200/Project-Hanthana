@@ -15,47 +15,12 @@ const {
   updateDeliveryStatus,
   getOrderItems
 } = require('../services/ordersService');
-const { sendNotificationEmails, sendOrderConfirmationEmail } = require('../utils/mailer');
+
+const { notifyOrderEvent } = require('../utils/notifications');   // ✅ ADD THIS
 
 const supabase = require('../config/db');
 
-// ========== NOTIFICATION HELPER ==========
-async function notifyOrderEvent({ settingsKey, type, message, relatedOrderId = null, targetRole = 'ALL' }) {
-  try {
-    const { data: notifSetting } = await supabase
-      .from('settings')
-      .select('value')
-      .eq('key', 'notifications')
-      .maybeSingle();
-
-    const settings = notifSetting?.value || {};
-    const alertEnabled = settings[settingsKey] !== false;
-    if (!alertEnabled) return;
-
-    const { error: insertError } = await supabase.from('notifications').insert({
-      target_role: targetRole,
-      type,
-      message,
-      related_order_id: relatedOrderId,
-    });
-
-    if (insertError) {
-      console.error('Notification insert error:', insertError);
-    }
-
-    if (settings.emailNotifications !== false) {
-      try {
-        if (typeof sendNotificationEmails === 'function') {
-          await sendNotificationEmails({ targetRole, subject: message, message });
-        }
-      } catch (mailErr) {
-        console.warn('Email notification skipped:', mailErr.message);
-      }
-    }
-  } catch (err) {
-    console.error('notifyOrderEvent error:', err);
-  }
-}
+const { sendSMS } = require('../utils/smsService');
 
 // ========== CREATE ORDER ==========
 const postOrder = async (req, res) => {
@@ -83,6 +48,19 @@ const postOrder = async (req, res) => {
       message: `New order #${newOrder.id} placed (${orderType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Pickup'})`,
       relatedOrderId: newOrder.id,
       targetRole: 'CASHIER,ADMIN',
+    });
+
+    // Customer notification — FIXED
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: newOrder.isCash
+        ? `Your order #${newOrder.id} has been placed and payment confirmed!`
+        : `Your order #${newOrder.id} has been placed successfully!`,
+      relatedOrderId: newOrder.id,
+      userId: customerId,
+      customerPhone: newOrder.customerPhone,
+      customerEmail: newOrder.customerEmail,
     });
 
     res.status(201).json({ success: true, order: newOrder });
@@ -285,12 +263,23 @@ const updateStatus = async (req, res) => {
       await updateDeliveryStatus(orderId, 'DELIVERED', userId);
     }
 
+    // Staff notification
     await notifyOrderEvent({
       settingsKey: 'orderAlerts',
       type: 'order',
       message: `Order #${orderId} status changed to ${status}`,
       relatedOrderId: orderId,
       targetRole: 'CASHIER,ADMIN',
+    });
+
+    // ⚠️ ADD THIS — Customer ta status update notify karanna
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Your order #${orderId} is now ${status}`,
+      relatedOrderId: orderId,
+      userId: order.customer_id,
+      targetRole: 'CUSTOMER',
     });
 
     res.json({ success: true, order });

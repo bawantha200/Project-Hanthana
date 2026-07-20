@@ -1,4 +1,6 @@
 const supabase = require('../config/db');
+const { sendSMS } = require('../utils/smsService'); 
+
 
 class ProductService {
   async getAllProducts() {

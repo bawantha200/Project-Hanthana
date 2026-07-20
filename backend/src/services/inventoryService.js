@@ -1,5 +1,6 @@
 // backend/src/services/inventoryService.js
 const supabase = require('../config/db');
+const { checkAndAlertLowStock } = require('../utils/lowStockAlert'); // 🆕
 
 // ============ PRODUCT FUNCTIONS ============
 
@@ -83,16 +84,54 @@ async function getCurrentStock(productId) {
 async function updateInventoryStock(productId, newStock, reason = 'adjustment', notes = '') {
   try {
     const currentStock = await getCurrentStock(productId);
-    
-    const { data, error } = await supabase
+
+    // Row එකක් දැනටමත් තියෙනවද කියලා check කරනවා
+    const { data: existingRow, error: existingError } = await supabase
       .from('inventory')
-      .upsert({
-        product_id: productId,
-        current_stock: newStock,
-        last_updated: new Date().toISOString()
-      }, { onConflict: 'product_id' })
-      .select()
-      .single();
+      .select('id')
+      .eq('product_id', productId)
+      .maybeSingle();
+
+    if (existingError) {
+      throw new Error(`Failed to check existing inventory row: ${existingError.message}`);
+    }
+
+    let data, error;
+
+    if (existingRow) {
+      // Row එකක් තියෙනවා — plain UPDATE, vendor_id ගැන කරදර වෙන්න ඕන නෑ
+      ({ data, error } = await supabase
+        .from('inventory')
+        .update({
+          current_stock: newStock,
+          last_updated: new Date().toISOString()
+        })
+        .eq('product_id', productId)
+        .select()
+        .single());
+    } else {
+      // Row එකක්ම නෑ — අලුතින් හදන්න vendor_id (NOT NULL) එකක් ඕන.
+      const { data: fallbackVendor } = await supabase
+        .from('vendors')
+        .select('id')
+        .limit(1)
+        .maybeSingle();
+
+      if (!fallbackVendor) {
+        throw new Error('Cannot create inventory row: no vendor exists to assign as default vendor_id.');
+      }
+
+      ({ data, error } = await supabase
+        .from('inventory')
+        .insert({
+          product_id: productId,
+          current_stock: newStock,
+          vendor_id: fallbackVendor.id,
+          last_updated: new Date().toISOString()
+        })
+        .select()
+        .single());
+    }
 
     if (error) throw new Error(`Failed to update inventory: ${error.message}`);
 
@@ -111,6 +150,11 @@ async function updateInventoryStock(productId, newStock, reason = 'adjustment', 
         });
       if (logError) console.error('Failed to log transaction:', logError.message);
     }
+
+    // Stock update වුණාට පස්සේ, low-stock check එකක් (fire-and-forget)
+    checkAndAlertLowStock(productId).catch((err) =>
+      console.error('Low stock alert check failed:', err.message)
+    );
 
     return data;
   } catch (error) {

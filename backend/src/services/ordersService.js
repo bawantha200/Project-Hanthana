@@ -210,6 +210,9 @@ const createOrder = async (orderData) => {
     return sum + (product ? product.unit_price * item.quantity : 0);
   }, 0);
 
+
+  const isCash = paymentMethod === 'CASH';
+
   console.log('[createOrder] Total amount:', total);
 
   // Create order with PENDING payment status (inventory NOT deducted yet)
@@ -219,7 +222,7 @@ const createOrder = async (orderData) => {
       customer_id: customerId,
       order_type: orderType,
       payment_method: paymentMethod,
-      payment_status: 'PENDING',
+      payment_status: isCash ? 'COMPLETED' : 'PENDING',   // ✅ cash = paid immediately
       order_status: 'PLACED',
       total_amount: total,
       delivery_location: deliveryLocation || null,
@@ -260,7 +263,7 @@ const createOrder = async (orderData) => {
   // Fetch customer email
   const { data: customer, error: customerError } = await supabase
     .from('users')
-    .select('email')
+    .select('email, phone')
     .eq('id', customerId)
     .maybeSingle();
 
@@ -268,9 +271,7 @@ const createOrder = async (orderData) => {
     console.warn('[createOrder] Could not fetch customer email:', customerError.message);
   }
 
-  console.log('[createOrder] Order created successfully (payment pending, inventory not deducted)');
-
-  return { id: orderInsert.id, total, customerEmail: customer?.email || null };
+  return { id: orderInsert.id, total, customerEmail: customer?.email || null,customerPhone: customer?.phone || null,isCash,};
 };
 
 // ========== COMPLETE ORDER (Deduct inventory after payment) ==========

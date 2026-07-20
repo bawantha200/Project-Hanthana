@@ -1,42 +1,33 @@
+// backend/src/routes/settingsRoutes.js
 const express = require('express');
 const router = express.Router();
-
 const {
   getSettings,
   getSettingByKey,
   updateSettings,
   updateSettingByKey,
   resetSettings,
+  getSecuritySettings,
+  updateSecuritySettings,
+  updateSystemSettings,
+  getSystemSettings,
   getPublicSettings,
-  
 } = require('../controllers/settingsController');
-const { protect, authorize } = require('../middlewares/authMiddleware'); // authorize - role check middleware eka thiyenawada balanna
+const { protect } = require('../middlewares/authMiddleware');
 
-// ==========================================
-// Public route - NO auth required (කලින්ම දාන්න ඕන!)
-// ==========================================
+// ⚠️ Specific routes ISSELLA — generic /:key eka SEMA VATEMA ANTHIMATA
 router.get('/public', getPublicSettings);
+router.get('/security', protect, getSecuritySettings);
+router.put('/security', protect, updateSecuritySettings);
+router.get('/system', protect, getSystemSettings);       // ✅ meka /:key ekata issellā thiyenna one
+router.put('/system', protect, updateSystemSettings);    // ✅ meka /:key ekata issellā thiyenna one
+router.post('/reset', protect, resetSettings);
 
-// ==========================================
-// All routes below require authentication
-// ==========================================
-router.use(protect);
+router.get('/', protect, getSettings);
+router.put('/', protect, updateSettings);
 
-// ==========================================
-// Security settings - admin/manager ට විතරයි (specific routes කලින් දාන්න ඕන
-// නැත්නම් /:key eka match වෙලා පහළ ඉන්න route eka blockවෙනවා)
-// ==========================================
-
-
-// GET Routes
-router.get('/', getSettings);
-router.get('/:key', getSettingByKey);
-
-// PUT Routes
-router.put('/', updateSettings);
-router.put('/:key', updateSettingByKey);
-
-// POST Routes
-router.post('/reset', resetSettings);
+// ⚠️ Generic key-based routes — SEMA VATEMA ANTHIMATA thiyenna one
+router.get('/:key', protect, getSettingByKey);
+router.put('/:key', protect, updateSettingByKey);
 
 module.exports = router;
