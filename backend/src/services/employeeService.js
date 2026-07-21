@@ -1,220 +1,186 @@
-const supabase = require('../../config/db');
+// backend/src/services/deliveryService.js
+// Find the updateDeliveryStatus function and add this:
 
-class EmployeeService {
-  // Get all employees with filters
-  async getAllEmployees(filters = {}) {
-    try {
-      let query = supabase.from('employees').select('*');
-      
-      if (filters.position && filters.position !== 'All') {
-        query = query.eq('position', filters.position);
-      }
-      
-      if (filters.status) {
-        query = query.eq('status', filters.status);
-      }
-      
-      if (filters.search) {
-        query = query.or(`name.ilike.%${filters.search}%,position.ilike.%${filters.search}%,email.ilike.%${filters.search}%`);
-      }
-      
-      const { data, error } = await query;
-      
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      return { success: false, error: error.message };
+const updateDeliveryStatus = async (deliveryId, status) => {
+  console.log(`🔄 [updateDeliveryStatus] Delivery ${deliveryId} -> ${status}`);
+
+  // Get the delivery
+  const { data: deliveryData, error: deliveryError } = await supabase
+    .from('deliveries')
+    .select('order_id')
+    .eq('id', deliveryId)
+    .single();
+
+  if (deliveryError) {
+    throw new Error(`Failed to fetch delivery: ${deliveryError.message}`);
+  }
+
+  const updateData = {
+    status: status,
+    updated_at: new Date().toISOString()
+  };
+
+  let emptyBottlesCollected = 0;
+
+  if (status === 'DELIVERED') {
+    updateData.delivery_end_time = new Date().toISOString();
+    
+    // Auto-calculate empty bottles from the order
+    const refillCheck = await checkOrderHasRefill19LBottles(deliveryData.order_id);
+    if (refillCheck.hasRefill) {
+      emptyBottlesCollected = refillCheck.refillCount;
+      updateData.collecting_empty_bottles = emptyBottlesCollected;
+      console.log(`📦 Auto-collecting ${emptyBottlesCollected} REFILL 19L bottles`);
+    } else {
+      updateData.collecting_empty_bottles = 0;
     }
   }
 
-  // Get employee by ID
-  async getEmployeeById(id) {
-    try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('id', id)
-        .single();
-      
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
+  if (status === 'PICKED_UP') {
+    updateData.delivery_start_time = new Date().toISOString();
   }
 
-  // Create new employee
-  async createEmployee(employeeData) {
-    try {
-      // Check if email exists
-      const { data: existingEmail } = await supabase
-        .from('employees')
-        .select('email')
-        .eq('email', employeeData.email)
-        .maybeSingle();
-      
-      if (existingEmail) {
-        return { success: false, error: 'Email already exists' };
-      }
-      
-      const formattedData = {
-        name: employeeData.name,
-        position: employeeData.position,
-        phone: employeeData.phone,
-        email: employeeData.email,
-        hire_date: employeeData.hireDate,
-        status: employeeData.status || 'active',
-        role: employeeData.role || 'EMPLOYEE',
-        branch: employeeData.branch || 'Main Branch',
-        base_salary: employeeData.baseSalary || 25000,
-        ot_rate: employeeData.otRate || 500,
-        birthday: employeeData.birthday,
-        gender: employeeData.gender,
-        nic: employeeData.nic,
-        address: employeeData.address,
-        marriage_status: employeeData.marriageStatus,
-        job_type: employeeData.jobType,
-        profile_image: employeeData.profileImage,
-        avatar: employeeData.name.charAt(0).toUpperCase(),
-        created_at: new Date().toISOString(),
+  // Update delivery status
+  const { data, error } = await supabase
+    .from('deliveries')
+    .update(updateData)
+    .eq('id', deliveryId)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('❌ [updateDeliveryStatus] Error:', error);
+    throw new Error(`Failed to update delivery status: ${error.message}`);
+  }
+
+  // If delivery is completed, update order status and inventory
+  if (status === 'DELIVERED') {
+    // Update order status
+    await supabase
+      .from('orders')
+      .update({ 
+        order_status: 'DELIVERED',
         updated_at: new Date().toISOString()
-      };
-      
+      })
+      .eq('id', deliveryData.order_id);
+
+    // ✅ Add empty bottles to inventory empty_bottle_stock
+    if (emptyBottlesCollected > 0) {
+      try {
+        console.log(`📦 Adding ${emptyBottlesCollected} empty bottles to inventory empty_bottle_stock`);
+        await updateEmptyBottleStock(emptyBottlesCollected);
+        console.log(`✅ Successfully updated inventory empty_bottle_stock with ${emptyBottlesCollected} bottles`);
+      } catch (inventoryError) {
+        console.error('❌ [updateDeliveryStatus] Failed to update inventory:', inventoryError);
+        console.warn('⚠️⚠️⚠️ INVENTORY UPDATE FAILED! Manual intervention may be required.');
+        console.warn(`Order ${deliveryData.order_id}, Bottles: ${emptyBottlesCollected}`);
+      }
+    } else {
+      console.log('ℹ️ No empty bottles to add to inventory');
+    }
+  }
+
+  return data;
+};
+
+// Helper function to update empty bottle stock
+const updateEmptyBottleStock = async (quantity) => {
+  console.log(`📦 [updateEmptyBottleStock] Adding ${quantity} empty bottles to inventory...`);
+
+  if (!quantity || quantity <= 0) {
+    console.log('ℹ️ No empty bottles to add, skipping inventory update');
+    return null;
+  }
+
+  try {
+    // Find the REFILL 19L product
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('id')
+      .ilike('name', '%19L%')
+      .eq('type', 'REFILL')
+      .limit(1)
+      .single();
+
+    if (productError) {
+      console.error('❌ [updateEmptyBottleStock] Product error:', productError);
+      throw new Error('REFILL 19L product not found');
+    }
+
+    // Get existing inventory
+    const { data: existingInventory, error: checkError } = await supabase
+      .from('inventory')
+      .select('id, empty_bottle_stock')
+      .eq('product_id', product.id)
+      .maybeSingle();
+
+    if (checkError) {
+      console.error('❌ [updateEmptyBottleStock] Error checking inventory:', checkError);
+      throw new Error(`Failed to check inventory: ${checkError.message}`);
+    }
+
+    let result;
+
+    if (existingInventory) {
+      const newStock = (existingInventory.empty_bottle_stock || 0) + quantity;
+      console.log(`📊 Updating inventory for product ${product.id}: ${existingInventory.empty_bottle_stock || 0} -> ${newStock}`);
+
       const { data, error } = await supabase
-        .from('employees')
-        .insert([formattedData])
-        .select();
-      
-      if (error) throw error;
-      return { success: true, data: data[0] };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
+        .from('inventory')
+        .update({
+          empty_bottle_stock: newStock,
+          last_empty_updated: new Date().toISOString()
+        })
+        .eq('id', existingInventory.id)
+        .select()
+        .single();
 
-  // Update employee
-  async updateEmployee(id, updateData) {
-    try {
-      // Check if employee exists
-      const { data: existing } = await supabase
-        .from('employees')
-        .select('id')
-        .eq('id', id)
-        .maybeSingle();
-      
-      if (!existing) {
-        return { success: false, error: 'Employee not found' };
+      if (error) {
+        console.error('❌ [updateEmptyBottleStock] Update error:', error);
+        throw new Error(`Failed to update inventory: ${error.message}`);
       }
-      
-      // Check email uniqueness if updating
-      if (updateData.email) {
-        const { data: emailCheck } = await supabase
-          .from('employees')
-          .select('email')
-          .eq('email', updateData.email)
-          .neq('id', id)
-          .maybeSingle();
-        
-        if (emailCheck) {
-          return { success: false, error: 'Email already in use' };
-        }
-      }
-      
-      const formattedData = {};
-      if (updateData.name) formattedData.name = updateData.name;
-      if (updateData.position) formattedData.position = updateData.position;
-      if (updateData.phone) formattedData.phone = updateData.phone;
-      if (updateData.email) formattedData.email = updateData.email;
-      if (updateData.hireDate) formattedData.hire_date = updateData.hireDate;
-      if (updateData.status) formattedData.status = updateData.status;
-      if (updateData.role) formattedData.role = updateData.role;
-      if (updateData.branch) formattedData.branch = updateData.branch;
-      if (updateData.baseSalary) formattedData.base_salary = updateData.baseSalary;
-      if (updateData.otRate) formattedData.ot_rate = updateData.otRate;
-      if (updateData.birthday) formattedData.birthday = updateData.birthday;
-      if (updateData.gender) formattedData.gender = updateData.gender;
-      if (updateData.nic) formattedData.nic = updateData.nic;
-      if (updateData.address) formattedData.address = updateData.address;
-      if (updateData.marriageStatus) formattedData.marriage_status = updateData.marriageStatus;
-      if (updateData.jobType) formattedData.job_type = updateData.jobType;
-      if (updateData.profileImage) formattedData.profile_image = updateData.profileImage;
-      if (updateData.name) formattedData.avatar = updateData.name.charAt(0).toUpperCase();
-      
-      formattedData.updated_at = new Date().toISOString();
-      
+
+      result = data;
+      console.log(`✅ Inventory updated successfully. New empty bottle stock: ${newStock}`);
+    } else {
+      console.log(`📊 Creating new inventory record for product ${product.id} with ${quantity} empty bottles`);
+
       const { data, error } = await supabase
-        .from('employees')
-        .update(formattedData)
-        .eq('id', id)
-        .select();
-      
-      if (error) throw error;
-      return { success: true, data: data[0] };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
+        .from('inventory')
+        .insert({
+          product_id: product.id,
+          current_stock: 0,
+          empty_bottle_stock: quantity,
+          reorder_level: 50,
+          last_updated: new Date().toISOString(),
+          last_empty_updated: new Date().toISOString()
+        })
+        .select()
+        .single();
 
-  // Delete employee
-  async deleteEmployee(id) {
-    try {
-      const { data: existing, error: checkError } = await supabase
-        .from('employees')
-        .select('id, name')
-        .eq('id', id)
-        .maybeSingle();
-      
-      if (!existing) {
-        return { success: false, error: 'Employee not found' };
+      if (error) {
+        console.error('❌ [updateEmptyBottleStock] Insert error:', error);
+        throw new Error(`Failed to create inventory record: ${error.message}`);
       }
-      
-      const { error } = await supabase
-        .from('employees')
-        .delete()
-        .eq('id', id);
-      
-      if (error) throw error;
-      return { success: true, data: existing };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
 
-  // Get employee statistics
-  async getEmployeeStats() {
-    try {
-      const { data: total } = await supabase
-        .from('employees')
-        .select('id', { count: 'exact' });
-      
-      const { data: active } = await supabase
-        .from('employees')
-        .select('id', { count: 'exact' })
-        .eq('status', 'active');
-      
-      const { data: onLeave } = await supabase
-        .from('employees')
-        .select('id', { count: 'exact' })
-        .eq('status', 'on_leave');
-      
-      const { data: managers } = await supabase
-        .from('employees')
-        .select('id', { count: 'exact' })
-        .eq('role', 'MANAGER');
-      
-      return {
-        success: true,
-        data: {
-          total: total.length,
-          active: active.length,
-          onLeave: onLeave.length,
-          managers: managers.length
-        }
-      };
-    } catch (error) {
-      return { success: false, error: error.message };
+      result = data;
+      console.log(`✅ New inventory created with empty bottle stock: ${quantity}`);
     }
-  }
-}
 
-module.exports = new EmployeeService();
+    // Record transaction
+    await supabase
+      .from('inventory_transactions')
+      .insert({
+        product_id: product.id,
+        quantity: quantity,
+        type: 'empty_bottle_collection',
+        reason: 'delivery_completed',
+        notes: `Collected ${quantity} empty bottles from delivery`
+      });
+
+    return result;
+  } catch (err) {
+    console.error('💥 [updateEmptyBottleStock] Unexpected error:', err);
+    throw err;
+  }
+};
