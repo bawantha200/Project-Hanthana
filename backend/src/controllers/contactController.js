@@ -96,7 +96,7 @@ const replyToMessage = async (req, res) => {
     await sendOrderConfirmationEmail({
       customerEmail: original.email,
       subject: original.subject ? `Re: ${original.subject}` : 'Re: Your inquiry to Hanthana',
-      message: `Hi ${original.name || 'there'},\n\n${replyMessage}\n\nBest regards,\nHanthana Water Support Team`,
+      message: `Hi ${original.name || 'there'},\n\n${replyMessage}\n\nBest regards,\nHanthana Support Team`,
     });
 
     // Record that this message has been replied to
