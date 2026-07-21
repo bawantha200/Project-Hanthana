@@ -1842,7 +1842,7 @@ export default function Employees() {
                       <p className="text-xs text-gray-400 mt-1">Monthly bonus or incentives</p>
                     </div>
 
-                    {/* Status - NEW FIELD */}
+                    {/* Status - NEW FIELD WITH CORRECT OPTIONS */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Circle size={14} className="inline mr-1" /> Status *
