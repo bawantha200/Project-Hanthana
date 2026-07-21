@@ -115,7 +115,7 @@ async function sendNotificationEmails({ targetRole = 'ALL', subject, message }) 
       to: recipients.join(','),
       subject: subject || 'Hanthana Notification',
       text: message,
-      html: `<p>${message}</p>`,
+       html: `<p>${message.replace(/\n/g, '<br>')}</p>`,
     });
     console.log(`📧 [mailer] Sent notification email to ${recipients.length} recipient(s).`);
   } catch (err) {
@@ -137,7 +137,7 @@ async function sendOrderConfirmationEmail({ customerEmail, subject, message }) {
       to: customerEmail,
       subject: subject || 'Order Confirmation',
       text: message,
-      html: `<p>${message}</p>`,
+       html: `<p>${message.replace(/\n/g, '<br>')}</p>`,
     });
     console.log(`📧 [mailer] Sent order confirmation to ${customerEmail}`);
   } catch (err) {
@@ -176,7 +176,7 @@ async function sendBroadcastEmailToCustomers({ subject, message }) {
       bcc: recipients.join(','),
       subject: subject || 'Hanthana Water Notice',
       text: message,
-      html: `<p>${message}</p>`,
+      html: `<p>${message.replace(/\n/g, '<br>')}</p>`,
     });
     console.log(`📧 [mailer] Sent broadcast email to ${recipients.length} customer(s).`);
   } catch (err) {
