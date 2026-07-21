@@ -44,7 +44,7 @@ const NAV_ITEMS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
   { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
-  { id: 'Hrmdashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/Hrmdashboard' },
+  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/hrm-dashboard' },
   { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/admin/rider-dashboard' },
 
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
