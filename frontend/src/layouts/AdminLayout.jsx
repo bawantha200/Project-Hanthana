@@ -35,6 +35,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
+
 // ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
@@ -43,6 +44,7 @@ const NAV_ITEMS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
   { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
+  { id: 'Hrmdashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/Hrmdashboard' },
   { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/admin/rider-dashboard' },
 
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
@@ -134,6 +136,7 @@ const NOTIFICATION_ICONS = {
   inventory: Package,
   payment: DollarSign,
   system: Settings,
+  maintenance: Settings,
 };
 
 // Relative time helper - "2 min ago", "1 hour ago" ආදිය

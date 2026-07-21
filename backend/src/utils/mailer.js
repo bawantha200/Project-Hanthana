@@ -115,7 +115,7 @@ async function sendNotificationEmails({ targetRole = 'ALL', subject, message }) 
       to: recipients.join(','),
       subject: subject || 'Hanthana Notification',
       text: message,
-      html: `<p>${message}</p>`,
+       html: `<p>${message.replace(/\n/g, '<br>')}</p>`,
     });
     console.log(`📧 [mailer] Sent notification email to ${recipients.length} recipient(s).`);
   } catch (err) {
@@ -137,7 +137,7 @@ async function sendOrderConfirmationEmail({ customerEmail, subject, message }) {
       to: customerEmail,
       subject: subject || 'Order Confirmation',
       text: message,
-      html: `<p>${message}</p>`,
+       html: `<p>${message.replace(/\n/g, '<br>')}</p>`,
     });
     console.log(`📧 [mailer] Sent order confirmation to ${customerEmail}`);
   } catch (err) {
@@ -145,7 +145,48 @@ async function sendOrderConfirmationEmail({ customerEmail, subject, message }) {
   }
 }
 
+async function sendBroadcastEmailToCustomers({ subject, message }) {
+  const activeTransporter = getTransporter();
+  if (!activeTransporter) return;
 
+  const { data: customers, error } = await supabase
+    .from('users')
+    .select('email')
+    .not('email', 'is', null);
 
-module.exports = { sendNotificationEmails, sendOrderConfirmationEmail };
+  if (error) {
+    console.error('❌ [mailer] Failed to fetch customer emails:', error.message);
+    return;
+  }
+
+  const recipients = [...new Set((customers || []).map((c) => c.email).filter(Boolean))];
+
+  if (recipients.length === 0) {
+    console.warn('⚠️ [mailer] No customer emails found — skipping broadcast.');
+    return;
+  }
+
+  const fromName = process.env.SMTP_FROM_NAME || 'Hanthana Water';
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+
+  try {
+    await activeTransporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: fromEmail,
+      bcc: recipients.join(','),
+      subject: subject || 'Hanthana Water Notice',
+      text: message,
+      html: `<p>${message.replace(/\n/g, '<br>')}</p>`,
+    });
+    console.log(`📧 [mailer] Sent broadcast email to ${recipients.length} customer(s).`);
+  } catch (err) {
+    console.error('❌ [mailer] Failed to send broadcast email:', err.message);
+  }
+}
+
+module.exports = {
+  sendNotificationEmails,
+  sendOrderConfirmationEmail,
+  sendBroadcastEmailToCustomers,
+};
 

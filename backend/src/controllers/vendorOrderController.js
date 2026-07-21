@@ -1,16 +1,19 @@
+// backend/src/controllers/vendorOrderController.js
 const { vendorOrderService } = require('../services/vendorOrderService');
 
 const vendorOrderController = {
   // Get all vendor orders with filters
   async getVendorOrders(req, res) {
     try {
-      const { vendorId, productId, status, search } = req.query;
+      const { vendorId, productId, status, search, dateFrom, dateTo } = req.query;
       const filters = {};
       
       if (vendorId) filters.vendorId = parseInt(vendorId);
       if (productId) filters.productId = parseInt(productId);
       if (status) filters.status = status;
       if (search) filters.search = search;
+      if (dateFrom) filters.dateFrom = dateFrom;
+      if (dateTo) filters.dateTo = dateTo;
       
       const orders = await vendorOrderService.getAllVendorOrders(filters);
       res.status(200).json({ success: true, orders });
@@ -151,5 +154,4 @@ const vendorOrderController = {
   }
 };
 
-// Also export individual functions for route files that use destructuring
 module.exports = vendorOrderController;

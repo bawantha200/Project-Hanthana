@@ -514,6 +514,46 @@ if (teamError) {
 };
 
 
+// backend/src/controllers/settingsController.js (existing file ekata add karanna)
+
+const updateSystemSettings = async (req, res) => {
+  try {
+    const { autoBackup, backupFrequency, dataRetention, apiRateLimit, debugMode } = req.body;
+
+    const { error } = await supabase
+      .from('settings')
+      .upsert({
+        key: 'system',
+        value: { autoBackup, backupFrequency, dataRetention, apiRateLimit, debugMode },
+      }, { onConflict: 'key' });
+
+    if (error) throw error;
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('💥 [updateSystemSettings]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+const getSystemSettings = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'system')
+      .maybeSingle();
+
+    if (error) throw error;
+
+    res.json({ success: true, settings: data?.value || {} });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
 module.exports = {
   getPublicSettings,
   getSettings,
@@ -521,5 +561,8 @@ module.exports = {
   updateSettings,
   updateSettingByKey,
   resetSettings,
-  getSecuritySettings, updateSecuritySettings
+  getSecuritySettings, 
+  updateSecuritySettings, 
+  updateSystemSettings, 
+  getSystemSettings
 };

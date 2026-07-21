@@ -125,6 +125,7 @@ exports.createEmployee = async (req, res) => {
     const {
       name,
       position,
+      designation,    // ✅ ADDED - Designation field
       phone,
       email,
       hireDate,
@@ -134,9 +135,12 @@ exports.createEmployee = async (req, res) => {
       address,
       marriageStatus,
       jobType,
-      profileImage
+      profileImage,
+      baseSalary,
+      bonus
     } = req.body;
     
+    // Required fields validation
     if (!name || !email || !phone || !position || !address || !hireDate) {
       return res.status(400).json({
         success: false,
@@ -144,6 +148,7 @@ exports.createEmployee = async (req, res) => {
       });
     }
     
+    // Check if employee with same email exists
     const { data: existingEmployee } = await supabase
       .from('employees')
       .select('email')
@@ -157,9 +162,11 @@ exports.createEmployee = async (req, res) => {
       });
     }
     
+    // Prepare employee data with designation
     const employeeData = {
       name,
       position,
+      designation: designation || position,  // ✅ ADDED - Use designation if provided, else use position
       phone,
       email,
       hire_date: hireDate,
@@ -171,9 +178,13 @@ exports.createEmployee = async (req, res) => {
       marriage_status: marriageStatus || null,
       job_type: jobType || null,
       profile_image: profileImage || null,
+      base_salary: baseSalary ? parseFloat(baseSalary) : 0,
+      bonus: bonus ? parseFloat(bonus) : 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
+    
+    console.log('[Employees] Creating employee with data:', employeeData);
     
     const { data, error } = await supabase
       .from('employees')
@@ -211,6 +222,7 @@ exports.updateEmployee = async (req, res) => {
     const {
       name,
       position,
+      designation,    // ✅ ADDED - Designation field
       phone,
       email,
       hireDate,
@@ -221,9 +233,12 @@ exports.updateEmployee = async (req, res) => {
       marriageStatus,
       jobType,
       profileImage,
-      status
+      status,
+      baseSalary,
+      bonus
     } = req.body;
     
+    // Check if employee exists
     const { data: existingEmployee } = await supabase
       .from('employees')
       .select('id')
@@ -237,27 +252,54 @@ exports.updateEmployee = async (req, res) => {
       });
     }
     
+    // Build update data object
     const updateData = {};
     if (name) updateData.name = name;
     if (position) updateData.position = position;
+    if (designation) updateData.designation = designation;  // ✅ ADDED - Update designation if provided
     if (phone) updateData.phone = phone;
     if (email) updateData.email = email;
     if (hireDate) updateData.hire_date = hireDate;
     if (address) updateData.address = address;
+    
+    // Optional fields
     if (birthday !== undefined && birthday !== '') updateData.birthday = birthday;
     else if (birthday === '') updateData.birthday = null;
+    
     if (gender !== undefined && gender !== '') updateData.gender = gender;
     else if (gender === '') updateData.gender = null;
+    
     if (nic !== undefined && nic !== '') updateData.nic = nic;
     else if (nic === '') updateData.nic = null;
+    
     if (marriageStatus !== undefined && marriageStatus !== '') updateData.marriage_status = marriageStatus;
     else if (marriageStatus === '') updateData.marriage_status = null;
+    
     if (jobType !== undefined && jobType !== '') updateData.job_type = jobType;
     else if (jobType === '') updateData.job_type = null;
+    
     if (profileImage !== undefined) updateData.profile_image = profileImage;
     if (status) updateData.status = status;
+    
+    // Base Salary
+    if (baseSalary !== undefined && baseSalary !== '') {
+      updateData.base_salary = parseFloat(baseSalary);
+    } else if (baseSalary === '') {
+      updateData.base_salary = 0;
+    }
+    
+    // Bonus
+    if (bonus !== undefined && bonus !== '') {
+      updateData.bonus = parseFloat(bonus);
+    } else if (bonus === '') {
+      updateData.bonus = 0;
+    }
+    
     updateData.updated_at = new Date().toISOString();
     
+    console.log('[Employees] Updating employee with data:', updateData);
+    
+    // Check email uniqueness if email is being updated
     if (email) {
       const { data: emailCheck } = await supabase
         .from('employees')
@@ -281,6 +323,7 @@ exports.updateEmployee = async (req, res) => {
       .select();
     
     if (error) {
+      console.error('Supabase update error:', error);
       return res.status(400).json({
         success: false,
         message: 'Error updating employee',
@@ -294,6 +337,7 @@ exports.updateEmployee = async (req, res) => {
       data: data[0]
     });
   } catch (error) {
+    console.error('Server error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',

@@ -7,6 +7,7 @@ const {
   getUsers,
   getProducts,
   postOrder,
+  completeOrderPayment,
   updateStatus,
   assignDelivery,
   getDeliveryPersonnelList,
@@ -23,11 +24,13 @@ router.get('/products', getProducts);
 router.post('/', postOrder);
 
 router.get('/:id', getOrder);
-
 router.get('/:id/details', getOrderDetails);
 router.put('/:id/status', updateStatus);
 router.put('/:id/assign', assignDelivery);
 router.put('/:id/delivery', updateDelivery);
+
+// Complete order after payment (deduct inventory)
+router.put('/:id/complete', completeOrderPayment);
 
 router.get('/delivery/personnel', getDeliveryPersonnelList);
 

@@ -7,6 +7,11 @@ import {
   Zap,
   Clock,
   X,
+  Calendar,
+  Sun,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
 } from 'lucide-react';
 import {
   BarChart,
@@ -53,8 +58,34 @@ const CustomTooltip = ({ active, payload }) => {
   return null;
 };
 
+// Helper to get date for a specific day offset
+const getDateForDayOffset = (offset) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return date;
+};
+
+// Format date for display
+const formatDate = (date) => {
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+};
+
+// Check if date is today
+const isToday = (date) => {
+  const today = new Date();
+  return date.getDate() === today.getDate() &&
+    date.getMonth() === today.getMonth() &&
+    date.getFullYear() === today.getFullYear();
+};
+
 export default function JITDashboard({ products = [] }) {
   const [currentDay, setCurrentDay] = useState('');
+  const [viewOffset, setViewOffset] = useState(0); // 0 = today, 1 = tomorrow, etc.
   const [weeklySchedule, setWeeklySchedule] = useState([]);
   const [productDeficits, setProductDeficits] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -66,15 +97,61 @@ export default function JITDashboard({ products = [] }) {
   const [showDailyModal, setShowDailyModal] = useState(false);
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [productDailyData, setProductDailyData] = useState({});
+  
+  // For date navigation
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [forecastDays, setForecastDays] = useState([]); // Store the forecast days
 
   const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
   const capacity = 1000;
   const storageEfficiency = Math.max(0, Math.min(100, ((capacity - totalStock) / capacity) * 100));
 
+  // Get the day name for the current view offset
+  const getViewDayName = () => {
+    const date = getDateForDayOffset(viewOffset);
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[date.getDay()];
+  };
+
+  // Get tomorrow's day name (with wrap-around)
+  const getTomorrowDayName = () => {
+    const nextOffset = viewOffset + 1;
+    // If tomorrow is beyond the forecast (day 7), wrap around to day 0 (today)
+    const wrappedOffset = nextOffset > 6 ? 0 : nextOffset;
+    const date = getDateForDayOffset(wrappedOffset);
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[date.getDay()];
+  };
+
+  // Get tomorrow's forecast value (with wrap-around)
+  const getTomorrowForecastValue = (fullForecast) => {
+    const nextOffset = viewOffset + 1;
+    // If tomorrow is beyond the forecast (day 7), wrap around to day 0 (today)
+    const wrappedOffset = nextOffset > 6 ? 0 : nextOffset;
+    return fullForecast[wrappedOffset]?.overall || 0;
+  };
+
+  // Navigate to previous/next day (only within 0-6 range)
+  const navigateDay = (direction) => {
+    const newOffset = viewOffset + direction;
+    // Don't go before today (0) or beyond 6 days (7-day forecast)
+    if (newOffset < 0 || newOffset > 6) return;
+    setViewOffset(newOffset);
+    const newDate = getDateForDayOffset(newOffset);
+    setSelectedDate(newDate);
+  };
+
+  // Reset to today
+  const goToToday = () => {
+    setViewOffset(0);
+    setSelectedDate(new Date());
+  };
+
   useEffect(() => {
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const today = new Date().getDay();
     setCurrentDay(days[today]);
+    setSelectedDate(new Date());
 
     const loadForecasts = async () => {
       try {
@@ -89,24 +166,56 @@ export default function JITDashboard({ products = [] }) {
 
         const forecastPromises = products.map(p =>
           api.get(`/forecast/next-week/${p.id}`)
-            .then(res => res.data.forecast)
+            .then(res => {
+              return {
+                ...res.data,
+                productId: p.id,
+                productName: p.name
+              };
+            })
             .catch(err => {
-              console.error(`❌ Failed to fetch forecast for product ${p.id}:`, err);
+              console.error(`Failed to fetch forecast for product ${p.id}:`, err);
               return null;
             })
         );
 
         const results = await Promise.all(forecastPromises);
 
-        // Build per‑product daily data
+        // Build per-product daily data
         const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         const perProductData = {};
         const dailyTotals = {};
 
-        results.forEach((forecast, idx) => {
-          if (!forecast) return;
+        // Store product forecast data for reorder level comparison
+        const productForecastData = {};
+
+        // Store all forecast days
+        const allForecastDays = [];
+
+        results.forEach((result, idx) => {
+          if (!result || !result.forecast) return;
           const product = products[idx];
-          forecast.forEach(day => {
+          
+          // Store the forecast days
+          result.forecast.forEach((day, index) => {
+            if (!allForecastDays.includes(day.day)) {
+              allForecastDays.push(day.day);
+            }
+          });
+
+          // The forecast array is already ordered starting from today
+          const todayForecast = result.forecast[0]?.overall || 0;
+          const tomorrowForecast = result.forecast[1]?.overall || 0;
+          
+          // Store reorder level and forecast data
+          productForecastData[product.id] = {
+            reorderLevel: result.reorder_level || 0,
+            todayForecast: todayForecast,
+            tomorrowForecast: tomorrowForecast,
+            forecast: result.forecast
+          };
+
+          result.forecast.forEach(day => {
             const dayName = day.day;
             if (!perProductData[dayName]) perProductData[dayName] = [];
             perProductData[dayName].push({
@@ -118,6 +227,8 @@ export default function JITDashboard({ products = [] }) {
           });
         });
 
+        // Set forecast days (should be 7 days)
+        setForecastDays(allForecastDays);
         setProductDailyData(perProductData);
 
         // Build weekly schedule
@@ -127,25 +238,8 @@ export default function JITDashboard({ products = [] }) {
         }));
         setWeeklySchedule(schedule);
 
-        // Compute per‑product deficit (tomorrow's forecast - stock)
-        const productWithForecast = products.map((p, idx) => {
-          const forecast = results[idx];
-          let tomorrowForecast = 0;
-          if (forecast && forecast.length > 0) {
-            tomorrowForecast = forecast[0].overall || 0;
-          }
-          if (tomorrowForecast === 0 && forecast && forecast.length > 0) {
-            const total = forecast.reduce((sum, d) => sum + (d.overall || 0), 0);
-            tomorrowForecast = Math.round(total / forecast.length);
-          }
-          return { ...p, forecast: tomorrowForecast };
-        });
-
-        const deficits = productWithForecast.map(p => ({
-          ...p,
-          deficit: (p.forecast || 0) - (p.stock || 0),
-        }));
-        setProductDeficits(deficits);
+        // Compute per-product deficit for the current view
+        updateProductDeficits(productForecastData, 0);
 
         setError(null);
       } catch (err) {
@@ -159,7 +253,56 @@ export default function JITDashboard({ products = [] }) {
     loadForecasts();
   }, [products]);
 
-  // --- Rotate schedule so today is first (for chart) ---
+  // Update product deficits based on view offset
+  const updateProductDeficits = (forecastData, offset) => {
+    const deficits = products.map(p => {
+      const data = forecastData?.[p.id] || {};
+      const forecast = data.forecast || [];
+      
+      // Get forecast for the current view day
+      const viewIndex = Math.min(offset, forecast.length - 1);
+      const viewForecast = forecast[viewIndex]?.overall || 0;
+      
+      // Get tomorrow's forecast (with wrap-around)
+      const tomorrowIndex = offset + 1;
+      // If tomorrow is beyond the forecast (day 7), wrap around to day 0
+      const wrappedTomorrowIndex = tomorrowIndex > 6 ? 0 : Math.min(tomorrowIndex, forecast.length - 1);
+      const tomorrowForecast = forecast[wrappedTomorrowIndex]?.overall || 0;
+      
+      const currentStock = p.stock || 0;
+      const deficit = viewForecast - currentStock;
+      const needsAction = currentStock < viewForecast;
+
+      return {
+        ...p,
+        reorderLevel: viewForecast,
+        todayForecast: forecast[0]?.overall || 0,
+        tomorrowForecast: tomorrowForecast,
+        viewForecast: viewForecast,
+        deficit: deficit,
+        needsAction: needsAction,
+        shouldReorder: needsAction,
+        fullForecast: forecast
+      };
+    });
+
+    setProductDeficits(deficits);
+  };
+
+  // Update view when offset changes
+  useEffect(() => {
+    if (productDailyData && Object.keys(productDailyData).length > 0) {
+      // Recalculate deficits based on current view
+      const forecastData = {};
+      products.forEach(p => {
+        const fullForecast = productDeficits.find(d => d.id === p.id)?.fullForecast || [];
+        forecastData[p.id] = { forecast: fullForecast };
+      });
+      updateProductDeficits(forecastData, viewOffset);
+    }
+  }, [viewOffset]);
+
+  // Rotate schedule so today is first (for chart)
   const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const currentIdx = weeklySchedule.findIndex(item => item.day === currentDay);
   let rotatedSchedule = [...weeklySchedule];
@@ -180,10 +323,10 @@ export default function JITDashboard({ products = [] }) {
 
   const allZero = chartData.length > 0 && chartData.every(item => item.units === 0);
 
-  // --- Scheduled Production = tomorrow's forecast ---
-  const todayIndex = dayOrder.indexOf(currentDay);
-  const tomorrowDayName = dayOrder[(todayIndex + 1) % 7];
-  const tomorrowSchedule = weeklySchedule.find(s => s.day === tomorrowDayName);
+  // Scheduled Production = tomorrow's forecast (with wrap-around)
+  const tomorrowScheduleIndex = 1;
+  const wrappedTomorrowIndex = tomorrowScheduleIndex > 6 ? 0 : tomorrowScheduleIndex;
+  const tomorrowSchedule = rotatedSchedule[wrappedTomorrowIndex] || rotatedSchedule[0];
   const tomorrowUnits = tomorrowSchedule ? tomorrowSchedule.units : 0;
 
   // Compute weekly product totals (for quick summary)
@@ -200,7 +343,6 @@ export default function JITDashboard({ products = [] }) {
   const weeklyTotalsArray = Object.values(weeklyProductTotals).sort((a, b) => b.total - a.total);
 
   // Build product-day matrix for detailed weekly view
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const productDayMatrix = {};
   const productNames = {};
 
@@ -226,6 +368,7 @@ export default function JITDashboard({ products = [] }) {
   productDayTotals.sort((a, b) => b.total - a.total);
 
   // Rotate day names for the weekly modal (starting from today)
+  const todayIndex = dayOrder.indexOf(currentDay);
   const rotatedDayNames = [];
   for (let i = 0; i < 7; i++) {
     rotatedDayNames.push(dayOrder[(todayIndex + i) % 7]);
@@ -255,6 +398,22 @@ export default function JITDashboard({ products = [] }) {
     return <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-700">Error: {error}</div>;
   }
 
+  // Count products that need action
+  const productsNeedingAction = productDeficits.filter(p => p.needsAction).length;
+
+  const viewDayName = getViewDayName();
+  const tomorrowDayName = getTomorrowDayName();
+  const isViewToday = viewOffset === 0;
+  const viewDate = getDateForDayOffset(viewOffset);
+
+  // Get the day names for the 7-day forecast
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const todayDayIndex = new Date().getDay();
+  const forecastDayNames = [];
+  for (let i = 0; i < 7; i++) {
+    forecastDayNames.push(dayNames[(todayDayIndex + i) % 7]);
+  }
+
   return (
     <motion.div
       variants={containerVariants}
@@ -267,12 +426,121 @@ export default function JITDashboard({ products = [] }) {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">JIT Production & Demand Forecasting</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Data-driven scheduling based on historic 30‑day day‑of‑week trends.
+            Data-driven scheduling based on historic 30-day day-of-week trends.
           </p>
         </div>
         <div className="mt-2 sm:mt-0 flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-xl border border-gray-100 shadow-sm">
           <Clock size={16} className="text-blue-500" />
           <span>Today: <strong className="text-gray-900">{currentDay}</strong></span>
+        </div>
+      </motion.div>
+
+      {/* Date Navigation - 7 Day Forecast */}
+      <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigateDay(-1)}
+              disabled={viewOffset === 0}
+              className={`p-2 rounded-lg transition-colors ${
+                viewOffset === 0 
+                  ? 'text-gray-300 cursor-not-allowed' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <ChevronLeft size={20} />
+            </button>
+            
+            <div className="text-center">
+              <div className="flex items-center gap-2">
+                <Calendar size={18} className="text-indigo-500" />
+                <span className="font-semibold text-gray-900">
+                  {formatDate(viewDate)}
+                </span>
+                {isViewToday && (
+                  <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
+                    Today
+                  </span>
+                )}
+                {viewOffset === 1 && (
+                  <span className="px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
+                    Tomorrow
+                  </span>
+                )}
+              </div>
+              <div className="text-sm text-gray-500 mt-0.5">
+                Viewing {viewDayName}'s forecast
+              </div>
+            </div>
+
+            <button
+              onClick={() => navigateDay(1)}
+              disabled={viewOffset === 6}
+              className={`p-2 rounded-lg transition-colors ${
+                viewOffset === 6 
+                  ? 'text-gray-300 cursor-not-allowed' 
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`}
+            >
+              <ChevronRight size={20} />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Quick navigation dots for 7 days */}
+            <div className="flex items-center gap-1 mr-2">
+              {forecastDayNames.map((day, index) => (
+                <button
+                  key={day}
+                  onClick={() => {
+                    setViewOffset(index);
+                    setSelectedDate(getDateForDayOffset(index));
+                  }}
+                  className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
+                    viewOffset === index
+                      ? 'bg-indigo-600 text-white'
+                      : index === 0
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      : index === 1
+                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  title={day}
+                >
+                  {day.slice(0, 3)}
+                </button>
+              ))}
+            </div>
+
+            {!isViewToday && (
+              <button
+                onClick={goToToday}
+                className="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"
+              >
+                Go to Today
+              </button>
+            )}
+            <button
+              onClick={openWeeklyModal}
+              className="px-3 py-1.5 text-sm bg-gray-50 text-gray-600 rounded-lg hover:bg-gray-100 transition-colors flex items-center gap-1"
+            >
+              <Eye size={16} />
+              Full Week
+            </button>
+          </div>
+        </div>
+
+        {/* Progress bar showing position in 7-day forecast */}
+        <div className="mt-3 w-full bg-gray-100 rounded-full h-1.5">
+          <div 
+            className="h-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 transition-all duration-300"
+            style={{ width: `${((viewOffset + 1) / 7) * 100}%` }}
+          />
+        </div>
+        <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <span>{forecastDayNames[0] || 'Today'}</span>
+          <span>Day {viewOffset + 1} of 7</span>
+          <span>{forecastDayNames[6] || 'Last Day'}</span>
         </div>
       </motion.div>
 
@@ -304,7 +572,7 @@ export default function JITDashboard({ products = [] }) {
           </p>
         </div>
 
-        {/* Scheduled Production Card – clickable -> shows tomorrow's production */}
+        {/* Scheduled Production Card */}
         <div
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200 cursor-pointer"
           onClick={openWeeklyModal}
@@ -334,12 +602,12 @@ export default function JITDashboard({ products = [] }) {
               <CheckCircle size={18} className="text-emerald-600" />
             </div>
             <div>
-              <p className="text-xs text-gray-400 font-medium">Predicted Waste Risk</p>
-              <p className="text-xl font-bold text-emerald-600">0%</p>
+              <p className="text-xs text-gray-400 font-medium">Products Needing Action</p>
+              <p className="text-xl font-bold text-amber-600">{productsNeedingAction}</p>
             </div>
           </div>
           <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
-            <CheckCircle size={12} className="text-emerald-500" /> JIT eliminates overproduction
+            <Package size={12} className="text-amber-500" /> Based on {viewDayName}'s forecast
           </p>
         </div>
       </motion.div>
@@ -347,26 +615,33 @@ export default function JITDashboard({ products = [] }) {
       {/* Action Plan */}
       <motion.div variants={itemVariants}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-gray-900">Today's Production Action Plan</h2>
+          <h2 className="text-base font-semibold text-gray-900">
+            Production Action Plan for {viewDayName}
+          </h2>
           <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-lg border border-gray-100">
-            {productDeficits.filter(p => p.deficit > 0).length} products need action
+            {productsNeedingAction} products need action
           </span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {productDeficits.slice(0, 4).map((product) => {
-            const deficit = product.deficit;
-            const isLow = deficit > 0;
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {productDeficits.slice(0, 6).map((product) => {
+            const needsAction = product.needsAction;
+            const deficit = product.deficit > 0 ? product.deficit : 0;
+            const currentStock = product.stock || 0;
+            const viewForecast = product.viewForecast || 0;
+            const tomorrowForecast = product.tomorrowForecast || 0;
+            const isLastDay = viewOffset === 6;
+
             return (
               <motion.div
                 key={product.id}
                 whileHover={{ y: -2 }}
                 className={`relative bg-white rounded-2xl border p-5 shadow-sm transition-shadow duration-200 ${
-                  isLow
+                  needsAction
                     ? 'border-amber-200 ring-1 ring-amber-200/50'
                     : 'border-gray-100'
                 }`}
               >
-                {isLow && (
+                {needsAction && (
                   <div className="absolute -top-1 -right-1">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-xs font-medium">
                       <Zap size={12} className="text-amber-600" />
@@ -375,18 +650,44 @@ export default function JITDashboard({ products = [] }) {
                   </div>
                 )}
                 <h3 className="text-sm font-medium text-gray-800">{product.name}</h3>
-                <div className="mt-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between">
+                
+                {/* Stock Status */}
+                <div className="mt-3 space-y-2 text-sm">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Current Stock</span>
-                    <span className="font-medium text-gray-900">{product.stock || 0}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Tomorrow's Forecast</span>
-                    <span className="font-medium text-blue-600">{product.forecast || 0}</span>
+                    <span className={`font-bold ${needsAction ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {currentStock}
+                    </span>
                   </div>
                 </div>
+
+                {/* Forecast Section */}
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-blue-50 rounded-lg p-2">
+                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <Sun size={12} className="text-blue-500" />
+                        <span>{viewDayName}</span>
+                      </div>
+                      <div className="text-sm font-bold text-blue-600 mt-1">
+                        {viewForecast} units
+                      </div>
+                    </div>
+                    <div className={`rounded-lg p-2 ${isLastDay ? 'bg-green-50' : 'bg-indigo-50'}`}>
+                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <Calendar size={12} className={isLastDay ? 'text-green-500' : 'text-indigo-500'} />
+                        <span>Tomorrow {isLastDay && '(Next Week)'}</span>
+                      </div>
+                      <div className={`text-sm font-bold mt-1 ${isLastDay ? 'text-green-600' : 'text-indigo-600'}`}>
+                        {tomorrowForecast} units
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Button */}
                 <div className="mt-4 pt-3 border-t border-gray-100">
-                  {isLow ? (
+                  {needsAction ? (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
@@ -462,16 +763,20 @@ export default function JITDashboard({ products = [] }) {
                   radius={[4, 4, 0, 0]}
                   onClick={handleBarClick}
                 >
-                  {chartData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={entry.isPeak ? '#f97316' : '#6366f1'}
-                      fillOpacity={entry.day === currentDay ? 1 : 0.85}
-                      stroke={entry.day === currentDay ? '#2563eb' : 'transparent'}
-                      strokeWidth={entry.day === currentDay ? 2 : 0}
-                      style={{ cursor: 'pointer' }}
-                    />
-                  ))}
+                  {chartData.map((entry, index) => {
+                    // Highlight the day that matches the current view
+                    const isViewDay = entry.day === viewDayName;
+                    return (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={entry.isPeak ? '#f97316' : '#6366f1'}
+                        fillOpacity={isViewDay ? 1 : 0.7}
+                        stroke={isViewDay ? '#2563eb' : 'transparent'}
+                        strokeWidth={isViewDay ? 3 : 0}
+                        style={{ cursor: 'pointer' }}
+                      />
+                    );
+                  })}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -482,7 +787,7 @@ export default function JITDashboard({ products = [] }) {
 
         <div className="mt-3 text-xs text-gray-400 flex items-center justify-center gap-2">
           <span className="inline-block w-3 h-3 rounded-full border-2 border-blue-500" />
-          <span>Highlighted bar = Today's scheduled production</span>
+          <span>Highlighted bar = Currently viewing</span>
         </div>
       </motion.div>
 
@@ -535,7 +840,7 @@ export default function JITDashboard({ products = [] }) {
         )}
       </AnimatePresence>
 
-      {/* Weekly Summary Modal with day-by-day breakdown (rotated from today) */}
+      {/* Weekly Summary Modal */}
       <AnimatePresence>
         {showWeeklyModal && (
           <motion.div
@@ -572,7 +877,7 @@ export default function JITDashboard({ products = [] }) {
                           <th
                             key={day}
                             className={`text-center py-2 px-3 font-semibold ${
-                              day === currentDay ? 'text-blue-600 bg-blue-50' : 'text-gray-600'
+                              day === viewDayName ? 'text-blue-600 bg-blue-50' : 'text-gray-600'
                             }`}
                           >
                             {day.slice(0, 3)}
@@ -586,7 +891,12 @@ export default function JITDashboard({ products = [] }) {
                         <tr key={row.productId} className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors">
                           <td className="py-2 px-3 font-medium text-gray-800 sticky left-0 bg-white">{row.productName}</td>
                           {rotatedDayNames.map(day => (
-                            <td key={day} className="text-center py-2 px-3 text-gray-700">
+                            <td 
+                              key={day} 
+                              className={`text-center py-2 px-3 ${
+                                day === viewDayName ? 'font-bold text-blue-600 bg-blue-50/30' : 'text-gray-700'
+                              }`}
+                            >
                               {row.days[day] || 0}
                             </td>
                           ))}
