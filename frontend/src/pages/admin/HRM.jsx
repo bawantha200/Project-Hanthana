@@ -34,6 +34,19 @@ const tabs = [
   { key: 'salaries', label: 'Salaries & OT', icon: DollarSign },
 ];
 
+// ========== OT RATES BASED ON DESIGNATION ==========
+const OT_RATES = {
+  'HR Manager': 750,
+  'Sales Manager': 800,
+  'Inventory Manager': 700,
+  'Accountant': 600,
+  'Cashier': 500,
+  'Delivery Manager': 650,
+  'Driver': 550,
+  // Default rate if designation not found
+  'default': 500
+};
+
 // ========== HELPER FUNCTION FOR AUTH ==========
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -93,10 +106,12 @@ export default function HRM() {
   const [salaryForm, setSalaryForm] = useState({
     employeeId: '',
     employeeName: '',
+    designation: '',
     baseSalary: '',
     otHours: '',
     bonus: '',
-    finalSalary: ''
+    finalSalary: '',
+    otRate: 500 // Default OT rate
   });
 
   // ========== FETCH FUNCTIONS WITH AUTH ==========
@@ -154,7 +169,6 @@ export default function HRM() {
       const currentMonth = currentDate.getMonth();
       const currentYear = currentDate.getFullYear();
       
-      // Get all attendance data and filter for previous months
       const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
       if (response.data.success) {
         const allData = response.data.data;
@@ -184,12 +198,10 @@ export default function HRM() {
       if (response.data.success) {
         const allData = response.data.data;
         const previousMonths = allData.filter(record => {
-          // If salary has a date or month field, filter by it
           if (record.date) {
             const recordDate = new Date(record.date);
             return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
           }
-          // If salary has a month string like "January 2026"
           if (record.month) {
             const monthYear = record.month.split(' ');
             const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -197,7 +209,7 @@ export default function HRM() {
             const year = parseInt(monthYear[1]);
             return monthIndex !== currentMonth || year !== currentYear;
           }
-          return true; // If no date, show all
+          return true;
         });
         setPreviousSalaryData(previousMonths);
         console.log('✅ Previous salaries loaded:', previousMonths.length);
@@ -208,6 +220,16 @@ export default function HRM() {
     } finally {
       setLoadingPrevious(false);
     }
+  };
+
+  // ========== GET OT RATE BY DESIGNATION ==========
+  const getOTRate = (designation) => {
+    if (!designation) return OT_RATES.default;
+    // Check if designation exists in OT_RATES
+    const matchedKey = Object.keys(OT_RATES).find(key => 
+      designation.toLowerCase().includes(key.toLowerCase())
+    );
+    return matchedKey ? OT_RATES[matchedKey] : OT_RATES.default;
   };
 
   // ========== LOAD DATA ==========
@@ -297,17 +319,16 @@ export default function HRM() {
     return 'present';
   };
 
-  const calculateFinalSalary = (base, otHours, bonus) => {
+  const calculateFinalSalary = (base, otHours, bonus, otRate) => {
     const baseNum = parseFloat(base) || 0;
     const otNum = parseFloat(otHours) || 0;
     const bonusNum = parseFloat(bonus) || 0;
-    const otRate = 500;
-    return baseNum + (otNum * otRate) + bonusNum;
+    const rate = parseFloat(otRate) || 500;
+    return baseNum + (otNum * rate) + bonusNum;
   };
 
   // ========== ATTENDANCE CRUD OPERATIONS ==========
 
-  // Create Attendance
   const handleAttendanceSubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -327,7 +348,6 @@ export default function HRM() {
 
       let response;
       if (isEditingAttendance && editingAttendanceId) {
-        // UPDATE Attendance
         response = await axios.put(`${ATTENDANCE_API}/${editingAttendanceId}`, data, getAuthHeaders());
         if (response.data.success) {
           await fetchAttendance();
@@ -336,7 +356,6 @@ export default function HRM() {
           showSuccessNotification('Attendance updated successfully!');
         }
       } else {
-        // CREATE Attendance
         response = await axios.post(ATTENDANCE_API, data, getAuthHeaders());
         if (response.data.success) {
           await fetchAttendance();
@@ -359,7 +378,6 @@ export default function HRM() {
     }
   };
 
-  // Delete Attendance
   const handleDeleteAttendance = async () => {
     if (!deleteId) return;
     
@@ -382,7 +400,6 @@ export default function HRM() {
     }
   };
 
-  // Edit Attendance - Open form with data
   const editAttendance = (record) => {
     setIsEditingAttendance(true);
     setEditingAttendanceId(record.id);
@@ -399,25 +416,29 @@ export default function HRM() {
 
   // ========== SALARY CRUD OPERATIONS ==========
 
-  // Create/Update Salary
   const handleSalarySubmit = async (e) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
     
     try {
+      // Get OT rate based on designation
+      const otRate = getOTRate(salaryForm.designation);
+      
       const data = {
         employeeId: parseInt(salaryForm.employeeId),
         employeeName: salaryForm.employeeName,
+        designation: salaryForm.designation,
         month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
         baseSalary: parseFloat(salaryForm.baseSalary) || 0,
         otHours: parseFloat(salaryForm.otHours) || 0,
-        bonus: parseFloat(salaryForm.bonus) || 0
+        otRate: otRate,
+        bonus: parseFloat(salaryForm.bonus) || 0,
+        totalSalary: parseFloat(salaryForm.finalSalary) || 0
       };
 
       let response;
       if (isEditingSalary && editingSalaryId) {
-        // UPDATE Salary
         response = await axios.put(`${SALARIES_API}/${editingSalaryId}`, data, getAuthHeaders());
         if (response.data.success) {
           await fetchSalaries();
@@ -426,7 +447,6 @@ export default function HRM() {
           showSuccessNotification('Salary updated successfully!');
         }
       } else {
-        // CREATE Salary
         response = await axios.post(SALARIES_API, data, getAuthHeaders());
         if (response.data.success) {
           await fetchSalaries();
@@ -449,7 +469,6 @@ export default function HRM() {
     }
   };
 
-  // Delete Salary
   const handleDeleteSalary = async () => {
     if (!deleteId) return;
     
@@ -472,17 +491,18 @@ export default function HRM() {
     }
   };
 
-  // Edit Salary - Open form with data
   const editSalary = (record) => {
     setIsEditingSalary(true);
     setEditingSalaryId(record.id);
     setSalaryForm({
       employeeId: record.employee_id || record.employeeId || '',
       employeeName: record.employee_name || record.name || '',
+      designation: record.designation || '',
       baseSalary: record.base_salary || record.base || '',
       otHours: record.ot_hours || record.otHours || '',
       bonus: record.bonus || '',
-      finalSalary: record.total_salary || record.total || ''
+      finalSalary: record.total_salary || record.total || '',
+      otRate: record.ot_rate || getOTRate(record.designation) || 500
     });
     setShowSalaryForm(true);
   };
@@ -506,10 +526,12 @@ export default function HRM() {
     setSalaryForm({
       employeeId: '',
       employeeName: '',
+      designation: '',
       baseSalary: '',
       otHours: '',
       bonus: '',
-      finalSalary: ''
+      finalSalary: '',
+      otRate: 500
     });
     setIsEditingSalary(false);
     setEditingSalaryId(null);
@@ -538,22 +560,27 @@ export default function HRM() {
 
   const openSalaryForm = (employee = null) => {
     if (employee) {
+      const otRate = getOTRate(employee.designation);
       setSalaryForm({
         employeeId: employee.id,
         employeeName: employee.name,
+        designation: employee.designation || '',
         baseSalary: employee.base_salary || employee.baseSalary || '',
         otHours: '',
         bonus: employee.bonus || '',
-        finalSalary: ''
+        finalSalary: '',
+        otRate: otRate
       });
     } else {
       setSalaryForm({
         employeeId: '',
         employeeName: '',
+        designation: '',
         baseSalary: '',
         otHours: '',
         bonus: '',
-        finalSalary: ''
+        finalSalary: '',
+        otRate: 500
       });
     }
     setShowSalaryForm(true);
@@ -603,16 +630,31 @@ export default function HRM() {
     }
   }, [attendanceForm.checkIn, attendanceForm.checkOut]);
 
+  // Auto-calculate final salary with OT rate based on designation
   useEffect(() => {
     if (salaryForm.baseSalary || salaryForm.otHours || salaryForm.bonus) {
+      const otRate = getOTRate(salaryForm.designation);
       const final = calculateFinalSalary(
         salaryForm.baseSalary,
         salaryForm.otHours,
-        salaryForm.bonus
+        salaryForm.bonus,
+        otRate
       );
-      setSalaryForm(prev => ({ ...prev, finalSalary: final.toFixed(2) }));
+      setSalaryForm(prev => ({ 
+        ...prev, 
+        finalSalary: final.toFixed(2),
+        otRate: otRate 
+      }));
     }
-  }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus]);
+  }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus, salaryForm.designation]);
+
+  // Update OT rate when designation changes
+  useEffect(() => {
+    if (salaryForm.designation) {
+      const otRate = getOTRate(salaryForm.designation);
+      setSalaryForm(prev => ({ ...prev, otRate: otRate }));
+    }
+  }, [salaryForm.designation]);
 
   // ========== SUMMARY ==========
 
@@ -851,7 +893,6 @@ export default function HRM() {
           transition={{ duration: 0.3 }}
           className="space-y-6"
         >
-          {/* Current Month Attendance */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100">
               <div className="flex items-center justify-between">
@@ -936,7 +977,6 @@ export default function HRM() {
             </div>
           </div>
 
-          {/* Previous Months Toggle Button */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -974,7 +1014,6 @@ export default function HRM() {
               </div>
             </button>
 
-            {/* Previous Attendance Table */}
             <AnimatePresence>
               {showPreviousAttendance && (
                 <motion.div
@@ -1085,7 +1124,7 @@ export default function HRM() {
       )}
 
       {/* ============================================ */}
-      {/* SALARIES TAB WITH PREVIOUS MONTHS TOGGLE */}
+      {/* SALARIES TAB WITH PREVIOUS MONTHS TOGGLE - FIXED DESIGNATION DISPLAY */}
       {/* ============================================ */}
       {activeTab === 'salaries' && (
         <motion.div
@@ -1094,7 +1133,6 @@ export default function HRM() {
           transition={{ duration: 0.3 }}
           className="space-y-6"
         >
-          {/* Current Month Salaries */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100">
               <div className="flex items-center justify-between">
@@ -1127,8 +1165,10 @@ export default function HRM() {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Base Salary</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Hours</th>
+                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Rate</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Amount</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Bonus</th>
                     <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Final Salary</th>
@@ -1137,37 +1177,58 @@ export default function HRM() {
                 </thead>
                 <tbody>
                   {filteredSalary.length > 0 ? (
-                    filteredSalary.map((salary) => (
-                      <tr key={salary.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                        <td className="py-3 px-6 font-medium text-gray-900">{salary.employee_name || salary.name}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.ot_amount || salary.otAmount || 0)}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
-                        <td className="py-3 px-6 text-right font-semibold text-gray-900">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
-                        <td className="py-3 px-6">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => editSalary(salary)}
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Edit"
-                            >
-                              <Edit size={15} />
-                            </button>
-                            <button
-                              onClick={() => confirmDelete('salary', salary.id, salary.employee_name || salary.name)}
-                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                    filteredSalary.map((salary) => {
+                      // Get designation from salary record or from employee data
+                      let designation = salary.designation || 'N/A';
+                      
+                      // If designation is not set in salary, try to find it from employees
+                      if (!salary.designation) {
+                        const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
+                        if (employee) {
+                          designation = employee.designation || 'N/A';
+                        }
+                      }
+                      
+                      const otRate = salary.ot_rate || getOTRate(designation) || 500;
+                      const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
+                      return (
+                        <tr key={salary.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                          <td className="py-3 px-6 font-medium text-gray-900">{salary.employee_name || salary.name}</td>
+                          <td className="py-3 px-6">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                              {designation}
+                            </span>
+                          </td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otAmount)}</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
+                          <td className="py-3 px-6 text-right font-semibold text-gray-900">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
+                          <td className="py-3 px-6">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => editSalary(salary)}
+                                className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Edit"
+                              >
+                                <Edit size={15} />
+                              </button>
+                              <button
+                                onClick={() => confirmDelete('salary', salary.id, salary.employee_name || salary.name)}
+                                className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan="7" className="text-center py-10 text-gray-500">
+                      <td colSpan="9" className="text-center py-10 text-gray-500">
                         <DollarSign size={36} className="mx-auto mb-3 text-gray-300" />
                         <p className="font-medium">No salary records for current month</p>
                         <p className="text-xs mt-1">Add salary records to get started</p>
@@ -1179,14 +1240,20 @@ export default function HRM() {
                   <tfoot>
                     <tr className="border-t border-gray-200 bg-gray-50/50">
                       <td className="py-3 px-6 font-semibold text-gray-900">Total</td>
+                      <td className="py-3 px-6"></td>
                       <td className="py-3 px-6 text-right font-semibold text-gray-900">
                         {formatCurrency(filteredSalary.reduce((s, r) => s + (r.base_salary || r.base || 0), 0))}
                       </td>
                       <td className="py-3 px-6 text-right font-semibold text-gray-900">
                         {filteredSalary.reduce((s, r) => s + (r.ot_hours || r.otHours || 0), 0)}h
                       </td>
+                      <td className="py-3 px-6"></td>
                       <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                        {formatCurrency(filteredSalary.reduce((s, r) => s + (r.ot_amount || r.otAmount || 0), 0))}
+                        {formatCurrency(filteredSalary.reduce((s, r) => {
+                          const designation = r.designation || employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId)?.designation || '';
+                          const rate = r.ot_rate || getOTRate(designation) || 500;
+                          return s + ((r.ot_hours || r.otHours || 0) * rate);
+                        }, 0))}
                       </td>
                       <td className="py-3 px-6 text-right font-semibold text-gray-900">
                         {formatCurrency(filteredSalary.reduce((s, r) => s + (r.bonus || 0), 0))}
@@ -1202,7 +1269,6 @@ export default function HRM() {
             </div>
           </div>
 
-          {/* Previous Months Salaries Toggle Button */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1240,7 +1306,6 @@ export default function HRM() {
               </div>
             </button>
 
-            {/* Previous Salaries Table */}
             <AnimatePresence>
               {showPreviousSalaries && (
                 <motion.div
@@ -1276,9 +1341,11 @@ export default function HRM() {
                         <thead className="bg-emerald-50">
                           <tr>
                             <th className="text-left py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">Employee</th>
+                            <th className="text-left py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">Designation</th>
                             <th className="text-left py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">Month</th>
                             <th className="text-right py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">Base Salary</th>
                             <th className="text-right py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">OT Hours</th>
+                            <th className="text-right py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">OT Rate</th>
                             <th className="text-right py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">OT Amount</th>
                             <th className="text-right py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">Bonus</th>
                             <th className="text-right py-2.5 px-4 text-xs font-medium text-emerald-700 uppercase tracking-wider">Final Salary</th>
@@ -1288,44 +1355,65 @@ export default function HRM() {
                         <tbody>
                           {loadingPrevious ? (
                             <tr>
-                              <td colSpan="8" className="text-center py-8">
+                              <td colSpan="10" className="text-center py-8">
                                 <Loader size={24} className="animate-spin text-emerald-600 mx-auto" />
                                 <p className="text-xs text-gray-400 mt-2">Loading previous records...</p>
                               </td>
                             </tr>
                           ) : filteredPreviousSalary.length > 0 ? (
-                            filteredPreviousSalary.map((salary) => (
-                              <tr key={salary.id} className="border-b border-emerald-50 hover:bg-emerald-50/30 transition-colors">
-                                <td className="py-2.5 px-4 font-medium text-gray-800">{salary.employee_name || salary.name}</td>
-                                <td className="py-2.5 px-4 text-gray-600">{salary.month || 'N/A'}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.ot_amount || salary.otAmount || 0)}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
-                                <td className="py-2.5 px-4 text-right font-semibold text-gray-900">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
-                                <td className="py-2.5 px-4">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <button
-                                      onClick={() => editSalary(salary)}
-                                      className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                                      title="Edit"
-                                    >
-                                      <Edit size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => confirmDelete('salary', salary.id, salary.employee_name || salary.name)}
-                                      className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                                      title="Delete"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
+                            filteredPreviousSalary.map((salary) => {
+                              // Get designation from salary record or from employee data
+                              let designation = salary.designation || 'N/A';
+                              
+                              // If designation is not set in salary, try to find it from employees
+                              if (!salary.designation) {
+                                const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
+                                if (employee) {
+                                  designation = employee.designation || 'N/A';
+                                }
+                              }
+                              
+                              const otRate = salary.ot_rate || getOTRate(designation) || 500;
+                              const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
+                              return (
+                                <tr key={salary.id} className="border-b border-emerald-50 hover:bg-emerald-50/30 transition-colors">
+                                  <td className="py-2.5 px-4 font-medium text-gray-800">{salary.employee_name || salary.name}</td>
+                                  <td className="py-2.5 px-4">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                                      {designation}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-4 text-gray-600">{salary.month || 'N/A'}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otAmount)}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
+                                  <td className="py-2.5 px-4 text-right font-semibold text-gray-900">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
+                                  <td className="py-2.5 px-4">
+                                    <div className="flex items-center justify-center gap-2">
+                                      <button
+                                        onClick={() => editSalary(salary)}
+                                        className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Edit"
+                                      >
+                                        <Edit size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => confirmDelete('salary', salary.id, salary.employee_name || salary.name)}
+                                        className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
-                              <td colSpan="8" className="text-center py-8 text-gray-500">
+                              <td colSpan="10" className="text-center py-8 text-gray-500">
                                 <DollarSign size={28} className="mx-auto mb-2 text-gray-300" />
                                 <p className="font-medium">No previous salary records</p>
                                 <p className="text-xs mt-1">Records from previous months will appear here</p>
@@ -1336,7 +1424,7 @@ export default function HRM() {
                         {filteredPreviousSalary.length > 0 && (
                           <tfoot className="bg-emerald-50/50">
                             <tr>
-                              <td colSpan="8" className="py-2 px-4 text-xs text-emerald-600 font-medium">
+                              <td colSpan="10" className="py-2 px-4 text-xs text-emerald-600 font-medium">
                                 Total: {filteredPreviousSalary.length} records
                               </td>
                             </tr>
@@ -1538,7 +1626,7 @@ export default function HRM() {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* SALARY FORM MODAL (Create & Update) - WITH AUTO-FILL */}
+      {/* SALARY FORM MODAL (Create & Update) - WITH AUTO-FILL & OT RATE BY DESIGNATION */}
       {/* ============================================ */}
       <AnimatePresence>
         {showSalaryForm && (
@@ -1595,21 +1683,25 @@ export default function HRM() {
                         onChange={(e) => {
                           const emp = employees.find(emp => emp.id === parseInt(e.target.value));
                           if (emp) {
-                            // Auto-fill baseSalary and bonus from employee data
+                            const otRate = getOTRate(emp.designation);
                             setSalaryForm({
                               ...salaryForm,
                               employeeId: e.target.value,
                               employeeName: emp.name,
+                              designation: emp.designation || '',
                               baseSalary: emp.base_salary || emp.baseSalary || '',
-                              bonus: emp.bonus || ''
+                              bonus: emp.bonus || '',
+                              otRate: otRate
                             });
                           } else {
                             setSalaryForm({
                               ...salaryForm,
                               employeeId: e.target.value,
                               employeeName: '',
+                              designation: '',
                               baseSalary: '',
-                              bonus: ''
+                              bonus: '',
+                              otRate: 500
                             });
                           }
                         }}
@@ -1620,7 +1712,7 @@ export default function HRM() {
                         <option value="">Select Employee</option>
                         {employees.map((emp) => (
                           <option key={emp.id} value={emp.id}>
-                            {emp.name} {emp.base_salary ? `- Rs. ${emp.base_salary.toLocaleString()}` : ''}
+                            {emp.name} {emp.designation ? `- ${emp.designation}` : ''}
                           </option>
                         ))}
                       </select>
@@ -1630,6 +1722,19 @@ export default function HRM() {
                       {employees.length === 0 && (
                         <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
                       )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Briefcase size={14} className="inline mr-1" /> Designation
+                      </label>
+                      <input
+                        type="text"
+                        value={salaryForm.designation}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 cursor-not-allowed"
+                        disabled
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Auto-filled from employee profile</p>
                     </div>
 
                     <div>
@@ -1650,22 +1755,6 @@ export default function HRM() {
 
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Clock size={14} className="inline mr-1" /> OT Hours
-                      </label>
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={salaryForm.otHours}
-                        onChange={(e) => setSalaryForm({ ...salaryForm, otHours: e.target.value })}
-                        placeholder="Enter OT hours"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
-                        disabled={submitting}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">OT Rate: 500 LKR/hr</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Award size={14} className="inline mr-1" /> Bonus (LKR)
                       </label>
                       <input
@@ -1679,6 +1768,39 @@ export default function HRM() {
                       <p className="text-xs text-emerald-600 mt-1">✓ Auto-filled from employee profile</p>
                     </div>
 
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Clock size={14} className="inline mr-1" /> OT Hours
+                      </label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={salaryForm.otHours}
+                        onChange={(e) => setSalaryForm({ ...salaryForm, otHours: e.target.value })}
+                        placeholder="Enter OT hours"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                        disabled={submitting}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr (based on designation)
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Clock size={14} className="inline mr-1" /> OT Rate (LKR/hr)
+                      </label>
+                      <input
+                        type="text"
+                        value={formatCurrency(salaryForm.otRate || 500)}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 cursor-not-allowed"
+                        disabled
+                      />
+                      <p className="text-xs text-purple-600 mt-1">
+                        ✓ Auto-set based on designation
+                      </p>
+                    </div>
+
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <TrendingUp size={14} className="inline mr-1" /> Final Salary (Auto-calculated)
@@ -1688,7 +1810,10 @@ export default function HRM() {
                           {salaryForm.finalSalary ? formatCurrency(parseFloat(salaryForm.finalSalary)) : '0.00 LKR'}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Base Salary + (OT Hours × 500) + Bonus
+                          Base Salary + (OT Hours × {formatCurrency(salaryForm.otRate || 500)}/hr) + Bonus
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr based on designation
                         </p>
                       </div>
                     </div>
