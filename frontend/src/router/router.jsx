@@ -76,8 +76,7 @@ function AdminRoutes() {
         <Route path="vendors" element={<Vendors />} />
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
-        <Route path="invoicing-reports" element={<InvoicingReports />} />
-        <Route path="finance" element={<Finance />} />
+        <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
