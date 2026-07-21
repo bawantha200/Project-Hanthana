@@ -101,7 +101,8 @@ export default function Employees() {
     marriageStatus: '',
     jobType: '',
     baseSalary: '',
-    bonus: ''
+    bonus: '',
+    status: ''
   });
 
   // Designation CRUD States
@@ -129,7 +130,8 @@ export default function Employees() {
     jobType: '',
     profileImage: null,
     baseSalary: '',
-    bonus: ''
+    bonus: '',
+    status: 'active'
   });
 
   // Validation functions
@@ -201,6 +203,10 @@ export default function Employees() {
     if (!bonus) return true; // Optional
     const num = parseFloat(bonus);
     return !isNaN(num) && num >= 0;
+  };
+
+  const validateStatus = (status) => {
+    return status && status !== '';
   };
 
   // Real-time field validation
@@ -277,6 +283,11 @@ export default function Employees() {
           error = 'Please enter a valid bonus amount';
         }
         break;
+      case 'status':
+        if (!value) {
+          error = 'Status is required';
+        }
+        break;
       default:
         break;
     }
@@ -293,7 +304,7 @@ export default function Employees() {
   const validateForm = () => {
     const fields = [
       'fullName', 'email', 'phoneNo', 'gender', 'designation', 
-      'address', 'hiredDate', 'marriageStatus', 'jobType'
+      'address', 'hiredDate', 'marriageStatus', 'jobType', 'status'
     ];
     
     let isValid = true;
@@ -626,7 +637,8 @@ export default function Employees() {
         jobType: formData.jobType || null,
         profileImage: formData.profileImage || null,
         baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0
+        bonus: parseFloat(formData.bonus) || 0,
+        status: formData.status || 'active'
       };
 
       console.log('Sending employee data:', JSON.stringify(employeeData, null, 2));
@@ -695,7 +707,8 @@ export default function Employees() {
         hireDate: formData.hiredDate,
         address: formData.address,
         baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0
+        bonus: parseFloat(formData.bonus) || 0,
+        status: formData.status || 'active'
       };
       
       if (formData.birthday) updateData.birthday = formData.birthday;
@@ -758,7 +771,8 @@ export default function Employees() {
       jobType: '',
       profileImage: null,
       baseSalary: '',
-      bonus: ''
+      bonus: '',
+      status: 'active'
     });
     setValidationErrors({
       fullName: '',
@@ -773,7 +787,8 @@ export default function Employees() {
       marriageStatus: '',
       jobType: '',
       baseSalary: '',
-      bonus: ''
+      bonus: '',
+      status: ''
     });
     setError(null);
   };
@@ -801,7 +816,8 @@ export default function Employees() {
       jobType: employee.job_type || '',
       profileImage: employee.profile_image || null,
       baseSalary: employee.base_salary || employee.baseSalary || '',
-      bonus: employee.bonus || ''
+      bonus: employee.bonus || '',
+      status: employee.status || 'active'
     });
     // Clear validation errors when editing
     setValidationErrors({
@@ -817,7 +833,8 @@ export default function Employees() {
       marriageStatus: '',
       jobType: '',
       baseSalary: '',
-      bonus: ''
+      bonus: '',
+      status: ''
     });
     setShowCreateForm(true);
     setShowDetailModal(false);
@@ -1342,7 +1359,7 @@ export default function Employees() {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* EMPLOYEE ADD/EDIT MODAL */}
+      {/* EMPLOYEE ADD/EDIT MODAL - WITH STATUS FIELD */}
       {/* ============================================ */}
       <AnimatePresence>
         {showCreateForm && (
@@ -1823,6 +1840,40 @@ export default function Employees() {
                         </p>
                       )}
                       <p className="text-xs text-gray-400 mt-1">Monthly bonus or incentives</p>
+                    </div>
+
+                    {/* Status - NEW FIELD */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Circle size={14} className="inline mr-1" /> Status *
+                      </label>
+                      <select
+                        name="status"
+                        value={formData.status}
+                        onChange={(e) => {
+                          setFormData({ ...formData, status: e.target.value });
+                          validateField('status', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('status', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.status 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        required
+                        disabled={submitting}
+                      >
+                        <option value="active">Active</option>
+                        <option value="on_leave">On Leave</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                      {validationErrors.status && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.status}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">Current employment status</p>
                     </div>
 
                     {/* Profile Image */}
