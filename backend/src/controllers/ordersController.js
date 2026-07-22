@@ -73,16 +73,51 @@ const postOrder = async (req, res) => {
 // ========== COMPLETE ORDER (After Payment) ==========
 const completeOrderPayment = async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const { id } = req.params;
     const userId = req.user.id;
 
-    console.log('[completeOrderPayment] Completing order:', orderId);
+    console.log('[completeOrderPayment] Completing order:', id);
+    console.log('[completeOrderPayment] Request body:', req.body);
+
+    // ✅ Validate order ID
+    if (!id) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Order ID is required' 
+      });
+    }
+
+    // ✅ Get items from request body
+    const { items } = req.body;
+    console.log('[completeOrderPayment] Items received:', items);
+
+    // ✅ Validate items
+    if (!items) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Items are required' 
+      });
+    }
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Items must be an array' 
+      });
+    }
+
+    if (items.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'At least one item is required' 
+      });
+    }
 
     // Verify user has access to this order
     const { data: order, error: orderError } = await supabase
       .from('orders')
       .select('customer_id, payment_status')
-      .eq('id', orderId)
+      .eq('id', id)
       .single();
 
     if (orderError) {
@@ -116,25 +151,34 @@ const completeOrderPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Order already completed' });
     }
 
-    // Get order items
-    const orderItems = await getOrderItems(orderId);
+    // ✅ Format items for the service function
+    // The service expects items with productId and quantity
+    const formattedItems = items.map(item => ({
+      productId: item.productId || item.product_id,
+      quantity: item.quantity
+    }));
+
+    console.log('[completeOrderPayment] Formatted items:', formattedItems);
 
     // Complete order and deduct inventory
-    const completedOrder = await completeOrder(orderId, orderItems);
+    const completedOrder = await completeOrder(id, formattedItems);
 
     // Notification
     await notifyOrderEvent({
       settingsKey: 'orderAlerts',
       type: 'order',
-      message: `Order #${orderId} payment completed and inventory updated`,
-      relatedOrderId: orderId,
+      message: `Order #${id} payment completed and inventory updated`,
+      relatedOrderId: id,
       targetRole: 'CASHIER,ADMIN',
     });
 
     res.json({ success: true, order: completedOrder });
   } catch (err) {
     console.error('[completeOrderPayment] Error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ 
+      success: false, 
+      message: err.message || 'Failed to complete order' 
+    });
   }
 };
 

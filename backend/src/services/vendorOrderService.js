@@ -1,7 +1,7 @@
 // backend/src/services/vendorOrderService.js
 const supabase = require('../config/db');
 
-// Transform DB row (snake_case) → Frontend object (camelCase)
+// ============ HELPER: Transform DB row to frontend object ============
 const toVendorOrder = (row) => ({
   id: row.id,
   vendor_id: row.vendor_id,
@@ -16,7 +16,6 @@ const toVendorOrder = (row) => ({
   notes: row.notes,
   created_at: row.created_at,
   updated_at: row.updated_at,
-  // Include joined data if available
   vendors: row.vendors ? {
     id: row.vendors.id,
     vendor_name: row.vendors.vendor_name,
@@ -31,7 +30,9 @@ const toVendorOrder = (row) => ({
 });
 
 const vendorOrderService = {
-  // Get all vendor orders with vendor and product details
+  /**
+   * Get all vendor orders with vendor and product details
+   */
   async getAllVendorOrders(filters = {}) {
     console.log('📡 Fetching all vendor orders with filters:', filters);
     
@@ -63,9 +64,6 @@ const vendorOrderService = {
     if (filters.status) {
       query = query.eq('status', filters.status);
     }
-    if (filters.search) {
-      // We'll handle search client-side after fetching
-    }
 
     const { data, error } = await query;
     if (error) {
@@ -76,9 +74,9 @@ const vendorOrderService = {
     console.log(`✅ Found ${data?.length || 0} vendor orders`);
     
     // Transform all orders
-    let results = data.map(toVendorOrder);
+    let results = (data || []).map(toVendorOrder);
     
-    // If we have search term, filter vendor and product names client-side
+    // Client-side search filter
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       results = results.filter(order => {
@@ -95,7 +93,9 @@ const vendorOrderService = {
     return results;
   },
 
-  // Get single vendor order by ID
+  /**
+   * Get single vendor order by ID
+   */
   async getVendorOrderById(id) {
     console.log(`📡 Fetching vendor order ID: ${id}`);
     
@@ -127,7 +127,9 @@ const vendorOrderService = {
     return toVendorOrder(data);
   },
 
-  // Create new vendor order with auto-calculated total
+  /**
+   * Create new vendor order with auto-calculated total
+   */
   async createVendorOrder(orderData) {
     console.log('📦 Creating new vendor order:', orderData);
     
@@ -177,12 +179,17 @@ const vendorOrderService = {
     return toVendorOrder(data);
   },
 
-  // Update vendor order with auto-calculated total
+  /**
+   * Update vendor order with auto-calculated total
+   */
   async updateVendorOrder(id, orderData) {
     console.log(`📦 Updating vendor order ID: ${id}`, orderData);
     
     // First get current order
     const currentOrder = await this.getVendorOrderById(id);
+    if (!currentOrder) {
+      throw new Error('Order not found');
+    }
     
     const updated = {};
     
@@ -238,9 +245,17 @@ const vendorOrderService = {
     return toVendorOrder(data);
   },
 
-  // Update just the status of an order
+  /**
+   * Update just the status of an order
+   */
   async updateOrderStatus(id, status) {
     console.log(`📦 Updating order ${id} status to: ${status}`);
+    
+    // Validate status
+    const validStatuses = ['pending', 'ordered', 'shipped', 'delivered', 'cancelled'];
+    if (!validStatuses.includes(status)) {
+      throw new Error(`Invalid status. Must be one of: ${validStatuses.join(', ')}`);
+    }
     
     const { data, error } = await supabase
       .from('vendor_orders')
@@ -274,7 +289,9 @@ const vendorOrderService = {
     return toVendorOrder(data);
   },
 
-  // Delete vendor order
+  /**
+   * Delete vendor order
+   */
   async deleteVendorOrder(id) {
     console.log(`🗑️ Deleting vendor order ID: ${id}`);
     
@@ -292,7 +309,9 @@ const vendorOrderService = {
     return { success: true };
   },
 
-  // Get vendor purchase summary for charts
+  /**
+   * Get vendor purchase summary for charts
+   */
   async getVendorPurchaseSummary() {
     console.log('📡 Fetching vendor purchase summary...');
     
@@ -300,7 +319,7 @@ const vendorOrderService = {
       .from('vendor_orders')
       .select(`
         vendor_id,
-        vendors (
+        vendors!vendor_orders_vendor_id_fkey (
           vendor_name
         ),
         total,
@@ -315,13 +334,13 @@ const vendorOrderService = {
     }
     
     // Filter out cancelled orders for summary
-    const activeOrders = data.filter(order => order.status !== 'cancelled');
+    const activeOrders = (data || []).filter(order => order.status !== 'cancelled');
     
     // Aggregate by vendor
     const summary = {};
     activeOrders.forEach(order => {
       const vendorId = order.vendor_id;
-      const vendorName = order.vendors?.vendor_name || 'Unknown';
+      const vendorName = order.vendors?.vendor_name || 'Unknown Vendor';
       
       if (!summary[vendorId]) {
         summary[vendorId] = {
