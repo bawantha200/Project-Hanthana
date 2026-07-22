@@ -331,7 +331,6 @@ const stockService = {
     }
   },
 
-  // Add stock - MAIN LOGIC
   async addStock(productId, quantity, reason = 'restock', notes = '') {
     try {
       console.log('═══════════════════════════════════════════════════');
@@ -376,26 +375,25 @@ const stockService = {
 
       const isProduction = reason === 'production' || 
                           reason === 'restock' || 
-                          reason === 'vendor_order_delivered' ||
+                          reason === 'adjustment' ||
                           notes?.toLowerCase().includes('produce') ||
                           notes?.toLowerCase().includes('restock');
 
       // ============================================================
-      // CASE 1: 19L Product (Refill or Sealed) - Uses empty bottles
+      // CASE 1: 19L Sealed Product - Uses its OWN empty bottles
       // ============================================================
-      if (is19L && isProduction) {
-        console.log(`🔄 Adding to ${product.name} - decreasing empty stock for ALL 19L, increasing sealed stock`);
+      if (is19L && isSealed && isProduction) {
+        console.log(`🔄 Adding to ${product.name} - decreasing its OWN empty stock, increasing sealed stock`);
         
-        const { stock: currentEmpty } = await getEmptyBottleStock();
+        const currentEmpty = existingInventory?.empty_bottle_stock || 0;
         
         if (currentEmpty < qty) {
-          throw new Error(`Insufficient empty bottles. Available: ${currentEmpty}, Required: ${qty}`);
+          throw new Error(`Insufficient empty bottles for ${product.name}. Available: ${currentEmpty}, Required: ${qty}`);
         }
-
-        await updateEmptyBottleStockForAll19L(qty, 'subtract', `Used ${qty} empty bottles to produce ${product.name}`);
 
         const currentSealed = existingInventory?.current_stock || 0;
         const newSealed = currentSealed + qty;
+        const newEmpty = currentEmpty - qty;
 
         let updatedInventory;
         if (existingInventory) {
@@ -403,7 +401,9 @@ const stockService = {
             .from('inventory')
             .update({
               current_stock: newSealed,
-              last_updated: new Date().toISOString()
+              empty_bottle_stock: newEmpty,
+              last_updated: new Date().toISOString(),
+              last_empty_updated: new Date().toISOString()
             })
             .eq('id', existingInventory.id)
             .select()
@@ -436,32 +436,42 @@ const stockService = {
             quantity: qty,
             type: 'add',
             reason: reason || 'production',
-            notes: notes || `Added ${qty} ${product.name} (used ${qty} empty bottles)`
+            notes: notes || `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`
+          }]);
+
+        // Record empty bottle usage transaction
+        await supabase
+          .from('inventory_transactions')
+          .insert([{
+            product_id: productId,
+            quantity: -qty,
+            type: 'empty_bottle_usage',
+            reason: 'production',
+            notes: `Used ${qty} empty bottles to produce ${product.name}`
           }]);
 
         return {
           success: true,
-          message: `Added ${qty} ${product.name} (used ${qty} empty bottles from ALL 19L products)`,
+          message: `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`,
           inventory: updatedInventory
         };
       }
 
       // ============================================================
-      // CASE 2: Sealed non-19L - Uses empty bottles for production
+      // CASE 2: Sealed non-19L - Uses its OWN empty bottles
       // ============================================================
       if (isSealed && !is19L && isProduction) {
-        console.log(`🔄 Adding to ${product.name} - decreasing empty stock for ALL 19L, increasing sealed stock`);
+        console.log(`🔄 Adding to ${product.name} - decreasing its OWN empty stock, increasing sealed stock`);
         
-        const { stock: currentEmpty } = await getEmptyBottleStock();
+        const currentEmpty = existingInventory?.empty_bottle_stock || 0;
         
         if (currentEmpty < qty) {
-          throw new Error(`Insufficient empty bottles. Available: ${currentEmpty}, Required: ${qty}`);
+          throw new Error(`Insufficient empty bottles for ${product.name}. Available: ${currentEmpty}, Required: ${qty}`);
         }
-
-        await updateEmptyBottleStockForAll19L(qty, 'subtract', `Used ${qty} empty bottles to produce ${product.name}`);
 
         const currentSealed = existingInventory?.current_stock || 0;
         const newSealed = currentSealed + qty;
+        const newEmpty = currentEmpty - qty;
 
         let updatedInventory;
         if (existingInventory) {
@@ -469,7 +479,9 @@ const stockService = {
             .from('inventory')
             .update({
               current_stock: newSealed,
-              last_updated: new Date().toISOString()
+              empty_bottle_stock: newEmpty,
+              last_updated: new Date().toISOString(),
+              last_empty_updated: new Date().toISOString()
             })
             .eq('id', existingInventory.id)
             .select()
@@ -483,8 +495,10 @@ const stockService = {
             .insert({
               product_id: productId,
               current_stock: qty,
+              empty_bottle_stock: 0,
               reorder_level: 50,
-              last_updated: new Date().toISOString()
+              last_updated: new Date().toISOString(),
+              last_empty_updated: new Date().toISOString()
             })
             .select()
             .single();
@@ -500,56 +514,82 @@ const stockService = {
             quantity: qty,
             type: 'add',
             reason: reason || 'production',
-            notes: notes || `Added ${qty} ${product.name} (used ${qty} empty bottles)`
+            notes: notes || `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`
+          }]);
+
+        // Record empty bottle usage transaction
+        await supabase
+          .from('inventory_transactions')
+          .insert([{
+            product_id: productId,
+            quantity: -qty,
+            type: 'empty_bottle_usage',
+            reason: 'production',
+            notes: `Used ${qty} empty bottles to produce ${product.name}`
           }]);
 
         return {
           success: true,
-          message: `Added ${qty} ${product.name} (used ${qty} empty bottles from ALL 19L products)`,
+          message: `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`,
           inventory: updatedInventory
         };
       }
 
       // ============================================================
-      // CASE 3: Delivery Completed - Increases empty stock for ALL 19L products
-      // ============================================================
-      if (reason === 'delivery_collection') {
-        console.log('🔄 Delivery completed - increasing empty stock for ALL 19L products');
-        
-        await updateEmptyBottleStockForAll19L(qty, 'add', `Collected ${qty} empty bottles from delivery`);
-
-        if (is19L) {
-          const currentSealed = existingInventory?.current_stock || 0;
-          const newSealed = currentSealed + qty;
-
-          if (existingInventory) {
-            await supabase
-              .from('inventory')
-              .update({
-                current_stock: newSealed,
-                last_updated: new Date().toISOString()
-              })
-              .eq('id', existingInventory.id);
-          }
-        }
-
-        return {
-          success: true,
-          message: `Collected ${qty} empty bottles from delivery (ALL 19L products updated)`
-        };
-      }
-
-      // ============================================================
-      // CASE 4: Manual Empty Bottle Add - Increases empty stock for ALL 19L products
+      // CASE 3: Manual Empty Bottle Add - Increases empty stock for this specific product
       // ============================================================
       if (reason === 'manual_empty_add') {
-        console.log('🔄 Manual empty bottle add - increasing empty stock for ALL 19L products');
+        console.log('🔄 Manual empty bottle add - increasing empty stock for this product only');
         
-        await updateEmptyBottleStockForAll19L(qty, 'add', `Added ${qty} empty bottles manually`);
+        const currentEmpty = existingInventory?.empty_bottle_stock || 0;
+        const newEmpty = currentEmpty + qty;
+
+        let updatedInventory;
+        if (existingInventory) {
+          const { data, error } = await supabase
+            .from('inventory')
+            .update({
+              empty_bottle_stock: newEmpty,
+              last_empty_updated: new Date().toISOString()
+            })
+            .eq('id', existingInventory.id)
+            .select()
+            .single();
+
+          if (error) throw error;
+          updatedInventory = data;
+        } else {
+          const { data, error } = await supabase
+            .from('inventory')
+            .insert({
+              product_id: productId,
+              current_stock: 0,
+              empty_bottle_stock: qty,
+              reorder_level: 50,
+              last_updated: new Date().toISOString(),
+              last_empty_updated: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+          updatedInventory = data;
+        }
+
+        await supabase
+          .from('inventory_transactions')
+          .insert([{
+            product_id: productId,
+            quantity: qty,
+            type: 'empty_bottle_add',
+            reason: 'manual',
+            notes: notes || `Added ${qty} empty bottles manually for ${product.name}`
+          }]);
 
         return {
           success: true,
-          message: `Added ${qty} empty bottles manually (ALL 19L products updated)`
+          message: `Added ${qty} empty bottles to ${product.name}`,
+          inventory: updatedInventory
         };
       }
 
