@@ -4,22 +4,18 @@ import api from './api';
 // Fetch all orders (admin)
 export const fetchOrders = async () => {
   try {
-    // Add a timestamp to prevent caching issues
     const response = await api.get('/orders');
     console.log('📦 [fetchOrders] Response status:', response.status);
     console.log('📦 [fetchOrders] Response data:', response.data);
     
-    // Handle different response formats
     if (response.data && response.data.success === true) {
       return response.data.orders || [];
     }
     
-    // If the response is directly an array
     if (Array.isArray(response.data)) {
       return response.data;
     }
     
-    // If response has orders property but no success flag
     if (response.data && response.data.orders) {
       return response.data.orders;
     }
@@ -79,6 +75,25 @@ export const createOrder = async (orderData) => {
   }
 };
 
+// ✅ Changed from POST to PUT to match backend route
+export const completeOrder = async (orderId, items) => {
+  try {
+    // ✅ Make sure items are sent in the correct format
+    const response = await api.put(`/orders/${orderId}/complete`, { 
+      items: items 
+    });
+    console.log('✅ [completeOrder] Response:', response.data);
+    return response.data.order;
+  } catch (error) {
+    console.error('❌ [completeOrder] Error:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    throw error;
+  }
+};
+
 // Get user's orders (customer)
 export const getUserOrders = async () => {
   try {
@@ -90,5 +105,66 @@ export const getUserOrders = async () => {
   } catch (error) {
     console.error('❌ [getUserOrders] Error:', error);
     throw error;
+  }
+};
+
+
+// ========== WATER PRICING ==========
+export const getWaterPrice = async () => {
+  try {
+    console.log('📤 GET /orders/water-price');
+    const response = await api.get('/orders/water-price');
+    console.log('📥 /orders/water-price ->', response.status);
+    console.log('📦 Response data:', response.data);
+    
+    // Handle different response formats
+    if (response.data && response.data.success === true) {
+      return response.data.price || 50.00;
+    }
+    
+    if (response.data && typeof response.data.price === 'number') {
+      return response.data.price;
+    }
+    
+    console.warn('⚠️ Unexpected response format:', response.data);
+    return 50.00;
+  } catch (error) {
+    console.error('❌ [getWaterPrice] Error:', error);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    return 20.00; // Default fallback
+  }
+};
+
+export const updateWaterPrice = async (price) => {
+  try {
+    const response = await api.put('/orders/water-price', { price });
+    return response.data.data;
+  } catch (error) {
+    console.error('❌ [updateWaterPrice] Error:', error);
+    throw error;
+  }
+};
+
+// ========== BULK WATER ORDER ==========
+export const createBulkWaterOrder = async (orderData) => {
+  try {
+    const response = await api.post('/orders/bulk-water', orderData);
+    return response.data.order;
+  } catch (error) {
+    console.error('❌ [createBulkWaterOrder] Error:', error);
+    throw error;
+  }
+};
+
+export const getBulkWaterOrders = async () => {
+  try {
+    const response = await api.get('/orders/bulk-water');
+    return response.data.orders || [];
+  } catch (error) {
+    console.error('❌ [getBulkWaterOrders] Error:', error);
+    return [];
   }
 };

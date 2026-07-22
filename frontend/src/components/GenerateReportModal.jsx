@@ -1,17 +1,8 @@
 import { useState } from 'react';
 import { X, FileText } from 'lucide-react';
-import { getExpenseSummary, getPeriodRange } from '../services/reportService';
+import { getExpenseSummary, getPeriodRange, PERIOD_OPTIONS } from '../services/reportService';
 import { formatCurrency } from '../utils/helpers';
 import { getCategoryLabel } from '../services/expenseService';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
-
-const PERIOD_OPTIONS = [
-  { value: 'this-month', label: 'This Month' },
-  { value: '6-months', label: 'Last 6 Months' },
-  { value: '1-year', label: 'Last 12 Months' },
-  { value: 'custom', label: 'Custom Range' },
-];
 
 export default function GenerateReportModal({ isOpen, onClose }) {
   const [period, setPeriod] = useState('this-month');
@@ -52,14 +43,22 @@ export default function GenerateReportModal({ isOpen, onClose }) {
     }
   };
 
-  const handleExportPDF = () => {
+  const handleClose = () => {
+    setReport(null);
+    setError('');
+    onClose();
+  };
+
+  const handleExportPDF = async () => {
     if (!report) return;
+
+    const { default: jsPDF } = await import('jspdf');
+    const { default: autoTable } = await import('jspdf-autotable');
 
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 20;
 
-    // Header
     doc.setFontSize(16);
     doc.setFont(undefined, 'bold');
     doc.text('Hanthana ERP - Expense Report', pageWidth / 2, y, { align: 'center' });
@@ -74,7 +73,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
     y += 12;
     doc.setTextColor(0);
 
-    // Other Expenses table
     doc.setFontSize(12);
     doc.setFont(undefined, 'bold');
     doc.text('Other Expenses', 14, y);
@@ -84,7 +82,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
       getCategoryLabel(cat),
       formatCurrency(amt),
     ]);
-
     if (otherRows.length === 0) {
       otherRows.push(['No records', formatCurrency(0)]);
     }
@@ -103,7 +100,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
 
     y = doc.lastAutoTable.finalY + 10;
 
-    // Summary table
     doc.setFontSize(12);
     doc.setFont(undefined, 'bold');
     doc.text('Summary', 14, y);
@@ -127,12 +123,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
 
     const filename = `expense-report_${report.period.dateFrom}_to_${report.period.dateTo}.pdf`;
     doc.save(filename);
-  };
-
-  const handleClose = () => {
-    setReport(null);
-    setError('');
-    onClose();
   };
 
   return (
@@ -206,7 +196,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
                 {report.period.dateFrom} → {report.period.dateTo}
               </p>
 
-              {/* Other Expenses */}
               <div className="bg-gray-50 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-gray-900">Other Expenses</h3>
@@ -227,7 +216,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
                 </div>
               </div>
 
-              {/* Vendor Expenses */}
               <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Vendor Order Expenses</h3>
@@ -238,7 +226,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
                 </span>
               </div>
 
-              {/* Salary Expenses */}
               <div className="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Salary Expenses</h3>
@@ -249,7 +236,6 @@ export default function GenerateReportModal({ isOpen, onClose }) {
                 </span>
               </div>
 
-              {/* Grand Total */}
               <div className="bg-blue-50 rounded-lg p-4 flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-blue-900">Grand Total</h3>
                 <span className="text-base font-bold text-blue-900">

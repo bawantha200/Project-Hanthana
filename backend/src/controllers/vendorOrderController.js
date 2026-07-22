@@ -2,7 +2,10 @@
 const { vendorOrderService } = require('../services/vendorOrderService');
 
 const vendorOrderController = {
-  // Get all vendor orders with filters
+  /**
+   * GET /vendor-orders
+   * Get all vendor orders with filters
+   */
   async getVendorOrders(req, res) {
     try {
       const { vendorId, productId, status, search, dateFrom, dateTo } = req.query;
@@ -23,7 +26,24 @@ const vendorOrderController = {
     }
   },
 
-  // Get single vendor order
+  /**
+   * GET /vendor-orders/summary
+   * Get vendor purchase summary for charts
+   */
+  async getVendorPurchaseSummary(req, res) {
+    try {
+      const summary = await vendorOrderService.getVendorPurchaseSummary();
+      res.status(200).json({ success: true, summary });
+    } catch (error) {
+      console.error('Error fetching vendor purchase summary:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  },
+
+  /**
+   * GET /vendor-orders/:id
+   * Get single vendor order
+   */
   async getVendorOrder(req, res) {
     try {
       const { id } = req.params;
@@ -42,7 +62,10 @@ const vendorOrderController = {
     }
   },
 
-  // Create new vendor order
+  /**
+   * POST /vendor-orders
+   * Create new vendor order
+   */
   async createVendorOrder(req, res) {
     try {
       const orderData = req.body;
@@ -69,6 +92,14 @@ const vendorOrderController = {
         });
       }
       
+      // Validate order_type
+      if (orderData.order_type && !['bottle', 'other'].includes(orderData.order_type)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Order type must be "bottle" or "other"' 
+        });
+      }
+      
       const newOrder = await vendorOrderService.createVendorOrder(orderData);
       res.status(201).json({ success: true, order: newOrder });
     } catch (error) {
@@ -77,7 +108,10 @@ const vendorOrderController = {
     }
   },
 
-  // Update vendor order
+  /**
+   * PUT /vendor-orders/:id
+   * Update vendor order
+   */
   async updateVendorOrder(req, res) {
     try {
       const { id } = req.params;
@@ -87,6 +121,31 @@ const vendorOrderController = {
       }
       
       const orderData = req.body;
+      
+      // Validate order_type if provided
+      if (orderData.order_type && !['bottle', 'other'].includes(orderData.order_type)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Order type must be "bottle" or "other"' 
+        });
+      }
+      
+      // Validate quantity if provided
+      if (orderData.quantity !== undefined && orderData.quantity <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Quantity must be greater than 0' 
+        });
+      }
+      
+      // Validate unit_price if provided
+      if (orderData.unit_price !== undefined && orderData.unit_price < 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Unit price cannot be negative' 
+        });
+      }
+      
       const updatedOrder = await vendorOrderService.updateVendorOrder(orderId, orderData);
       if (!updatedOrder) {
         return res.status(404).json({ success: false, error: 'Order not found' });
@@ -99,7 +158,10 @@ const vendorOrderController = {
     }
   },
 
-  // Update order status
+  /**
+   * PATCH /vendor-orders/:id/status
+   * Update order status
+   */
   async updateOrderStatus(req, res) {
     try {
       const { id } = req.params;
@@ -111,6 +173,15 @@ const vendorOrderController = {
       const { status } = req.body;
       if (!status) {
         return res.status(400).json({ success: false, error: 'Status is required' });
+      }
+      
+      // Validate status
+      const validStatuses = ['pending', 'ordered', 'shipped', 'delivered', 'cancelled'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Invalid status. Must be one of: ' + validStatuses.join(', ') 
+        });
       }
       
       const updatedOrder = await vendorOrderService.updateOrderStatus(orderId, status);
@@ -125,7 +196,10 @@ const vendorOrderController = {
     }
   },
 
-  // Delete vendor order
+  /**
+   * DELETE /vendor-orders/:id
+   * Delete vendor order
+   */
   async deleteVendorOrder(req, res) {
     try {
       const { id } = req.params;
@@ -138,17 +212,6 @@ const vendorOrderController = {
       res.status(200).json({ success: true, message: 'Order deleted successfully' });
     } catch (error) {
       console.error('Error deleting vendor order:', error);
-      res.status(500).json({ success: false, error: error.message });
-    }
-  },
-
-  // Get vendor purchase summary
-  async getVendorPurchaseSummary(req, res) {
-    try {
-      const summary = await vendorOrderService.getVendorPurchaseSummary();
-      res.status(200).json({ success: true, summary });
-    } catch (error) {
-      console.error('Error fetching vendor purchase summary:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }

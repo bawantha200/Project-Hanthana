@@ -16,8 +16,8 @@ const settingsRoutes = require('./src/routes/settingsRoutes');
 const roleRoutes = require('./src/routes/roleRoutes');
 const positionRoutes = require('./src/routes/positionRoutes');
 const permissionRoutes = require('./src/routes/permissionRoutes');
-
 const notificationsRoutes = require('./src/routes/notificationsRoutes');
+
 const { startPaymentReminderJob } = require('./src/jobs/paymentReminderJob');
 const { startInventoryReminderJob } = require('./src/jobs/inventoryReminderJob');
 const { maintenanceMiddleware } = require('./src/middlewares/maintenanceMiddleware');
@@ -73,10 +73,6 @@ app.use('/api/positions', positionRoutes);
 app.use('/api', permissionRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
-app.use('/api/vendors', vendorsRoutes); 
-app.use('/api/customers', customerRoutes);  
-app.use('/api/forecast', forecastRoutes); 
-app.use('/api/inventory', inventoryRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/vendors', vendorsRoutes);
 app.use('/api/vendor-orders', vendorOrdersRoutes);
@@ -96,7 +92,7 @@ app.use('/api/empty-bottles', emptyBottlesRoutes);
 app.use('/api/vendor-orders', vendorOrdersRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/maintenance', maintenanceRoutes); // 🆕
-app.use('/api/contact', contactRoutes);
+
 
 
 app.use('/api/contact', contactRoutes); 
