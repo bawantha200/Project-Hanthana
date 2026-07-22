@@ -1,21 +1,23 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Truck, Users, FileText } from 'lucide-react';
+import { ArrowLeft, Plus, Truck, Users, FileText, Receipt } from 'lucide-react';
 import ExpenseTable from '../../components/ExpenseTable';
 import ExpenseFormModal from '../../components/ExpenseFormModal';
 import VoidConfirmationModal from '../../components/VoidConfirmationModal';
 import VendorExpensesTable from '../../components/VendorExpensesTable';
 import SalaryExpensesTable from '../../components/SalaryExpensesTable';
+import PeriodSelector from '../../components/PeriodSelector';
+import GenerateReportModal from '../../components/GenerateReportModal';
 import {
   getExpenses,
   addExpense,
   updateExpense,
   voidExpense,
 } from '../../services/expenseService';
-import GenerateReportModal from '../../components/GenerateReportModal';
 import { getVendorOrders } from '../../services/vendorOrdersService';
 import { getSalaries } from '../../services/salaryService';
+import { getPeriodRange, getMonthLabelsInRange } from '../../services/reportService';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -30,8 +32,62 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
+const DEFAULT_FILTERS = {
+  period: 'this-month',
+  customFrom: '',
+  customTo: '',
+};
+
+function isWithinRange(dateStr, dateFrom, dateTo) {
+  if (!dateStr) return false;
+  if (dateFrom && dateStr < dateFrom) return false;
+  if (dateTo && dateStr > dateTo) return false;
+  return true;
+}
+
+function getEffectiveRange(filters) {
+  if (filters.period === 'custom') {
+    if (!filters.customFrom || !filters.customTo) return null;
+    return { dateFrom: filters.customFrom, dateTo: filters.customTo };
+  }
+  return getPeriodRange(filters.period);
+}
+
 export default function ExpenseManagement() {
   const navigate = useNavigate();
+
+  // --- Raw data (fetched once, unbounded) ---
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [vendorOrders, setVendorOrders] = useState([]);
+  const [vendorLoading, setVendorLoading] = useState(false);
+  const [salaries, setSalaries] = useState([]);
+  const [salaryLoading, setSalaryLoading] = useState(false);
+
+  // --- Per-table filters ---
+  const [expenseFilters, setExpenseFilters] = useState({ ...DEFAULT_FILTERS, category: '', search: '' });
+  const [vendorFilters, setVendorFilters] = useState({ ...DEFAULT_FILTERS, status: '', search: '' });
+  const [salaryFilters, setSalaryFilters] = useState({ ...DEFAULT_FILTERS, paid: '', search: '' });
+  const [sort, setSort] = useState({ field: 'date', direction: 'desc' });
+
+  // --- Global "apply to all" period control ---
+  const [globalPeriod, setGlobalPeriod] = useState('this-month');
+  const [globalCustomFrom, setGlobalCustomFrom] = useState('');
+  const [globalCustomTo, setGlobalCustomTo] = useState('');
+
+  const applyGlobalPeriod = () => {
+    const patch = { period: globalPeriod, customFrom: globalCustomFrom, customTo: globalCustomTo };
+    setExpenseFilters((prev) => ({ ...prev, ...patch }));
+    setVendorFilters((prev) => ({ ...prev, ...patch }));
+    setSalaryFilters((prev) => ({ ...prev, ...patch }));
+  };
+
+  // --- Modal states ---
+  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
+  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [voidingExpenseId, setVoidingExpenseId] = useState(null);
 
   const scrollToSection = (id) => {
     const el = document.getElementById(id);
@@ -40,30 +96,7 @@ export default function ExpenseManagement() {
     }
   };
 
-  // --- Direct expenses (editable) ---
-  const [expenses, setExpenses] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filters, setFilters] = useState({
-    category: '',
-    dateFrom: '',
-    dateTo: '',
-    search: '',
-  });
-  const [sort, setSort] = useState({ field: 'date', direction: 'desc' });
-
-  const [isFormModalOpen, setIsFormModalOpen] = useState(false);
-  const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
-  const [editingExpense, setEditingExpense] = useState(null);
-  const [voidingExpenseId, setVoidingExpenseId] = useState(null);
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  // --- Vendor orders (read-only) ---
-  const [vendorOrders, setVendorOrders] = useState([]);
-  const [vendorLoading, setVendorLoading] = useState(false);
-
-  // --- Salaries (read-only) ---
-  const [salaries, setSalaries] = useState([]);
-  const [salaryLoading, setSalaryLoading] = useState(false);
-
+  // --- Loaders ---
   const loadExpenses = useCallback(async () => {
     setLoading(true);
     try {
@@ -106,23 +139,20 @@ export default function ExpenseManagement() {
     loadSalaries();
   }, [loadExpenses, loadVendorOrders, loadSalaries]);
 
+  // --- Filtered datasets ---
   const filteredExpenses = useMemo(() => {
     let result = [...expenses];
 
-    if (filters.category) {
-      result = result.filter((exp) => exp.category === filters.category);
+    if (expenseFilters.category) {
+      result = result.filter((exp) => exp.category === expenseFilters.category);
     }
-    if (filters.dateFrom) {
-      result = result.filter((exp) => exp.date >= filters.dateFrom);
+    if (expenseFilters.search) {
+      const q = expenseFilters.search.toLowerCase();
+      result = result.filter((exp) => exp.description.toLowerCase().includes(q));
     }
-    if (filters.dateTo) {
-      result = result.filter((exp) => exp.date <= filters.dateTo);
-    }
-    if (filters.search) {
-      const query = filters.search.toLowerCase();
-      result = result.filter((exp) =>
-        exp.description.toLowerCase().includes(query)
-      );
+    const range = getEffectiveRange(expenseFilters);
+    if (range) {
+      result = result.filter((exp) => isWithinRange(exp.date, range.dateFrom, range.dateTo));
     }
 
     if (sort.field) {
@@ -130,17 +160,56 @@ export default function ExpenseManagement() {
         const aVal = a[sort.field];
         const bVal = b[sort.field];
         if (typeof aVal === 'string') {
-          return sort.direction === 'asc'
-            ? aVal.localeCompare(bVal)
-            : bVal.localeCompare(aVal);
+          return sort.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
         }
         return sort.direction === 'asc' ? aVal - bVal : bVal - aVal;
       });
     }
 
     return result;
-  }, [expenses, filters, sort]);
+  }, [expenses, expenseFilters, sort]);
 
+  const filteredVendorOrders = useMemo(() => {
+    let result = [...vendorOrders];
+
+    if (vendorFilters.status) {
+      result = result.filter((o) => o.status === vendorFilters.status);
+    }
+    if (vendorFilters.search) {
+      const q = vendorFilters.search.toLowerCase();
+      result = result.filter(
+        (o) => o.vendorName.toLowerCase().includes(q) || o.productName.toLowerCase().includes(q)
+      );
+    }
+    const range = getEffectiveRange(vendorFilters);
+    if (range) {
+      result = result.filter((o) => isWithinRange(o.orderDate, range.dateFrom, range.dateTo));
+    }
+
+    return result;
+  }, [vendorOrders, vendorFilters]);
+
+  const filteredSalaries = useMemo(() => {
+    let result = [...salaries];
+
+    if (salaryFilters.paid !== '') {
+      const wantPaid = salaryFilters.paid === 'true';
+      result = result.filter((s) => s.paid === wantPaid);
+    }
+    if (salaryFilters.search) {
+      const q = salaryFilters.search.toLowerCase();
+      result = result.filter((s) => s.employeeName.toLowerCase().includes(q));
+    }
+    const range = getEffectiveRange(salaryFilters);
+    if (range) {
+      const monthLabels = getMonthLabelsInRange(range.dateFrom, range.dateTo);
+      result = result.filter((s) => monthLabels.includes(s.month));
+    }
+
+    return result;
+  }, [salaries, salaryFilters]);
+
+  // --- Handlers ---
   const handleAddExpense = async (expenseData) => {
     try {
       const newExpense = await addExpense(expenseData);
@@ -218,20 +287,59 @@ export default function ExpenseManagement() {
             Record and track business expenses by category
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <button
+          onClick={() => {
+            setEditingExpense(null);
+            setIsFormModalOpen(true);
+          }}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+        >
+          <Plus size={16} />
+          Add Expense
+        </button>
+      </motion.div>
+
+      {/* Navigation tab box + global period control */}
+      <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit flex-wrap">
+          <button
+            onClick={() => scrollToSection('own-expenses-section')}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-all duration-200"
+          >
+            <Receipt size={16} />
+            Other Expenses
+          </button>
           <button
             onClick={() => scrollToSection('vendor-expenses-section')}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-all duration-200"
           >
             <Truck size={16} />
-            Vendor Expenses
+            Vendor Orders
           </button>
           <button
             onClick={() => scrollToSection('salary-expenses-section')}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-50 transition-all duration-200"
           >
             <Users size={16} />
             Salary Expenses
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-400 whitespace-nowrap">Apply to all tables:</span>
+          <PeriodSelector
+            period={globalPeriod}
+            onPeriodChange={setGlobalPeriod}
+            customFrom={globalCustomFrom}
+            customTo={globalCustomTo}
+            onCustomFromChange={setGlobalCustomFrom}
+            onCustomToChange={setGlobalCustomTo}
+          />
+          <button
+            onClick={applyGlobalPeriod}
+            className="px-3 py-2 text-sm font-medium text-white bg-gray-700 rounded-lg hover:bg-gray-800 transition"
+          >
+            Apply
           </button>
           <button
             onClick={() => setIsReportModalOpen(true)}
@@ -240,21 +348,11 @@ export default function ExpenseManagement() {
             <FileText size={16} />
             Generate Report
           </button>
-          <button
-            onClick={() => {
-              setEditingExpense(null);
-              setIsFormModalOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
-          >
-            <Plus size={16} />
-            Add Expense
-          </button>
         </div>
       </motion.div>
 
       {/* Direct Expenses (editable) */}
-      <motion.div variants={itemVariants}>
+      <motion.div id="own-expenses-section" variants={itemVariants} className="scroll-mt-6">
         {loading ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 text-center">
             <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
@@ -263,13 +361,10 @@ export default function ExpenseManagement() {
         ) : (
           <ExpenseTable
             expenses={filteredExpenses}
+            filters={expenseFilters}
+            onFilterChange={setExpenseFilters}
             onEdit={openEditModal}
             onVoid={openVoidModal}
-            filterCategory={filters.category}
-            filterDateFrom={filters.dateFrom}
-            filterDateTo={filters.dateTo}
-            searchQuery={filters.search}
-            onFilterChange={setFilters}
             sortField={sort.field}
             sortDirection={sort.direction}
             onSort={(field, direction) => setSort({ field, direction })}
@@ -291,11 +386,14 @@ export default function ExpenseManagement() {
             <p className="text-sm text-gray-500 mt-2">Loading vendor orders...</p>
           </div>
         ) : (
-          <VendorExpensesTable orders={vendorOrders} />
+          <VendorExpensesTable
+            orders={filteredVendorOrders}
+            filters={vendorFilters}
+            onFilterChange={setVendorFilters}
+          />
         )}
       </motion.div>
 
-      {/* Salary Expenses (read-only) */}
       {/* Salary Expenses (read-only) */}
       <motion.div id="salary-expenses-section" variants={itemVariants} className="mt-8 scroll-mt-6">
         <div className="mb-4">
@@ -310,7 +408,11 @@ export default function ExpenseManagement() {
             <p className="text-sm text-gray-500 mt-2">Loading salary records...</p>
           </div>
         ) : (
-          <SalaryExpensesTable salaries={salaries} />
+          <SalaryExpensesTable
+            salaries={filteredSalaries}
+            filters={salaryFilters}
+            onFilterChange={setSalaryFilters}
+          />
         )}
       </motion.div>
 
@@ -334,6 +436,7 @@ export default function ExpenseManagement() {
         onConfirm={handleVoidConfirm}
         expenseId={voidingExpenseId}
       />
+
       <GenerateReportModal
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}

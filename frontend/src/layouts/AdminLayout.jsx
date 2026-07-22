@@ -31,6 +31,14 @@ import {
   Trash2,
   AlertCircle,
   Bike,
+  Inbox,
+  FileText,
+  Receipt,
+  Clipboard, 
+  Warehouse,
+  Unlock,
+  Key, 
+  Sliders,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -39,22 +47,33 @@ import { supabase } from '../supabaseClient';
 // ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
+
   { id: 'products', label: 'Products', icon: Package, path: '/admin/products' },
-  { id: 'inventory', label: 'Inventory', icon: Package, path: '/admin/inventory' },
+
+  { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/admin/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
+  { id: 'pos', label: 'POS', icon: Clipboard, path: '/admin/pos' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
-  { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
-  { id: 'Hrmdashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/Hrmdashboard' },
+  { id: 'messages', label: 'Messages', icon: Inbox, path: '/admin/messages' },
+
   { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/admin/rider-dashboard' },
 
+  { id: 'customers', label: 'Customers', icon: Users, path: '/admin/customers' },
+ 
+  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/hrm-dashboard' },
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
+
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin/finance' },
+  { id: 'invoice', label: 'Invoice', icon: FileText, path: '/admin/finance/invoicing-reports' },
+  { id: 'expenses', label: 'Expenses', icon: FileText, path: '/admin/finance/expenses' },
+
   { id: 'vendors', label: 'Vendors', icon: Store, path: '/admin/vendors' },
+
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
+  { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/admin/manage-permission' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
-  { id: 'manage-permission', label: 'Manage Permission', icon: Settings, path: '/admin/manage-permission' },
 
 ];
 
@@ -962,7 +981,7 @@ export default function AdminLayout() {
               <Droplets size={14} className="text-blue-600" />
               <span className="text-xs font-semibold text-blue-800">Hanthana</span>
             </div>
-            <p className="text-[11px] text-slate-500">Water Management ERP v2.0</p>
+            <p className="text-[11px] text-slate-500">Water Management ERP v1.0</p>
             <div className="mt-2 flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[11px] text-emerald-600 font-medium">System Online</span>

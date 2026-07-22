@@ -1,10 +1,44 @@
 import { formatCurrency } from '../utils/helpers';
+import PeriodSelector from './PeriodSelector';
 
-export default function SalaryExpensesTable({ salaries }) {
+export default function SalaryExpensesTable({ salaries, filters, onFilterChange }) {
+  const updateFilter = (partial) => {
+    onFilterChange((prev) => ({ ...prev, ...partial }));
+  };
+
   const total = salaries.reduce((sum, s) => sum + s.totalSalary, 0);
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+      <div className="p-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
+        <PeriodSelector
+          period={filters.period}
+          onPeriodChange={(period) => updateFilter({ period })}
+          customFrom={filters.customFrom}
+          customTo={filters.customTo}
+          onCustomFromChange={(customFrom) => updateFilter({ customFrom })}
+          onCustomToChange={(customTo) => updateFilter({ customTo })}
+        />
+
+        <select
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={filters.paid}
+          onChange={(e) => updateFilter({ paid: e.target.value })}
+        >
+          <option value="">All statuses</option>
+          <option value="true">Paid</option>
+          <option value="false">Pending</option>
+        </select>
+
+        <input
+          type="text"
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1 min-w-[160px]"
+          value={filters.search}
+          onChange={(e) => updateFilter({ search: e.target.value })}
+          placeholder="Search employee..."
+        />
+      </div>
+
       {salaries.length === 0 ? (
         <div className="p-8 text-center text-gray-400 text-sm">No salary records found</div>
       ) : (
