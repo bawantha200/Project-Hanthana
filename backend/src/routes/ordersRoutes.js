@@ -1,4 +1,3 @@
-// backend/src/routes/ordersRoutes.js
 const express = require('express');
 const router = express.Router();
 const {
@@ -8,6 +7,7 @@ const {
   getProducts,
   postOrder,
   completeOrderPayment,
+  failOrderPayment,        // ✅ import add karanna
   updateStatus,
   assignDelivery,
   getDeliveryPersonnelList,
@@ -31,6 +31,9 @@ router.put('/:id/delivery', updateDelivery);
 
 // Complete order after payment (deduct inventory)
 router.put('/:id/complete', completeOrderPayment);
+
+// ✅ Fail order payment
+router.put('/:id/fail', failOrderPayment);
 
 router.get('/delivery/personnel', getDeliveryPersonnelList);
 

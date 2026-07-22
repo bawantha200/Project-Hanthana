@@ -520,16 +520,35 @@ const updateSystemSettings = async (req, res) => {
   try {
     const { autoBackup, backupFrequency, dataRetention, apiRateLimit, debugMode } = req.body;
 
+    // 🆕 පළමුව existing row එක fetch කරගන්නවා - maintenanceMode වගේ
+    // මේ request එකේ එවලා නැති fields loss නොවෙන්න merge කරගන්න
+    const { data: existing, error: fetchError } = await supabase
+      .from('settings')
+      .select('value')
+      .eq('key', 'system')
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+
+    const mergedValue = {
+      ...(existing?.value || {}),
+      autoBackup,
+      backupFrequency,
+      dataRetention,
+      apiRateLimit,
+      debugMode,
+    };
+
     const { error } = await supabase
       .from('settings')
       .upsert({
         key: 'system',
-        value: { autoBackup, backupFrequency, dataRetention, apiRateLimit, debugMode },
+        value: mergedValue,
       }, { onConflict: 'key' });
 
     if (error) throw error;
 
-    res.json({ success: true });
+    res.json({ success: true, settings: mergedValue });
   } catch (err) {
     console.error('💥 [updateSystemSettings]', err);
     res.status(500).json({ success: false, message: err.message });

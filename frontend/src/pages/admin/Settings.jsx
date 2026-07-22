@@ -43,8 +43,8 @@ export default function Settings() {
       return tab.key === 'general' || tab.key === 'services' || tab.key === 'aboutus' || tab.key === 'contactus';
     }
     if (role === 'ADMIN') {
-      return tab.key !== 'general' && tab.key !== 'services' && tab.key !== 'aboutus' && tab.key !== 'contactus';
-      // 👆 aboutus, contactus දෙකම ADMIN branch එකෙන් exclude කළා
+      return true;
+      
     }
     return false;
   });
@@ -177,13 +177,16 @@ export default function Settings() {
     try {
       const token = localStorage.getItem('token');
 
-      // 🆕 Role අනුව payload එක filter කරනවා - CEO ට access නැති sections backend එකට යවන්නෙම නෑ
       const payload = {};
       if (role === 'CEO') {
         payload.general = generalSettings;
         payload.services = servicesSettings;
         payload.team = teamMembers;
       } else if (canManageUsers) {
+        // 🆕 Admin ta CEO ge sections ත් save karanna one nisa
+        payload.general = generalSettings;
+        payload.services = servicesSettings;
+        payload.team = teamMembers;
         payload.notifications = notificationSettings;
         payload.security = securitySettings;
         payload.system = systemSettings;
@@ -1113,32 +1116,32 @@ export default function Settings() {
                 <p className="text-xs text-gray-400 mt-0.5">Automatically backup data at scheduled intervals</p>
               </div>
               <Toggle
-  enabled={systemSettings.autoBackup}
-  onToggle={async () => {
-    const newValue = !systemSettings.autoBackup;
-    setSystemSettings({ ...systemSettings, autoBackup: newValue });
+              enabled={systemSettings.autoBackup}
+              onToggle={async () => {
+                const newValue = !systemSettings.autoBackup;
+                setSystemSettings({ ...systemSettings, autoBackup: newValue });
 
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/settings/system', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ ...systemSettings, autoBackup: newValue }),
-      });
-      const result = await response.json();
-      if (!result.success) {
-        setSystemSettings({ ...systemSettings, autoBackup: !newValue });
-        alert('Failed to update auto backup: ' + (result.message || 'Unknown error'));
-      }
-    } catch (err) {
-      setSystemSettings({ ...systemSettings, autoBackup: !newValue });
-      console.error('Auto backup toggle failed:', err);
-    }
-  }}
-/>
+                try {
+                  const token = localStorage.getItem('token');
+                  const response = await fetch('http://localhost:5000/api/settings/system', {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({ ...systemSettings, autoBackup: newValue }),
+                  });
+                  const result = await response.json();
+                  if (!result.success) {
+                    setSystemSettings({ ...systemSettings, autoBackup: !newValue });
+                    alert('Failed to update auto backup: ' + (result.message || 'Unknown error'));
+                  }
+                } catch (err) {
+                  setSystemSettings({ ...systemSettings, autoBackup: !newValue });
+                  console.error('Auto backup toggle failed:', err);
+                }
+              }}
+            />
             </div>
             <div className="flex items-center justify-between py-3 border-b border-gray-50">
               <div>
@@ -1146,39 +1149,39 @@ export default function Settings() {
                 <p className="text-xs text-gray-400 mt-0.5">Temporarily disable system access for maintenance</p>
               </div>
               <Toggle
-  enabled={systemSettings.maintenanceMode}
-  onToggle={async () => {
-    const newValue = !systemSettings.maintenanceMode;
-    setSystemSettings({ ...systemSettings, maintenanceMode: newValue });
+              enabled={systemSettings.maintenanceMode}
+              onToggle={async () => {
+                const newValue = !systemSettings.maintenanceMode;
+                setSystemSettings({ ...systemSettings, maintenanceMode: newValue });
 
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/maintenance/mode', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          enabled: newValue,
-          message: newValue ? 'Scheduled maintenance in progress. We will be back shortly.' : '',
-        }),
-      });
+                try {
+                  const token = localStorage.getItem('token');
+                  const response = await fetch('http://localhost:5000/api/maintenance/mode', {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${token}`,
+                    },
+                    body: JSON.stringify({
+                      enabled: newValue,
+                      message: newValue ? 'Scheduled maintenance in progress. We will be back shortly.' : '',
+                    }),
+                  });
 
-      const result = await response.json();
+                  const result = await response.json();
 
-      if (!result.success) {
-        setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
-        alert('Failed to update maintenance mode: ' + (result.message || 'Unknown error'));
-      }
-    } catch (err) {
-      setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
-      console.error('Maintenance mode toggle failed:', err);
-    }
-  }}
-/>
+                  if (!result.success) {
+                    setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
+                    alert('Failed to update maintenance mode: ' + (result.message || 'Unknown error'));
+                  }
+                } catch (err) {
+                  setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
+                  console.error('Maintenance mode toggle failed:', err);
+                }
+              }}
+              />
             </div>
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
+            {/* <div className="flex items-center justify-between py-3 border-b border-gray-50">
               <div>
                 <p className="text-sm font-medium text-gray-800">Debug Mode</p>
                 <p className="text-xs text-gray-400 mt-0.5">Enable detailed error logging and diagnostic output</p>
@@ -1189,7 +1192,7 @@ export default function Settings() {
                   setSystemSettings({ ...systemSettings, debugMode: !systemSettings.debugMode })
                 }
               />
-            </div>
+            </div> */}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mt-6 pt-4 border-t border-gray-100">
@@ -1206,7 +1209,7 @@ export default function Settings() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Data Retention (days)</label>
+              {/* <label className="block text-xs font-medium text-gray-600 mb-1.5">Data Retention (days)</label>
               <select
                 value={systemSettings.dataRetention}
                 onChange={(e) => setSystemSettings({ ...systemSettings, dataRetention: e.target.value })}
@@ -1216,9 +1219,9 @@ export default function Settings() {
                 <option value="180">180 days</option>
                 <option value="365">365 days</option>
                 <option value="730">730 days</option>
-              </select>
+              </select> */}
             </div>
-            <div>
+            {/* <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">API Rate Limit (req/min)</label>
               <select
                 value={systemSettings.apiRateLimit}
@@ -1230,7 +1233,7 @@ export default function Settings() {
                 <option value="1000">1000</option>
                 <option value="5000">5000</option>
               </select>
-            </div>
+            </div> */}
           </div>
         </motion.div>
       )}

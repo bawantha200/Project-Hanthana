@@ -71,22 +71,27 @@ async function resolveRecipientEmails(targetRole) {
     return [];
   }
 
-  // Supabase's .in() on a joined table can still return rows where the join
-  // didn't match the filter (depending on join type), so filter defensively
-  // in JS as well.
   const roleNames = targetRole && targetRole !== 'ALL'
     ? targetRole.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean)
     : null;
 
+  // ✅ Handle both shapes Supabase can return for the `roles` embed:
+  //    - object:  { role_name: 'ADMIN' }
+  //    - array:   [{ role_name: 'ADMIN' }]
+  const getRoleName = (roles) => {
+    if (!roles) return '';
+    if (Array.isArray(roles)) return (roles[0]?.role_name || '').toUpperCase();
+    return (roles.role_name || '').toUpperCase();
+  };
+
   const emails = (data || [])
     .filter((row) => {
       if (!roleNames) return true; // targetRole === 'ALL'
-      return roleNames.includes((row.roles?.role_name || '').toUpperCase());
+      return roleNames.includes(getRoleName(row.roles));
     })
     .map((row) => row.email)
     .filter(Boolean);
 
-  // De-duplicate in case someone holds multiple matching roles.
   return [...new Set(emails)];
 }
 
