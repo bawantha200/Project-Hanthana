@@ -1,15 +1,17 @@
 // frontend/src/pages/Finance.jsx
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { 
-  DollarSign, TrendingUp, TrendingDown, ArrowUpRight, 
+import {
+  DollarSign, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
   CreditCard, Truck, Package, Users, Receipt
 } from 'lucide-react';
 import RevenueChart from '../../components/RevenueChart';
 import ExpenseChart from '../../components/ExpenseChart';
 import StatCard from '../../components/StatCard';
-import { financialData, expenseBreakdown } from '../../data/mockData';
+import { financialData } from '../../data/mockData';
 import { formatCurrency } from '../../utils/helpers';
+import { getExpenseSummary, getPeriodRange } from '../../services/reportService';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -24,17 +26,96 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
+const CATEGORY_COLORS = {
+  VEHICLE: '#3b82f6',
+  DELIVERY_COST: '#06b6d4',
+  EMPTY_BOTTLE: '#f59e0b',
+  OTHER: '#a855f7',
+};
+const VENDOR_COLOR = '#14b8a6';
+const SALARY_COLOR = '#6366f1';
+
+function growthPct(current, previous) {
+  if (!previous) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
 export default function Finance() {
   const navigate = useNavigate();
 
+  // --- Income side stays on mock data until the invoice page is connected ---
   const latestMonth = financialData[financialData.length - 1];
   const previousMonth = financialData[financialData.length - 2];
   const totalIncome = latestMonth.income;
-  const totalExpenses = latestMonth.expenses;
-  const netProfit = latestMonth.profit;
-  const incomeGrowth = ((latestMonth.income - previousMonth.income) / previousMonth.income * 100).toFixed(1);
-  const expenseGrowth = ((latestMonth.expenses - previousMonth.expenses) / previousMonth.expenses * 100).toFixed(1);
-  const profitGrowth = ((latestMonth.profit - previousMonth.profit) / previousMonth.profit * 100).toFixed(1);
+  const incomeGrowth = growthPct(latestMonth.income, previousMonth.income).toFixed(1);
+
+  // --- Real expense data ---
+  const [thisMonthSummary, setThisMonthSummary] = useState(null);
+  const [lastMonthSummary, setLastMonthSummary] = useState(null);
+  const [loadingExpenses, setLoadingExpenses] = useState(true);
+
+  const loadExpenseData = useCallback(async () => {
+    setLoadingExpenses(true);
+    try {
+      const thisRange = getPeriodRange('this-month');
+      const lastRange = getPeriodRange('last-month');
+      const [thisData, lastData] = await Promise.all([
+        getExpenseSummary(thisRange.dateFrom, thisRange.dateTo),
+        getExpenseSummary(lastRange.dateFrom, lastRange.dateTo),
+      ]);
+      setThisMonthSummary(thisData);
+      setLastMonthSummary(lastData);
+    } catch (error) {
+      console.error('Failed to load expense summary for dashboard:', error);
+    } finally {
+      setLoadingExpenses(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadExpenseData();
+  }, [loadExpenseData]);
+
+  // --- Derive real figures (default to 0 while loading) ---
+  const s = thisMonthSummary;
+  const p = lastMonthSummary;
+
+  const realTotalExpenses = s?.grandTotal || 0;
+  const prevTotalExpenses = p?.grandTotal || 0;
+
+  const vehicleCosts = s?.otherExpenses.byCategory.VEHICLE || 0;
+  const prevVehicleCosts = p?.otherExpenses.byCategory.VEHICLE || 0;
+
+  const deliveryCosts = s?.otherExpenses.byCategory.DELIVERY_COST || 0;
+  const emptyBottleCosts = s?.otherExpenses.byCategory.EMPTY_BOTTLE || 0;
+  const otherCosts = s?.otherExpenses.byCategory.OTHER || 0;
+
+  const vendorOrderCosts = s?.vendorExpenses.total || 0;
+  const bottlePurchaseCosts = vendorOrderCosts + emptyBottleCosts;
+  const prevBottlePurchaseCosts = (p?.vendorExpenses.total || 0) + (p?.otherExpenses.byCategory.EMPTY_BOTTLE || 0);
+
+  const salaryCosts = s?.salaryExpenses.total || 0;
+  const prevSalaryCosts = p?.salaryExpenses.total || 0;
+
+  const netProfit = totalIncome - realTotalExpenses;
+  const prevNetProfit = previousMonth.income - prevTotalExpenses;
+
+  const expenseGrowth = growthPct(realTotalExpenses, prevTotalExpenses).toFixed(1);
+  const profitGrowth = growthPct(netProfit, prevNetProfit).toFixed(1);
+  const vehicleGrowth = growthPct(vehicleCosts, prevVehicleCosts).toFixed(1);
+  const salaryGrowth = growthPct(salaryCosts, prevSalaryCosts).toFixed(1);
+  const bottleGrowth = growthPct(bottlePurchaseCosts, prevBottlePurchaseCosts).toFixed(1);
+
+  const realExpenseBreakdown = [
+    { name: 'Vehicle', value: vehicleCosts, color: CATEGORY_COLORS.VEHICLE },
+    { name: 'Delivery', value: deliveryCosts, color: CATEGORY_COLORS.DELIVERY_COST },
+    { name: 'Empty Bottle', value: emptyBottleCosts, color: CATEGORY_COLORS.EMPTY_BOTTLE },
+    { name: 'Vendor Orders', value: vendorOrderCosts, color: VENDOR_COLOR },
+    { name: 'Salary', value: salaryCosts, color: SALARY_COLOR },
+    { name: 'Other', value: otherCosts, color: CATEGORY_COLORS.OTHER },
+  ].filter((seg) => seg.value > 0);
+
+  const pct = (part, whole) => (whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0');
 
   return (
     <motion.div
@@ -65,7 +146,7 @@ export default function Finance() {
         <StatCard
           title="Total Income"
           value={formatCurrency(totalIncome)}
-          subtitle="vs last month"
+          subtitle="vs last month (mock — pending invoice module)"
           icon={DollarSign}
           trend="up"
           trendValue={`+${incomeGrowth}%`}
@@ -74,21 +155,21 @@ export default function Finance() {
         />
         <StatCard
           title="Total Expenses"
-          value={formatCurrency(totalExpenses)}
+          value={loadingExpenses ? '...' : formatCurrency(realTotalExpenses)}
           subtitle="vs last month"
           icon={CreditCard}
-          trend="up"
-          trendValue={`+${expenseGrowth}%`}
+          trend={expenseGrowth >= 0 ? 'up' : 'down'}
+          trendValue={`${expenseGrowth >= 0 ? '+' : ''}${expenseGrowth}%`}
           color="amber"
           delay={0.08}
         />
         <StatCard
           title="Net Profit"
-          value={formatCurrency(netProfit)}
+          value={loadingExpenses ? '...' : formatCurrency(netProfit)}
           subtitle="vs last month"
           icon={TrendingUp}
-          trend="up"
-          trendValue={`+${profitGrowth}%`}
+          trend={profitGrowth >= 0 ? 'up' : 'down'}
+          trendValue={`${profitGrowth >= 0 ? '+' : ''}${profitGrowth}%`}
           color="emerald"
           delay={0.16}
         />
@@ -107,32 +188,38 @@ export default function Finance() {
         <RevenueChart
           data={financialData}
           title="Monthly Profit Chart"
-          subtitle="Income vs Expenses trend"
+          subtitle="Income vs Expenses trend (income still mock)"
         />
-        <ExpenseChart
-          data={expenseBreakdown}
-          title="Expense Breakdown"
-          subtitle="Current month allocation"
-        />
+        {loadingExpenses ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex items-center justify-center">
+            <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
+          </div>
+        ) : (
+          <ExpenseChart
+            data={realExpenseBreakdown}
+            title="Expense Breakdown"
+            subtitle="Current month allocation — real data"
+          />
+        )}
       </motion.div>
 
-      {/* Expense Breakdown Cards */}
+      {/* Expense Breakdown Cards — real data */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><Truck size={18} className="text-blue-600" /></div>
             <div><h3 className="text-sm font-semibold text-gray-900">Vehicle Costs</h3><p className="text-xs text-gray-400">Fuel, maintenance & repairs</p></div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{formatCurrency(latestMonth.vehicleCosts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{loadingExpenses ? '...' : formatCurrency(vehicleCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
-            <ArrowUpRight size={14} className="text-rose-500" />
-            <span className="text-xs font-medium text-rose-600">+{((latestMonth.vehicleCosts - previousMonth.vehicleCosts) / previousMonth.vehicleCosts * 100).toFixed(1)}%</span>
+            {vehicleGrowth >= 0 ? <ArrowUpRight size={14} className="text-rose-500" /> : <ArrowDownRight size={14} className="text-emerald-500" />}
+            <span className={`text-xs font-medium ${vehicleGrowth >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{vehicleGrowth >= 0 ? '+' : ''}{vehicleGrowth}%</span>
             <span className="text-xs text-gray-400 ml-1">vs last month</span>
           </div>
           <div className="mt-4 w-full bg-gray-100 rounded-full h-1.5">
-            <div className="h-1.5 rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${(latestMonth.vehicleCosts / latestMonth.expenses * 100).toFixed(0)}%` }} />
+            <div className="h-1.5 rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${pct(vehicleCosts, realTotalExpenses)}%` }} />
           </div>
-          <p className="text-xs text-gray-400 mt-1">{(latestMonth.vehicleCosts / latestMonth.expenses * 100).toFixed(1)}% of total expenses</p>
+          <p className="text-xs text-gray-400 mt-1">{pct(vehicleCosts, realTotalExpenses)}% of total expenses</p>
         </motion.div>
 
         <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200">
@@ -140,40 +227,41 @@ export default function Finance() {
             <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center"><Users size={18} className="text-indigo-600" /></div>
             <div><h3 className="text-sm font-semibold text-gray-900">Salary Costs</h3><p className="text-xs text-gray-400">Base + OT + bonuses</p></div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{formatCurrency(latestMonth.salaryCosts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{loadingExpenses ? '...' : formatCurrency(salaryCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
-            <span className="text-xs font-medium text-gray-500">Stable</span>
-            <span className="text-xs text-gray-400 ml-1">no change</span>
+            {salaryGrowth >= 0 ? <ArrowUpRight size={14} className="text-rose-500" /> : <ArrowDownRight size={14} className="text-emerald-500" />}
+            <span className={`text-xs font-medium ${salaryGrowth >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{salaryGrowth >= 0 ? '+' : ''}{salaryGrowth}%</span>
+            <span className="text-xs text-gray-400 ml-1">vs last month</span>
           </div>
           <div className="mt-4 w-full bg-gray-100 rounded-full h-1.5">
-            <div className="h-1.5 rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${(latestMonth.salaryCosts / latestMonth.expenses * 100).toFixed(0)}%` }} />
+            <div className="h-1.5 rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${pct(salaryCosts, realTotalExpenses)}%` }} />
           </div>
-          <p className="text-xs text-gray-400 mt-1">{(latestMonth.salaryCosts / latestMonth.expenses * 100).toFixed(1)}% of total expenses</p>
+          <p className="text-xs text-gray-400 mt-1">{pct(salaryCosts, realTotalExpenses)}% of total expenses</p>
         </motion.div>
 
         <motion.div variants={itemVariants} whileHover={{ y: -2 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200">
           <div className="flex items-center gap-3 mb-4">
             <div className="w-10 h-10 rounded-xl bg-cyan-50 flex items-center justify-center"><Package size={18} className="text-cyan-600" /></div>
-            <div><h3 className="text-sm font-semibold text-gray-900">Bottle Purchase Costs</h3><p className="text-xs text-gray-400">Sealed & empty bottles</p></div>
+            <div><h3 className="text-sm font-semibold text-gray-900">Bottle Purchase Costs</h3><p className="text-xs text-gray-400">Vendor orders & empty bottles</p></div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{formatCurrency(latestMonth.bottleCosts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{loadingExpenses ? '...' : formatCurrency(bottlePurchaseCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
-            <ArrowUpRight size={14} className="text-rose-500" />
-            <span className="text-xs font-medium text-rose-600">+{((latestMonth.bottleCosts - previousMonth.bottleCosts) / previousMonth.bottleCosts * 100).toFixed(1)}%</span>
+            {bottleGrowth >= 0 ? <ArrowUpRight size={14} className="text-rose-500" /> : <ArrowDownRight size={14} className="text-emerald-500" />}
+            <span className={`text-xs font-medium ${bottleGrowth >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{bottleGrowth >= 0 ? '+' : ''}{bottleGrowth}%</span>
             <span className="text-xs text-gray-400 ml-1">vs last month</span>
           </div>
           <div className="mt-4 w-full bg-gray-100 rounded-full h-1.5">
-            <div className="h-1.5 rounded-full bg-cyan-500 transition-all duration-500" style={{ width: `${(latestMonth.bottleCosts / latestMonth.expenses * 100).toFixed(0)}%` }} />
+            <div className="h-1.5 rounded-full bg-cyan-500 transition-all duration-500" style={{ width: `${pct(bottlePurchaseCosts, realTotalExpenses)}%` }} />
           </div>
-          <p className="text-xs text-gray-400 mt-1">{(latestMonth.bottleCosts / latestMonth.expenses * 100).toFixed(1)}% of total expenses</p>
+          <p className="text-xs text-gray-400 mt-1">{pct(bottlePurchaseCosts, realTotalExpenses)}% of total expenses</p>
         </motion.div>
       </motion.div>
 
-      {/* Revenue Growth & P&L Summary */}
+      {/* Revenue Growth & P&L Summary — still mock, pending invoice module */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-5">
-            <div><h2 className="text-base font-semibold text-gray-900">Revenue Growth</h2><p className="text-xs text-gray-400 mt-0.5">Month-over-month income trend</p></div>
+            <div><h2 className="text-base font-semibold text-gray-900">Revenue Growth</h2><p className="text-xs text-gray-400 mt-0.5">Month-over-month income trend (mock)</p></div>
             <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center"><TrendingUp size={18} className="text-emerald-600" /></div>
           </div>
           <div className="space-y-4">
@@ -204,7 +292,7 @@ export default function Finance() {
 
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-5">
-            <div><h2 className="text-base font-semibold text-gray-900">Monthly P&L Summary</h2><p className="text-xs text-gray-400 mt-0.5">Profit and loss breakdown</p></div>
+            <div><h2 className="text-base font-semibold text-gray-900">Monthly P&L Summary</h2><p className="text-xs text-gray-400 mt-0.5">Profit and loss breakdown (mock)</p></div>
             <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center"><DollarSign size={18} className="text-blue-600" /></div>
           </div>
           <div className="overflow-x-auto">
