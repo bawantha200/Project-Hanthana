@@ -123,57 +123,85 @@ exports.getEmployeeById = async (req, res) => {
 exports.createEmployee = async (req, res) => {
   try {
     const {
-      name,
-      position,
-      designation,    // ✅ ADDED - Designation field
-      phone,
-      email,
-      hireDate,
-      birthday,
-      gender,
-      nic,
-      address,
-      marriageStatus,
-      jobType,
-      profileImage,
-      baseSalary,
-      bonus
+      name, position, designation, phone, email, hireDate,
+      birthday, gender, nic, address, marriageStatus,
+      jobType, profileImage, baseSalary, bonus
     } = req.body;
     
-    // Required fields validation
     if (!name || !email || !phone || !position || !address || !hireDate) {
       return res.status(400).json({
         success: false,
         message: 'Please provide all required fields: name, email, phone, position, address, hireDate'
       });
     }
-    
-    // Check if employee with same email exists
-    const { data: existingEmployee } = await supabase
-      .from('employees')
-      .select('email')
-      .eq('email', email)
-      .maybeSingle();
-    
-    if (existingEmployee) {
-      return res.status(409).json({
+
+    // ✅ Email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      return res.status(400).json({
         success: false,
-        message: 'Employee with this email already exists'
+        message: 'Please provide a valid email address'
       });
     }
+
+    // ✅ Phone: must be exactly 10 digits (local) or valid intl format
+    const cleanedPhone = phone.trim().replace(/\s+/g, '');
+    const localPhoneRegex = /^0\d{9}$/;
+    const intlPhoneRegex = /^\+94\d{9}$/;
     
-    // Prepare employee data with designation
+    if (!localPhoneRegex.test(cleanedPhone) && !intlPhoneRegex.test(cleanedPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number must be 10 digits (e.g. 0771234567) or valid +94 format'
+      });
+    }
+
+    // ✅ NIC: old (9 digits + V/X) or new (12 digits)
+    if (nic) {
+      const cleanedNic = nic.trim().toUpperCase();
+      const oldNicRegex = /^[0-9]{9}[VX]$/;
+      const newNicRegex = /^[0-9]{12}$/;
+      
+      if (!oldNicRegex.test(cleanedNic) && !newNicRegex.test(cleanedNic)) {
+        return res.status(400).json({
+          success: false,
+          message: 'NIC must be 9 digits + V/X (old format) or 12 digits (new format)'
+        });
+      }
+    }
+
+    // ✅ Duplicate checks
+    const { data: existingEmail } = await supabase
+      .from('employees').select('email').eq('email', email).maybeSingle();
+    if (existingEmail) {
+      return res.status(409).json({ success: false, message: 'Employee with this email already exists' });
+    }
+
+    const { data: existingPhone } = await supabase
+      .from('employees').select('phone').eq('phone', cleanedPhone).maybeSingle();
+    if (existingPhone) {
+      return res.status(409).json({ success: false, message: 'Employee with this phone number already exists' });
+    }
+
+    if (nic) {
+      const { data: existingNic } = await supabase
+        .from('employees').select('nic').eq('nic', nic.trim().toUpperCase()).maybeSingle();
+      if (existingNic) {
+        return res.status(409).json({ success: false, message: 'Employee with this NIC already exists' });
+      }
+    }
+    
     const employeeData = {
       name,
       position,
-      designation: designation || position,  // ✅ ADDED - Use designation if provided, else use position
-      phone,
+      designation: designation || position,  
+      phone: cleanedPhone,
       email,
       hire_date: hireDate,
       status: 'pending',
       role: 'EMPLOYEE',
       gender: gender || null,
-      nic: nic || null,
+      nic: nic ? nic.trim().toUpperCase() : null,
       address,
       marriage_status: marriageStatus || null,
       job_type: jobType || null,
@@ -184,8 +212,6 @@ exports.createEmployee = async (req, res) => {
       updated_at: new Date().toISOString()
     };
     
-    console.log('[Employees] Creating employee with data:', employeeData);
-    
     const { data, error } = await supabase
       .from('employees')
       .insert([employeeData])
@@ -193,11 +219,10 @@ exports.createEmployee = async (req, res) => {
     
     if (error) {
       console.error('Supabase error:', error);
-      return res.status(400).json({
-        success: false,
-        message: 'Error creating employee',
-        error: error.message
-      });
+      if (error.code === '23505') {
+        return res.status(409).json({ success: false, message: 'Duplicate value: email, phone, or NIC already exists' });
+      }
+      return res.status(400).json({ success: false, message: 'Error creating employee', error: error.message });
     }
     
     res.status(201).json({
@@ -207,11 +232,7 @@ exports.createEmployee = async (req, res) => {
     });
   } catch (error) {
     console.error('Server error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error',
-      error: error.message
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
 

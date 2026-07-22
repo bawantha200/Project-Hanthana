@@ -5,7 +5,8 @@ const {
   getPaymentStatus,
   getPaymentHistory
 } = require('../services/paymentService');
-const { completeOrder, getOrderItems } = require('../services/ordersService');
+const { completeOrder, getOrderItems, failOrder } = require('../services/ordersService');
+const { notifyOrderEvent } = require('../utils/notifications');
 const supabase = require('../config/db');
 
 // ========== INITIATE PAYMENT ==========
@@ -143,25 +144,78 @@ const paymentNotify = async (req, res) => {
     console.log('[paymentNotify] Payment verification result:', verificationResult);
     
     // If payment is COMPLETED, deduct inventory
-    if (verificationResult && verificationResult.status === 'COMPLETED') {
-      try {
-        console.log('[paymentNotify] Payment completed for order:', verificationResult.orderId);
-        
-        // Get order items for inventory deduction
-        const orderItems = await getOrderItems(verificationResult.orderId);
-        console.log('[paymentNotify] Found', orderItems.length, 'items for order');
-        
-        // Complete order and deduct inventory
-        await completeOrder(verificationResult.orderId, orderItems);
-        console.log('[paymentNotify] Order', verificationResult.orderId, 'completed and inventory deducted');
-      } catch (inventoryError) {
-        console.error('[paymentNotify] Inventory deduction error:', inventoryError);
-        // Still send success response to PayHere, but log the error
-        // Admin will need to manually fix inventory
-      }
-    } else {
-      console.log('[paymentNotify] Payment not completed, status:', verificationResult?.status);
-    }
+if (verificationResult && verificationResult.status === 'COMPLETED') {
+ try {
+    console.log('[paymentNotify] Payment completed for order:', verificationResult.orderId);
+ 
+    // Get order items for inventory deduction
+    const orderItems = await getOrderItems(verificationResult.orderId);
+    console.log('[paymentNotify] Found', orderItems.length, 'items for order');
+ 
+    // Complete order and deduct inventory
+    const completedOrder = await completeOrder(verificationResult.orderId, orderItems);
+    console.log('[paymentNotify] Order', verificationResult.orderId, 'completed and inventory deducted');
+ 
+    // ✅ Staff notification
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Payment completed for order #${verificationResult.orderId}`,
+      relatedOrderId: verificationResult.orderId,
+      targetRole: 'CASHIER,ADMIN',
+    });
+ 
+    // ✅ Customer notification
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Your order #${verificationResult.orderId} payment was successful!`,
+      relatedOrderId: verificationResult.orderId,
+      userId: completedOrder.customer_id,
+      customerPhone: completedOrder.users?.phone,
+      customerEmail: completedOrder.users?.email,
+    });
+ 
+    console.log('[paymentNotify] Notifications sent for order', verificationResult.orderId);
+  } catch (inventoryError) {
+    console.error('[paymentNotify] Inventory deduction error:', inventoryError);
+    // Still send success response to PayHere, but log the error
+    // Admin will need to manually fix inventory
+  }
+} else if (verificationResult && verificationResult.status === 'FAILED') {
+  // ✅ NEW: actually mark the order failed + notify, same as the manual failOrderPayment flow
+  try {
+    console.log('[paymentNotify] Payment failed for order:', verificationResult.orderId);
+
+    const failedOrder = await failOrder(verificationResult.orderId);
+
+    // Staff notification
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Order #${verificationResult.orderId} payment failed`,
+      relatedOrderId: verificationResult.orderId,
+      targetRole: 'CASHIER,ADMIN',
+    });
+
+    // Customer notification — email/SMS
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Your order #${verificationResult.orderId} payment failed. Please try again.`,
+      relatedOrderId: verificationResult.orderId,
+      userId: failedOrder.customer_id,
+      customerPhone: failedOrder.users?.phone,
+      customerEmail: failedOrder.users?.email,
+    });
+
+    console.log('[paymentNotify] Failure notifications sent for order', verificationResult.orderId);
+  } catch (failError) {
+    console.error('[paymentNotify] Error handling failed payment:', failError);
+  }
+} else {
+  console.log('[paymentNotify] Payment not completed, status:', verificationResult?.status);
+}
     
     console.log('[paymentNotify] Payment notification processed successfully');
     

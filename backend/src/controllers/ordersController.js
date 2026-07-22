@@ -5,6 +5,7 @@ const {
   getAllProducts,
   createOrder,
   completeOrder,
+  failOrder,
   getOrdersByUserId,
   getOrderById,
   updateOrderStatus,
@@ -41,27 +42,27 @@ const postOrder = async (req, res) => {
       items,
     });
 
-    // Staff notification
-    await notifyOrderEvent({
-      settingsKey: 'orderAlerts',
-      type: 'order',
-      message: `New order #${newOrder.id} placed (${orderType === 'HOME_DELIVERY' ? 'Home Delivery' : 'Pickup'})`,
-      relatedOrderId: newOrder.id,
-      targetRole: 'CASHIER,ADMIN',
-    });
+    // Staff + customer notifications — only for cash orders (already paid instantly).
+    // Online orders get notified from paymentNotify webhook once payment actually completes.
+    if (newOrder.isCash) {
+      await notifyOrderEvent({
+        settingsKey: 'orderAlerts',
+        type: 'order',
+        message: `New order #${newOrder.id} placed (Pickup/Cash - Paid)`,
+        relatedOrderId: newOrder.id,
+        targetRole: 'CASHIER,ADMIN',
+      });
 
-    // Customer notification — FIXED
-    await notifyOrderEvent({
-      settingsKey: 'orderAlerts',
-      type: 'order',
-      message: newOrder.isCash
-        ? `Your order #${newOrder.id} has been placed and payment confirmed!`
-        : `Your order #${newOrder.id} has been placed successfully!`,
-      relatedOrderId: newOrder.id,
-      userId: customerId,
-      customerPhone: newOrder.customerPhone,
-      customerEmail: newOrder.customerEmail,
-    });
+      await notifyOrderEvent({
+        settingsKey: 'orderAlerts',
+        type: 'order',
+        message: `Your order #${newOrder.id} has been placed and payment confirmed!`,
+        relatedOrderId: newOrder.id,
+        userId: customerId,
+        customerPhone: newOrder.customerPhone,
+        customerEmail: newOrder.customerEmail,
+      });
+    }
 
     res.status(201).json({ success: true, order: newOrder });
   } catch (err) {
@@ -179,6 +180,80 @@ const completeOrderPayment = async (req, res) => {
       success: false, 
       message: err.message || 'Failed to complete order' 
     });
+  }
+};
+
+// ========== FAIL ORDER PAYMENT ==========
+const failOrderPayment = async (req, res) => {
+  try {
+    const { id: orderId } = req.params;
+    const userId = req.user.id;
+
+    console.log('[failOrderPayment] Marking payment failed for order:', orderId);
+
+    // Verify user has access to this order
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('customer_id, payment_status')
+      .eq('id', orderId)
+      .single();
+
+    if (orderError) {
+      console.error('[failOrderPayment] Order not found:', orderError);
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role_id')
+      .eq('id', userId)
+      .single();
+
+    let isAdmin = false;
+    if (profile) {
+      const { data: role } = await supabase
+        .from('roles')
+        .select('role_name')
+        .eq('id', profile.role_id)
+        .single();
+      isAdmin = role?.role_name === 'ADMIN';
+    }
+
+    if (order.customer_id !== userId && !isAdmin) {
+      console.warn('[failOrderPayment] Unauthorized access attempt by user:', userId);
+      return res.status(403).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (order.payment_status === 'COMPLETED') {
+      return res.status(400).json({ success: false, message: 'Order already completed, cannot mark as failed' });
+    }
+
+    const failedOrder = await failOrder(orderId);
+
+    // Staff notification
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Order #${orderId} payment failed`,
+      relatedOrderId: orderId,
+      targetRole: 'CASHIER,ADMIN',
+    });
+
+    // Customer notification — payment failed
+    await notifyOrderEvent({
+      settingsKey: 'orderAlerts',
+      type: 'order',
+      message: `Your order #${orderId} payment failed. Please try again.`,
+      relatedOrderId: orderId,
+      userId: failedOrder.customer_id,
+      customerPhone: failedOrder.users?.phone,
+      customerEmail: failedOrder.users?.email,
+    });
+
+    res.json({ success: true, order: failedOrder });
+  } catch (err) {
+    console.error('[failOrderPayment] Error:', err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -431,6 +506,7 @@ module.exports = {
   getProducts,
   postOrder,
   completeOrderPayment,
+  failOrderPayment,
   updateStatus,
   assignDelivery,
   getDeliveryPersonnelList,

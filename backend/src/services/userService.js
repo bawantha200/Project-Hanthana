@@ -1,4 +1,5 @@
 const supabase = require('../config/db');
+const { supabaseAdmin } = require('../config/db');
 
 class UserService {
   // ============================================================
@@ -97,7 +98,7 @@ class UserService {
       }
 
       // ✅ Create auth user using SUPABASE ADMIN client
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
@@ -127,7 +128,7 @@ class UserService {
 
       if (profileError) {
         console.error('[UserService] ❌ Profile insert error:', profileError);
-        await supabase.auth.admin.deleteUser(userId);
+        await supabaseAdmin.auth.admin.deleteUser(userId);
         throw profileError;
       }
 
@@ -182,8 +183,33 @@ class UserService {
         throw new Error('User with this email already exists');
       }
 
+      // 2.5️⃣ ✅ NEW: Resolve role_id directly from roles table.
+      //    employee.position already stores the role_name value (e.g. "SALES_MANAGER"),
+      //    it's not a positions.position_name — so match roles directly, no join needed.
+      if (!employee.position) {
+        throw new Error('Employee has no position assigned — cannot determine role');
+      }
+
+      const { data: roleRow, error: roleError } = await supabase
+        .from('roles')
+        .select('id, role_name')
+        .eq('role_name', employee.position.trim().toUpperCase())
+        .maybeSingle();
+
+      if (roleError) {
+        console.error('[UserService] ❌ Role lookup error:', roleError);
+        throw new Error(`Failed to look up role for position "${employee.position}": ${roleError.message}`);
+      }
+
+      if (!roleRow) {
+        throw new Error(`No matching role found for position "${employee.position}"`);
+      }
+
+      const resolvedRoleId = roleRow.id;
+      console.log(`[UserService] 🔗 Position "${employee.position}" → role_id ${resolvedRoleId} (${roleRow.role_name})`);
+
       // 3️⃣ Create auth user using SUPABASE ADMIN client
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
         email: employee.email,
         password: password,
         email_confirm: true,
@@ -201,7 +227,7 @@ class UserService {
       const userId = authData.user.id;
       console.log(`[UserService] ✅ Auth user created: ${userId}`);
 
-      // 4️⃣ Insert into profiles
+      // 4️⃣ Insert into profiles — role_id now resolved dynamically from position
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert([{
@@ -210,12 +236,12 @@ class UserService {
           phone_number: employee.phone || '',
           email: employee.email,
           address: employee.address || '',
-          role_id: 3 // EMPLOYEE (Default)
+          role_id: resolvedRoleId   // ✅ dynamic, no more hardcoded 3
         }]);
 
       if (profileError) {
         console.error('[UserService] ❌ Profile insert error:', profileError);
-        await supabase.auth.admin.deleteUser(userId);
+        await supabaseAdmin.auth.admin.deleteUser(userId);
         throw profileError;
       }
 
@@ -242,7 +268,7 @@ class UserService {
         id: userId,
         email: employee.email,
         fullName: employee.name,
-        role: 'EMPLOYEE'
+        roleId: resolvedRoleId
       };
     } catch (error) {
       console.error('[UserService] ❌ createUserFromEmployee error:', error);
@@ -342,7 +368,7 @@ class UserService {
       }
 
       // Delete auth user
-      const { error: authError } = await supabase.auth.admin.deleteUser(id);
+      const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(id);
       if (authError) {
         console.error('[UserService] ❌ Auth delete error:', authError);
       } else {
@@ -453,7 +479,7 @@ class UserService {
     try {
       console.log(`[UserService] 🔑 Updating password for user ${userId}`);
 
-      const { error } = await supabase.auth.admin.updateUserById(userId, {
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
         password: newPassword
       });
 

@@ -240,35 +240,38 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
   // ── Fetch settings ──
   useEffect(() => {
     const fetchSettings = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const response = await fetch("http://localhost:5000/api/settings", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json();
+  try {
+    const token = localStorage.getItem("token");
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
 
-        if (data.success && data.data.general) {
-          const general = data.data.general;
-          setSettings({
-            companyName: general.companyName || defaultSettings.companyName,
-            contactPhone:
-              general.contactPhone ||
-              general.companyPhone ||
-              defaultSettings.contactPhone,
-            contactEmail:
-              general.contactEmail ||
-              general.companyEmail ||
-              defaultSettings.contactEmail,
-            address: general.address || defaultSettings.address,
-            services: general.services || defaultSettings.services,
-          });
-        }
-      } catch (error) {
-        console.error("Fetch settings error:", error);
-      } finally {
-        setSettingsLoading(false);
-      }
-    };
+    const response = await fetch("http://localhost:5000/api/settings/public", {
+      headers,
+    });
+    const data = await response.json();
+
+    if (data.success && data.data.general) {
+      const general = data.data.general;
+      setSettings({
+        companyName: general.companyName || defaultSettings.companyName,
+        contactPhone:
+          general.contactPhone ||
+          general.companyPhone ||
+          defaultSettings.contactPhone,
+        contactEmail:
+          general.contactEmail ||
+          general.companyEmail ||
+          defaultSettings.contactEmail,
+        address: general.address || defaultSettings.address,
+        services: general.services || defaultSettings.services,
+      });
+    }
+  } catch (error) {
+    console.error("Fetch settings error:", error);
+  } finally {
+    setSettingsLoading(false);
+  }
+  };
 
     fetchSettings();
   }, []);
@@ -339,12 +342,12 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
   const isActive = (path) => location.pathname === path;
 
   const getNavLinks = () => {
-    const links = [...baseNavLinks];
-    if (user) {
-      links.push({ name: "My Orders", path: "/orders" });
-    }
-    return links;
-  };
+  const links = [...baseNavLinks];
+  if (user && user.role_name === 'CUSTOMER') {
+    links.push({ name: "My Orders", path: "/orders" });
+  }
+  return links;
+};
 
 
   const fetchUnreadCount = async () => {
@@ -450,7 +453,7 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
   return (
     <>
       <nav
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        className={`fixed top-0 left-0 right-0 z-[60] transition-all duration-300 ${
           isScrolled
             ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
             : "bg-white shadow-sm"
@@ -565,7 +568,7 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
                       </div>
                     </div>
                   </div>
-                  <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-50 overflow-hidden">
+                  <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-[100] overflow-hidden">
                     {!loadingRole && !isCustomer && (
                       <Link
                         to="/admin/dashboard"
@@ -890,36 +893,39 @@ function Footer() {
   const [settingsLoading, setSettingsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const response = await fetch("http://localhost:5000/api/settings", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json();
+  const fetchSettings = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const headers = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
 
-        if (data.success && data.data.general) {
-          const general = data.data.general;
-          setSettings({
-            companyName: general.companyName || defaultSettings.companyName,
-            contactPhone:
-              general.contactPhone ||
-              general.companyPhone ||
-              defaultSettings.contactPhone,
-            contactEmail:
-              general.contactEmail ||
-              general.companyEmail ||
-              defaultSettings.contactEmail,
-            address: general.address || defaultSettings.address,
-            services: general.services || defaultSettings.services,
-          });
-        }
-      } catch (error) {
-        console.error("Fetch settings error:", error);
-      } finally {
-        setSettingsLoading(false);
+      const response = await fetch("http://localhost:5000/api/settings/public", {
+        headers,
+      });
+      const data = await response.json();
+
+      if (data.success && data.data.general) {
+        const general = data.data.general;
+        setSettings({
+          companyName: general.companyName || defaultSettings.companyName,
+          contactPhone:
+            general.contactPhone ||
+            general.companyPhone ||
+            defaultSettings.contactPhone,
+          contactEmail:
+            general.contactEmail ||
+            general.companyEmail ||
+            defaultSettings.contactEmail,
+          address: general.address || defaultSettings.address,
+          services: general.services || defaultSettings.services,
+        });
       }
-    };
+    } catch (error) {
+      console.error("Fetch settings error:", error);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
 
     fetchSettings();
   }, []);

@@ -348,7 +348,7 @@ const completeOrder = async (orderId, items) => {
       updated_at: new Date().toISOString()
     })
     .eq('id', orderId)
-    .select()
+    .select('*, users ( email, phone )')   // ✅ join users so caller can notify
     .single();
 
   if (updateError) {
@@ -641,6 +641,29 @@ const assignDeliveryPerson = async (orderId, deliveryPersonId, assignedBy) => {
 
   console.log('[assignDeliveryPerson] Delivery assigned successfully');
   return { delivery, order };
+};
+
+// ========== FAIL ORDER (Payment failed) ==========
+const failOrder = async (orderId) => {
+  console.log('[failOrder] Marking payment as FAILED for order', orderId);
+
+  const { data: order, error: updateError } = await supabase
+    .from('orders')
+    .update({
+      payment_status: 'FAILED',
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', orderId)
+    .select('id, customer_id, payment_status, users ( email, phone )')
+    .single();
+
+  if (updateError) {
+    console.error('[failOrder] Update error:', updateError);
+    throw new Error(`Failed to update payment status: ${updateError.message}`);
+  }
+
+  console.log('[failOrder] Order', orderId, 'payment status updated to FAILED');
+  return order;
 };
 
 // ========== GET ORDER WITH FULL DETAILS ==========
@@ -952,6 +975,7 @@ module.exports = {
   getAllProducts,
   createOrder,
   completeOrder,
+  failOrder,
   getOrdersByUserId,
   getOrderById,
   updateOrderStatus,
