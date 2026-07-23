@@ -92,15 +92,28 @@ const deductInventory = async (items) => {
   console.log('[deductInventory] Starting inventory deduction for', items?.length || 0, 'items');
 
   if (!items || items.length === 0) {
+    console.log('[deductInventory] No items to deduct');
     return;
   }
 
   for (const item of items) {
-    console.log('[deductInventory] Processing product', item.product_id || item.productId, 'quantity:', item.quantity);
-
     const productId = item.product_id || item.productId;
+    const quantity = Number(item.quantity) || 0;
 
-    const { data: inventory, error: fetchError } = await supabase
+    console.log('[deductInventory] Processing product', productId, 'quantity:', quantity);
+
+    if (!productId) {
+      console.warn('[deductInventory] Skipping item with no productId:', item);
+      continue;
+    }
+
+    if (quantity <= 0) {
+      console.warn('[deductInventory] Skipping item with quantity <= 0:', item);
+      continue;
+    }
+
+    // Fetch current inventory row (if it exists)
+    const { data: existingInventory, error: fetchError } = await supabase
       .from('inventory')
       .select('current_stock, reorder_level')
       .eq('product_id', productId)
@@ -111,7 +124,13 @@ const deductInventory = async (items) => {
       throw new Error(`Inventory fetch error for product ${productId}: ${fetchError.message}`);
     }
 
-    if (!inventory) {
+    // ✅ FIX: build a fresh local object instead of Object.assign()'ing onto a
+    // possibly-null destructured value. The previous version crashed here
+    // with "Cannot convert undefined or null to object" whenever a product
+    // had no inventory row yet, which silently aborted the whole loop.
+    let inventoryRow = existingInventory;
+
+    if (!inventoryRow) {
       console.log('[deductInventory] No inventory found for product', productId, '- creating with default stock');
 
       const { data: newInventory, error: createError } = await supabase
@@ -119,7 +138,8 @@ const deductInventory = async (items) => {
         .insert({
           product_id: productId,
           current_stock: 100,
-          reorder_level: 20
+          reorder_level: 20,
+          last_updated: new Date().toISOString()
         })
         .select('current_stock, reorder_level')
         .single();
@@ -129,34 +149,52 @@ const deductInventory = async (items) => {
         throw new Error(`Failed to create inventory for product ${productId}: ${createError.message}`);
       }
 
-      // Assign the new inventory
-      Object.assign(inventory, newInventory);
+      inventoryRow = newInventory;
     }
 
-    if (inventory.current_stock < item.quantity) {
-      console.error('[deductInventory] Insufficient stock for product', productId, 'Available:', inventory.current_stock, 'Required:', item.quantity);
-      throw new Error(`Insufficient stock for product ${productId}. Available: ${inventory.current_stock}, Required: ${item.quantity}`);
+    const currentStock = inventoryRow.current_stock ?? 0;
+    const reorderLevel = inventoryRow.reorder_level ?? 20;
+
+    if (currentStock < quantity) {
+      console.error('[deductInventory] Insufficient stock for product', productId, 'Available:', currentStock, 'Required:', quantity);
+      throw new Error(`Insufficient stock for product ${productId}. Available: ${currentStock}, Required: ${quantity}`);
     }
 
-    const newStock = inventory.current_stock - item.quantity;
-    console.log('[deductInventory] Product', productId, 'stock:', inventory.current_stock, '->', newStock);
+    const newStock = currentStock - quantity;
+    console.log('[deductInventory] Product', productId, 'stock:', currentStock, '->', newStock);
 
-    const { error: updateError } = await supabase
+    // ✅ FIX: .select() the update result so we can detect a silent
+    // 0-row update (e.g. caused by an RLS policy blocking the write or a
+    // stale product_id) instead of assuming success.
+    const { data: updateResult, error: updateError } = await supabase
       .from('inventory')
       .update({
         current_stock: newStock,
         last_updated: new Date().toISOString()
       })
-      .eq('product_id', productId);
+      .eq('product_id', productId)
+      .select('product_id, current_stock');
 
     if (updateError) {
       console.error('[deductInventory] Update error for product', productId, ':', updateError);
       throw new Error(`Failed to update inventory for product ${productId}: ${updateError.message}`);
     }
 
+    if (!updateResult || updateResult.length === 0) {
+      console.error(
+        '[deductInventory] UPDATE affected 0 rows for product', productId,
+        '- check RLS policies on `inventory` and confirm the backend Supabase client uses the service_role key'
+      );
+      throw new Error(
+        `Inventory update affected 0 rows for product ${productId}. Check RLS policy / service_role key.`
+      );
+    }
+
+    console.log('[deductInventory] Confirmed new stock in DB:', updateResult[0].current_stock);
+
     // Low stock alert
-    if (newStock <= inventory.reorder_level) {
-      console.log('[deductInventory] Low stock alert for product', productId, '- current stock:', newStock, 'reorder level:', inventory.reorder_level);
+    if (newStock <= reorderLevel) {
+      console.log('[deductInventory] Low stock alert for product', productId, '- current stock:', newStock, 'reorder level:', reorderLevel);
 
       const { data: product, error: productError } = await supabase
         .from('products')
@@ -170,7 +208,7 @@ const deductInventory = async (items) => {
           .insert({
             target_role: 'ADMIN,CASHIER',
             type: 'inventory',
-            message: `Low stock: ${product.name} has only ${newStock} units remaining (Reorder level: ${inventory.reorder_level})`,
+            message: `Low stock: ${product.name} has only ${newStock} units remaining (Reorder level: ${reorderLevel})`,
             related_order_id: productId,
             created_at: new Date().toISOString()
           });
@@ -193,7 +231,6 @@ const createOrder = async (orderData) => {
     throw new Error('No items in order');
   }
 
-  // Get product prices
   const { data: products, error: prodError } = await supabase
     .from('products')
     .select('id, unit_price')
@@ -204,25 +241,25 @@ const createOrder = async (orderData) => {
     throw new Error(`Products error: ${prodError.message}`);
   }
 
-  // Calculate total
   const total = items.reduce((sum, item) => {
     const product = products?.find(p => p.id === item.productId);
     return sum + (product ? product.unit_price * item.quantity : 0);
   }, 0);
 
   const isCash = paymentMethod === 'CASH';
+  const paymentStatus = isCash ? 'COMPLETED' : 'PENDING';
 
   console.log('[createOrder] Total amount:', total);
   console.log('[createOrder] Is Cash:', isCash);
+  console.log('[createOrder] Payment Status:', paymentStatus);
 
-  // Create order
   const { data: orderInsert, error: orderError } = await supabase
     .from('orders')
     .insert({
       customer_id: customerId,
       order_type: orderType,
       payment_method: paymentMethod,
-      payment_status: isCash ? 'COMPLETED' : 'PENDING',
+      payment_status: paymentStatus,
       order_status: 'PLACED',
       total_amount: total,
       delivery_location: deliveryLocation || null,
@@ -237,7 +274,6 @@ const createOrder = async (orderData) => {
 
   console.log('[createOrder] Order created with ID:', orderInsert.id);
 
-  // Create order items
   const orderItems = items.map((item) => {
     const product = products?.find(p => p.id === item.productId);
     return {
@@ -266,7 +302,7 @@ const createOrder = async (orderData) => {
       console.log('[createOrder] Deducting inventory for cash order...');
       await deductInventory(items);
       console.log('[createOrder] Inventory deducted successfully');
-      
+
       const orderStatus = orderType === 'PICKUP' ? 'COMPLETED' : 'PLACED';
       await supabase
         .from('orders')
@@ -275,15 +311,21 @@ const createOrder = async (orderData) => {
           updated_at: new Date().toISOString()
         })
         .eq('id', orderInsert.id);
-      
+
       console.log('[createOrder] Order status updated to:', orderStatus);
     } catch (inventoryError) {
-      console.error('[createOrder] Inventory deduction failed:', inventoryError);
-      // Don't throw - order is already created, but log the error
+      // ✅ FIX: don't silently swallow this. A cash order that "succeeds"
+      // while stock silently fails to deduct is worse than a failed order.
+      // Roll back the order + items and surface the real error to the caller.
+      console.error('[createOrder] Inventory deduction failed, rolling back order:', inventoryError);
+      await supabase.from('order_items').delete().eq('order_id', orderInsert.id);
+      await supabase.from('orders').delete().eq('id', orderInsert.id);
+      throw new Error(`Order creation failed during inventory deduction: ${inventoryError.message}`);
     }
+  } else {
+    console.log('[createOrder] Online payment - inventory will be deducted after payment confirmation');
   }
 
-  // Fetch customer details
   const { data: customer, error: customerError } = await supabase
     .from('users')
     .select('email, phone, name, address')
@@ -294,9 +336,9 @@ const createOrder = async (orderData) => {
     console.warn('[createOrder] Could not fetch customer details:', customerError.message);
   }
 
-  return { 
-    id: orderInsert.id, 
-    total, 
+  return {
+    id: orderInsert.id,
+    total,
     customerEmail: customer?.email || null,
     customerPhone: customer?.phone || null,
     customerName: customer?.name || null,
@@ -318,7 +360,6 @@ const completeOrder = async (orderId, items) => {
     throw new Error('Items are required to complete order');
   }
 
-  // First, get the order to check order_type
   const { data: orderData, error: fetchError } = await supabase
     .from('orders')
     .select('order_type, payment_status')
@@ -330,16 +371,13 @@ const completeOrder = async (orderId, items) => {
     throw new Error(`Failed to fetch order: ${fetchError.message}`);
   }
 
-  // Check if order is already completed
   if (orderData.payment_status === 'COMPLETED') {
     console.log('[completeOrder] Order already completed');
     return orderData;
   }
 
-  // Determine order status based on order type
   const orderStatus = orderData.order_type === 'PICKUP' ? 'COMPLETED' : 'PLACED';
 
-  // Update order payment status and order status
   const { data: order, error: updateError } = await supabase
     .from('orders')
     .update({
@@ -348,7 +386,7 @@ const completeOrder = async (orderId, items) => {
       updated_at: new Date().toISOString()
     })
     .eq('id', orderId)
-    .select('*, users ( email, phone )')   // ✅ join users so caller can notify
+    .select('*, users ( email, phone )')
     .single();
 
   if (updateError) {
@@ -358,7 +396,7 @@ const completeOrder = async (orderId, items) => {
 
   console.log('[completeOrder] Order', orderId, 'payment status updated to COMPLETED, order status:', orderStatus);
 
-  // Deduct inventory after payment confirmation
+  // ✅ Deduct inventory AFTER payment confirmation
   try {
     await deductInventory(items);
     console.log('[completeOrder] Inventory deducted for order', orderId);
@@ -406,7 +444,7 @@ const getOrdersByUserId = async (userId) => {
   }));
 };
 
-// ========== GET SINGLE ORDER (with optional admin bypass) ==========
+// ========== GET SINGLE ORDER ==========
 const getOrderById = async (orderId, userId, isAdmin = false) => {
   let query = supabase
     .from('orders')
@@ -461,7 +499,7 @@ const getOrderById = async (orderId, userId, isAdmin = false) => {
   };
 };
 
-// ========== GET ORDER ITEMS BY ORDER ID ==========
+// ========== GET ORDER ITEMS ==========
 const getOrderItems = async (orderId) => {
   const { data, error } = await supabase
     .from('order_items')
@@ -643,7 +681,7 @@ const assignDeliveryPerson = async (orderId, deliveryPersonId, assignedBy) => {
   return { delivery, order };
 };
 
-// ========== FAIL ORDER (Payment failed) ==========
+// ========== FAIL ORDER ==========
 const failOrder = async (orderId) => {
   console.log('[failOrder] Marking payment as FAILED for order', orderId);
 
@@ -666,7 +704,7 @@ const failOrder = async (orderId) => {
   return order;
 };
 
-// ========== GET ORDER WITH FULL DETAILS ==========
+// ========== GET ORDER WITH DETAILS ==========
 const getOrderWithDetails = async (orderId) => {
   const { data, error } = await supabase
     .from('orders')
@@ -795,19 +833,16 @@ const getOrderStatusHistory = async (orderId) => {
     }
   }
 
-  return history.sort((a, b) => 
+  return history.sort((a, b) =>
     new Date(b.created_at) - new Date(a.created_at)
   );
 };
 
-// backend/src/services/ordersService.js
-
-// ========== GET CURRENT WATER PRICE ==========
+// ========== WATER PRICING ==========
 const getWaterPrice = async () => {
   try {
     console.log('[getWaterPrice] Fetching water price from database...');
-    
-    // Try to get active price
+
     const { data, error } = await supabase
       .from('water_pricing')
       .select('price_per_liter')
@@ -817,7 +852,6 @@ const getWaterPrice = async () => {
       .single();
 
     if (error) {
-      // If no active price found, try to get any price
       if (error.code === 'PGRST116') {
         console.log('[getWaterPrice] No active price found, looking for any price...');
         const { data: anyData, error: anyError } = await supabase
@@ -832,7 +866,6 @@ const getWaterPrice = async () => {
           return parseFloat(anyData.price_per_liter) || 50.00;
         }
 
-        // No data at all - insert default
         console.log('[getWaterPrice] No data found, inserting default price...');
         const { data: insertData, error: insertError } = await supabase
           .from('water_pricing')
@@ -868,7 +901,6 @@ const getWaterPrice = async () => {
 // ========== UPDATE WATER PRICE ==========
 const updateWaterPrice = async (pricePerLiter, userId) => {
   try {
-    // Get profile ID from user ID
     let profileId = null;
     if (userId) {
       const { data: profile, error: profileError } = await supabase
@@ -876,19 +908,17 @@ const updateWaterPrice = async (pricePerLiter, userId) => {
         .select('id')
         .eq('id', userId)
         .single();
-      
+
       if (!profileError && profile) {
         profileId = profile.id;
       }
     }
 
-    // Set all existing records to inactive
     await supabase
       .from('water_pricing')
       .update({ is_active: false })
       .neq('id', 0);
 
-    // Insert new price
     const { data, error } = await supabase
       .from('water_pricing')
       .insert({
@@ -911,7 +941,7 @@ const updateWaterPrice = async (pricePerLiter, userId) => {
   }
 };
 
-// ========== CREATE BULK WATER ORDER ==========
+// ========== BULK WATER ORDER ==========
 const createBulkWaterOrder = async (orderData) => {
   console.log('[createBulkWaterOrder] Creating bulk water order:', orderData);
 
@@ -987,8 +1017,8 @@ module.exports = {
   createDelivery,
   getOrderItems,
   deductInventory,
-  getWaterPrice,       
-  updateWaterPrice,    
+  getWaterPrice,
+  updateWaterPrice,
   createBulkWaterOrder,
-  getBulkWaterOrders   
+  getBulkWaterOrders
 };

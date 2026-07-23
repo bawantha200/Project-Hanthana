@@ -1,3 +1,4 @@
+// backend/src/routes/ordersRoutes.js
 const express = require('express');
 const router = express.Router();
 const {
@@ -7,7 +8,7 @@ const {
   getProducts,
   postOrder,
   completeOrderPayment,
-  failOrderPayment,        // ✅ import add karanna
+  failOrderPayment,
   updateStatus,
   assignDelivery,
   getDeliveryPersonnelList,
@@ -16,7 +17,6 @@ const {
 } = require('../controllers/ordersController');
 const { protect } = require('../middlewares/authMiddleware');
 
-// ✅ Import ordersService for water routes
 const ordersService = require('../services/ordersService');
 
 // ========== PUBLIC ROUTES (No authentication required) ==========
@@ -36,11 +36,13 @@ router.get('/water-price', async (req, res) => {
 // ========== PROTECTED ROUTES ==========
 router.use(protect);
 
+// Order routes
 router.get('/', getOrders);
 router.get('/users', getUsers);
 router.get('/products', getProducts);
 router.post('/', postOrder);
 
+// Single order routes
 router.get('/:id', getOrder);
 router.get('/:id/details', getOrderDetails);
 router.put('/:id/status', updateStatus);
@@ -48,11 +50,13 @@ router.put('/:id/assign', assignDelivery);
 router.put('/:id/delivery', updateDelivery);
 
 // Complete order after payment (deduct inventory)
+// IMPORTANT: This is called after successful payment
 router.put('/:id/complete', completeOrderPayment);
 
-// ✅ Fail order payment
+// Fail order payment
 router.put('/:id/fail', failOrderPayment);
 
+// Delivery personnel
 router.get('/delivery/personnel', getDeliveryPersonnelList);
 
 // ========== WATER PRICING ROUTES (Protected) ==========
@@ -60,14 +64,14 @@ router.put('/water-price', async (req, res) => {
   try {
     const { price } = req.body;
     const userId = req.user.id;
-    
+
     if (!price || price <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Valid price per liter is required' 
+      return res.status(400).json({
+        success: false,
+        message: 'Valid price per liter is required'
       });
     }
-    
+
     const result = await ordersService.updateWaterPrice(price, userId);
     res.json({ success: true, message: 'Water price updated successfully', data: result });
   } catch (error) {
@@ -81,10 +85,9 @@ router.post('/bulk-water', async (req, res) => {
   try {
     const { customerId, customerName, customerPhone, liters, paymentMethod } = req.body;
     const userId = req.user.id;
-    
-    // Get current price
+
     const pricePerLiter = await ordersService.getWaterPrice();
-    
+
     const order = await ordersService.createBulkWaterOrder({
       customerId,
       customerName,
@@ -94,7 +97,7 @@ router.post('/bulk-water', async (req, res) => {
       paymentMethod,
       userId
     });
-    
+
     res.json({ success: true, order });
   } catch (error) {
     console.error('[POST /bulk-water] Error:', error);
