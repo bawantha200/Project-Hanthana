@@ -34,9 +34,9 @@ const getRefill19LProduct = async () => {
   }
 };
 
-// ============ UPDATE EMPTY BOTTLE STOCK FOR ALL 19L PRODUCTS ============
-const updateEmptyBottleStockForAll19L = async (quantity, operation = 'add', notes = '') => {
-  console.log(`📦 [updateEmptyBottleStockForAll19L] ${operation} ${quantity} empty bottles for ALL 19L products...`);
+// ============ UPDATE EMPTY BOTTLE STOCK FOR 19L PRODUCTS ONLY (SHARED) ============
+const updateEmptyBottleStockFor19L = async (quantity, operation = 'add', notes = '') => {
+  console.log(`📦 [updateEmptyBottleStockFor19L] ${operation} ${quantity} empty bottles for 19L products...`);
 
   if (!quantity || quantity <= 0) {
     console.log('ℹ️ No empty bottles to update');
@@ -56,21 +56,86 @@ const updateEmptyBottleStockForAll19L = async (quantity, operation = 'add', note
     let results = [];
     let totalUpdated = 0;
 
-    for (const product of all19LProducts) {
-      console.log(`📊 Processing product: ${product.name} (ID: ${product.id})`);
+    // First, check if we have enough empty bottles (check the first 19L product)
+    const firstProduct = all19LProducts[0];
+    const { data: checkInventory, error: checkError } = await supabase
+      .from('inventory')
+      .select('empty_bottle_stock')
+      .eq('product_id', firstProduct.id)
+      .maybeSingle();
 
-      const { data: existingInventory, error: checkError } = await supabase
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('❌ Error checking inventory:', checkError);
+    }
+
+    const currentEmpty = checkInventory?.empty_bottle_stock || 0;
+
+    if (operation === 'subtract' && currentEmpty < quantity) {
+      throw new Error(`Insufficient empty bottles in 19L products. Available: ${currentEmpty}, Required: ${quantity}`);
+    }
+
+    for (const product of all19LProducts) {
+      console.log(`📊 Processing 19L product: ${product.name} (ID: ${product.id})`);
+
+      const { data: existingInventory, error: invError } = await supabase
         .from('inventory')
         .select('id, empty_bottle_stock, current_stock')
         .eq('product_id', product.id)
         .maybeSingle();
 
-      if (checkError && checkError.code !== 'PGRST116') {
-        console.error(`❌ Error checking inventory for ${product.name}:`, checkError);
+      if (invError && invError.code !== 'PGRST116') {
+        console.error(`❌ Error checking inventory for ${product.name}:`, invError);
         continue;
       }
 
-      const currentStock = existingInventory?.empty_bottle_stock || 0;
+      if (!existingInventory) {
+        const { data: newInventory, error: createError } = await supabase
+          .from('inventory')
+          .insert({
+            product_id: product.id,
+            current_stock: 0,
+            empty_bottle_stock: 0,
+            reorder_level: 50,
+            last_updated: new Date().toISOString(),
+            last_empty_updated: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error(`❌ Failed to create inventory for ${product.name}:`, createError);
+          continue;
+        }
+        
+        let newStock;
+        if (operation === 'add') {
+          newStock = quantity;
+        } else {
+          newStock = 0;
+        }
+
+        const { data: updatedInventory, error: updateError } = await supabase
+          .from('inventory')
+          .update({
+            empty_bottle_stock: newStock,
+            last_empty_updated: new Date().toISOString()
+          })
+          .eq('id', newInventory.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error(`❌ Failed to update ${product.name}:`, updateError);
+          continue;
+        }
+        
+        results.push(updatedInventory);
+        totalUpdated++;
+        console.log(`✅ ${product.name}: 0 -> ${newStock} (new inventory created)`);
+        continue;
+      }
+
+      const currentStock = existingInventory.empty_bottle_stock || 0;
       let newStock;
 
       if (operation === 'add') {
@@ -85,48 +150,24 @@ const updateEmptyBottleStockForAll19L = async (quantity, operation = 'add', note
         throw new Error('Invalid operation. Use "add" or "subtract"');
       }
 
-      let result;
-      if (existingInventory) {
-        const { data, error } = await supabase
-          .from('inventory')
-          .update({
-            empty_bottle_stock: newStock,
-            last_empty_updated: new Date().toISOString()
-          })
-          .eq('id', existingInventory.id)
-          .select()
-          .single();
+      const { data: updatedInventory, error: updateError } = await supabase
+        .from('inventory')
+        .update({
+          empty_bottle_stock: newStock,
+          last_empty_updated: new Date().toISOString()
+        })
+        .eq('id', existingInventory.id)
+        .select()
+        .single();
 
-        if (error) {
-          console.error(`❌ Failed to update ${product.name}:`, error);
-          continue;
-        }
-        result = data;
-        console.log(`✅ ${product.name}: ${currentStock} -> ${newStock}`);
-      } else {
-        const { data, error } = await supabase
-          .from('inventory')
-          .insert({
-            product_id: product.id,
-            current_stock: 0,
-            empty_bottle_stock: quantity,
-            reorder_level: 50,
-            last_updated: new Date().toISOString(),
-            last_empty_updated: new Date().toISOString()
-          })
-          .select()
-          .single();
-
-        if (error) {
-          console.error(`❌ Failed to create inventory for ${product.name}:`, error);
-          continue;
-        }
-        result = data;
-        console.log(`✅ ${product.name}: New inventory created with ${quantity} empty bottles`);
+      if (updateError) {
+        console.error(`❌ Failed to update ${product.name}:`, updateError);
+        continue;
       }
 
-      results.push(result);
+      results.push(updatedInventory);
       totalUpdated++;
+      console.log(`✅ ${product.name}: ${currentStock} -> ${newStock}`);
 
       await supabase
         .from('inventory_transactions')
@@ -137,19 +178,19 @@ const updateEmptyBottleStockForAll19L = async (quantity, operation = 'add', note
           reason: operation === 'add' ? 'delivery_completed' : 'production_usage',
           notes: notes || (operation === 'add' 
             ? `Collected ${quantity} empty bottles for ${product.name}` 
-            : `Used ${quantity} empty bottles for ${product.name}`)
+            : `Used ${quantity} empty bottles from ${product.name}`)
         });
     }
 
     console.log(`✅ Successfully updated ${totalUpdated} of ${all19LProducts.length} 19L products`);
     return results;
   } catch (err) {
-    console.error('💥 [updateEmptyBottleStockForAll19L] Unexpected error:', err);
+    console.error('💥 [updateEmptyBottleStockFor19L] Unexpected error:', err);
     throw err;
   }
 };
 
-// ============ GET EMPTY BOTTLE STOCK ============
+// ============ GET EMPTY BOTTLE STOCK (from 19L products) ============
 const getEmptyBottleStock = async () => {
   try {
     const all19LProducts = await getAll19LProducts();
@@ -176,6 +217,93 @@ const getEmptyBottleStock = async () => {
   } catch (error) {
     console.error('Error in getEmptyBottleStock:', error);
     return { stock: 0, products: [] };
+  }
+};
+
+// ============ UPDATE EMPTY BOTTLE STOCK FOR A SPECIFIC PRODUCT ============
+const updateProductEmptyBottleStock = async (productId, quantity, operation = 'add', notes = '') => {
+  console.log(`📦 [updateProductEmptyBottleStock] ${operation} ${quantity} empty bottles for product ID: ${productId}`);
+
+  if (!quantity || quantity <= 0) {
+    console.log('ℹ️ No empty bottles to update');
+    return null;
+  }
+
+  try {
+    const { data: existingInventory, error: checkError } = await supabase
+      .from('inventory')
+      .select('id, empty_bottle_stock, current_stock')
+      .eq('product_id', productId)
+      .maybeSingle();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      throw new Error(`Failed to fetch inventory: ${checkError.message}`);
+    }
+
+    const currentStock = existingInventory?.empty_bottle_stock || 0;
+    let newStock;
+
+    if (operation === 'add') {
+      newStock = currentStock + quantity;
+    } else if (operation === 'subtract') {
+      if (currentStock < quantity) {
+        throw new Error(`Insufficient empty bottles. Available: ${currentStock}, Required: ${quantity}`);
+      }
+      newStock = currentStock - quantity;
+    } else {
+      throw new Error('Invalid operation. Use "add" or "subtract"');
+    }
+
+    let result;
+    if (existingInventory) {
+      const { data, error } = await supabase
+        .from('inventory')
+        .update({
+          empty_bottle_stock: newStock,
+          last_empty_updated: new Date().toISOString()
+        })
+        .eq('id', existingInventory.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+      console.log(`✅ Product ${productId}: ${currentStock} -> ${newStock}`);
+    } else {
+      const { data, error } = await supabase
+        .from('inventory')
+        .insert({
+          product_id: productId,
+          current_stock: 0,
+          empty_bottle_stock: quantity,
+          reorder_level: 50,
+          last_updated: new Date().toISOString(),
+          last_empty_updated: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+      console.log(`✅ Product ${productId}: New inventory created with ${quantity} empty bottles`);
+    }
+
+    await supabase
+      .from('inventory_transactions')
+      .insert({
+        product_id: productId,
+        quantity: operation === 'add' ? quantity : -quantity,
+        type: operation === 'add' ? 'empty_bottle_add' : 'empty_bottle_usage',
+        reason: operation === 'add' ? 'manual_add' : 'usage',
+        notes: notes || (operation === 'add' 
+          ? `Added ${quantity} empty bottles` 
+          : `Used ${quantity} empty bottles`)
+      });
+
+    return result;
+  } catch (err) {
+    console.error('💥 [updateProductEmptyBottleStock] Unexpected error:', err);
+    throw err;
   }
 };
 
@@ -331,6 +459,7 @@ const stockService = {
     }
   },
 
+  // Add stock - MAIN LOGIC
   async addStock(productId, quantity, reason = 'restock', notes = '') {
     try {
       console.log('═══════════════════════════════════════════════════');
@@ -365,6 +494,7 @@ const stockService = {
       console.log(`📊 Is Sealed: ${isSealed}`);
       console.log(`📊 Is 19L: ${is19L}`);
 
+      // Get current inventory for this product
       const { data: existingInventory, error: fetchError } = await supabase
         .from('inventory')
         .select('id, current_stock, empty_bottle_stock')
@@ -373,231 +503,53 @@ const stockService = {
 
       if (fetchError) throw fetchError;
 
+      // Check if this is a production/restock operation (uses empty bottles)
       const isProduction = reason === 'production' || 
                           reason === 'restock' || 
                           reason === 'adjustment' ||
+                          reason === 'vendor_order_delivered' ||
                           notes?.toLowerCase().includes('produce') ||
                           notes?.toLowerCase().includes('restock');
 
       // ============================================================
-      // CASE 1: 19L Sealed Product - Uses its OWN empty bottles
+      // STEP 1: Handle empty_bottle_stock update
       // ============================================================
-      if (is19L && isSealed && isProduction) {
-        console.log(`🔄 Adding to ${product.name} - decreasing its OWN empty stock, increasing sealed stock`);
-        
-        const currentEmpty = existingInventory?.empty_bottle_stock || 0;
-        
-        if (currentEmpty < qty) {
-          throw new Error(`Insufficient empty bottles for ${product.name}. Available: ${currentEmpty}, Required: ${qty}`);
+      if (isProduction) {
+        // ============================================================
+        // CASE A: 19L Products (Refill 19L or Sealed 19L) - Use SHARED empty stock
+        // ============================================================
+        if (is19L) {
+          console.log(`🔄 Restocking 19L product (${product.name}) - using SHARED 19L empty stock`);
+          
+          const { stock: currentEmpty } = await getEmptyBottleStock();
+          
+          if (currentEmpty < qty) {
+            throw new Error(`Insufficient shared empty bottles. Available: ${currentEmpty}, Required: ${qty}`);
+          }
+
+          // Decrease empty stock from ALL 19L products
+          await updateEmptyBottleStockFor19L(qty, 'subtract', `Used ${qty} shared empty bottles to restock ${product.name}`);
         }
+        // ============================================================
+        // CASE B: Non-19L Products (500ml, 1L, 1.5L, 5L) - Use THEIR OWN empty stock
+        // ============================================================
+        else {
+          console.log(`🔄 Restocking non-19L product (${product.name}) - using its OWN empty stock`);
+          
+          const currentEmpty = existingInventory?.empty_bottle_stock || 0;
+          
+          if (currentEmpty < qty) {
+            throw new Error(`Insufficient empty bottles for ${product.name}. Available: ${currentEmpty}, Required: ${qty}`);
+          }
 
-        const currentSealed = existingInventory?.current_stock || 0;
-        const newSealed = currentSealed + qty;
-        const newEmpty = currentEmpty - qty;
-
-        let updatedInventory;
-        if (existingInventory) {
-          const { data, error } = await supabase
-            .from('inventory')
-            .update({
-              current_stock: newSealed,
-              empty_bottle_stock: newEmpty,
-              last_updated: new Date().toISOString(),
-              last_empty_updated: new Date().toISOString()
-            })
-            .eq('id', existingInventory.id)
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedInventory = data;
-        } else {
-          const { data, error } = await supabase
-            .from('inventory')
-            .insert({
-              product_id: productId,
-              current_stock: qty,
-              empty_bottle_stock: 0,
-              reorder_level: 50,
-              last_updated: new Date().toISOString(),
-              last_empty_updated: new Date().toISOString()
-            })
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedInventory = data;
+          // Decrease empty stock from this specific product only
+          await updateProductEmptyBottleStock(productId, qty, 'subtract', `Used ${qty} empty bottles to restock ${product.name}`);
         }
-
-        await supabase
-          .from('inventory_transactions')
-          .insert([{
-            product_id: productId,
-            quantity: qty,
-            type: 'add',
-            reason: reason || 'production',
-            notes: notes || `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`
-          }]);
-
-        // Record empty bottle usage transaction
-        await supabase
-          .from('inventory_transactions')
-          .insert([{
-            product_id: productId,
-            quantity: -qty,
-            type: 'empty_bottle_usage',
-            reason: 'production',
-            notes: `Used ${qty} empty bottles to produce ${product.name}`
-          }]);
-
-        return {
-          success: true,
-          message: `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`,
-          inventory: updatedInventory
-        };
       }
 
       // ============================================================
-      // CASE 2: Sealed non-19L - Uses its OWN empty bottles
+      // STEP 2: Update current_stock for the specific product
       // ============================================================
-      if (isSealed && !is19L && isProduction) {
-        console.log(`🔄 Adding to ${product.name} - decreasing its OWN empty stock, increasing sealed stock`);
-        
-        const currentEmpty = existingInventory?.empty_bottle_stock || 0;
-        
-        if (currentEmpty < qty) {
-          throw new Error(`Insufficient empty bottles for ${product.name}. Available: ${currentEmpty}, Required: ${qty}`);
-        }
-
-        const currentSealed = existingInventory?.current_stock || 0;
-        const newSealed = currentSealed + qty;
-        const newEmpty = currentEmpty - qty;
-
-        let updatedInventory;
-        if (existingInventory) {
-          const { data, error } = await supabase
-            .from('inventory')
-            .update({
-              current_stock: newSealed,
-              empty_bottle_stock: newEmpty,
-              last_updated: new Date().toISOString(),
-              last_empty_updated: new Date().toISOString()
-            })
-            .eq('id', existingInventory.id)
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedInventory = data;
-        } else {
-          const { data, error } = await supabase
-            .from('inventory')
-            .insert({
-              product_id: productId,
-              current_stock: qty,
-              empty_bottle_stock: 0,
-              reorder_level: 50,
-              last_updated: new Date().toISOString(),
-              last_empty_updated: new Date().toISOString()
-            })
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedInventory = data;
-        }
-
-        await supabase
-          .from('inventory_transactions')
-          .insert([{
-            product_id: productId,
-            quantity: qty,
-            type: 'add',
-            reason: reason || 'production',
-            notes: notes || `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`
-          }]);
-
-        // Record empty bottle usage transaction
-        await supabase
-          .from('inventory_transactions')
-          .insert([{
-            product_id: productId,
-            quantity: -qty,
-            type: 'empty_bottle_usage',
-            reason: 'production',
-            notes: `Used ${qty} empty bottles to produce ${product.name}`
-          }]);
-
-        return {
-          success: true,
-          message: `Added ${qty} ${product.name} (used ${qty} empty bottles from ${product.name})`,
-          inventory: updatedInventory
-        };
-      }
-
-      // ============================================================
-      // CASE 3: Manual Empty Bottle Add - Increases empty stock for this specific product
-      // ============================================================
-      if (reason === 'manual_empty_add') {
-        console.log('🔄 Manual empty bottle add - increasing empty stock for this product only');
-        
-        const currentEmpty = existingInventory?.empty_bottle_stock || 0;
-        const newEmpty = currentEmpty + qty;
-
-        let updatedInventory;
-        if (existingInventory) {
-          const { data, error } = await supabase
-            .from('inventory')
-            .update({
-              empty_bottle_stock: newEmpty,
-              last_empty_updated: new Date().toISOString()
-            })
-            .eq('id', existingInventory.id)
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedInventory = data;
-        } else {
-          const { data, error } = await supabase
-            .from('inventory')
-            .insert({
-              product_id: productId,
-              current_stock: 0,
-              empty_bottle_stock: qty,
-              reorder_level: 50,
-              last_updated: new Date().toISOString(),
-              last_empty_updated: new Date().toISOString()
-            })
-            .select()
-            .single();
-
-          if (error) throw error;
-          updatedInventory = data;
-        }
-
-        await supabase
-          .from('inventory_transactions')
-          .insert([{
-            product_id: productId,
-            quantity: qty,
-            type: 'empty_bottle_add',
-            reason: 'manual',
-            notes: notes || `Added ${qty} empty bottles manually for ${product.name}`
-          }]);
-
-        return {
-          success: true,
-          message: `Added ${qty} empty bottles to ${product.name}`,
-          inventory: updatedInventory
-        };
-      }
-
-      // ============================================================
-      // DEFAULT: Just increase current_stock (no empty bottle change)
-      // ============================================================
-      console.log('🔄 Adding to product - increasing sealed stock only (no empty bottle change)');
-      
       const currentStock = existingInventory?.current_stock || 0;
       const newStock = currentStock + qty;
 
@@ -621,8 +573,10 @@ const stockService = {
           .insert({
             product_id: productId,
             current_stock: qty,
+            empty_bottle_stock: 0,
             reorder_level: 50,
-            last_updated: new Date().toISOString()
+            last_updated: new Date().toISOString(),
+            last_empty_updated: new Date().toISOString()
           })
           .select()
           .single();
@@ -631,6 +585,7 @@ const stockService = {
         updatedInventory = data;
       }
 
+      // Record transaction for this product
       await supabase
         .from('inventory_transactions')
         .insert([{
@@ -641,11 +596,15 @@ const stockService = {
           notes: notes || `Added ${qty} ${product.name}`
         }]);
 
+      console.log(`✅ Added ${qty} to ${product.name} current_stock`);
+      console.log('═══════════════════════════════════════════════════');
+
       return {
         success: true,
         message: `Added ${qty} ${product.name}`,
         inventory: updatedInventory
       };
+      
     } catch (error) {
       console.error('❌ Error in addStock:', error);
       throw error;
@@ -678,7 +637,7 @@ const stockService = {
 
       if (checkError) throw checkError;
 
-      console.log('🔄 Reducing SEALED product - decreasing sealed stock');
+      console.log('🔄 Reducing product - decreasing sealed stock');
       const currentStock = existingInventory?.current_stock || 0;
       
       if (currentStock < quantity) {
@@ -820,10 +779,71 @@ const stockService = {
     }
   },
 
-  // Sync empty bottle stock
+  // Sync empty bottle stock - ensures all 19L products have the same empty_bottle_stock
   async syncEmptyBottleStock() {
     try {
-      console.log('🔄 Syncing empty bottle stock...');
+      console.log('🔄 Syncing empty bottle stock across all 19L products...');
+      
+      const all19LProducts = await getAll19LProducts();
+      if (all19LProducts.length <= 1) {
+        console.log('ℹ️ Only one or zero 19L products, no sync needed');
+        return { success: true, message: 'No sync needed' };
+      }
+
+      const firstProduct = all19LProducts[0];
+      const { data: inv, error } = await supabase
+        .from('inventory')
+        .select('empty_bottle_stock')
+        .eq('product_id', firstProduct.id)
+        .maybeSingle();
+      
+      if (error || !inv) {
+        console.log('⚠️ Could not get stock from first 19L product');
+        return { success: true, message: 'Sync skipped' };
+      }
+
+      const syncStock = inv.empty_bottle_stock || 0;
+      console.log(`📊 Syncing all 19L products to ${syncStock} empty bottles`);
+
+      for (const product of all19LProducts) {
+        if (product.id !== firstProduct.id) {
+          const { data: existingInventory, error: checkError } = await supabase
+            .from('inventory')
+            .select('id')
+            .eq('product_id', product.id)
+            .maybeSingle();
+
+          if (checkError && checkError.code !== 'PGRST116') {
+            console.error(`❌ Error checking inventory for ${product.name}:`, checkError);
+            continue;
+          }
+
+          if (existingInventory) {
+            await supabase
+              .from('inventory')
+              .update({
+                empty_bottle_stock: syncStock,
+                last_empty_updated: new Date().toISOString()
+              })
+              .eq('product_id', product.id);
+            console.log(`✅ Synced ${product.name} to ${syncStock}`);
+          } else {
+            await supabase
+              .from('inventory')
+              .insert({
+                product_id: product.id,
+                current_stock: 0,
+                empty_bottle_stock: syncStock,
+                reorder_level: 50,
+                last_updated: new Date().toISOString(),
+                last_empty_updated: new Date().toISOString()
+              });
+            console.log(`✅ Created inventory for ${product.name} with ${syncStock} empty bottles`);
+          }
+        }
+      }
+      
+      console.log(`✅ Sync completed! All 19L products have ${syncStock} empty bottles`);
       return { success: true, message: 'Sync completed' };
     } catch (error) {
       console.error('Error in syncEmptyBottleStock:', error);
