@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Search, Filter, Mail, Phone, MapPin, ShoppingBag, DollarSign, ToggleLeft, ToggleRight, X, Save, User, Calendar, ShieldCheck } from 'lucide-react';
+import { Users, Search, Filter, Mail, Phone, MapPin, ShoppingBag, DollarSign, ToggleLeft, ToggleRight, X, User, Calendar, ShieldCheck } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import { formatCurrency } from '../../utils/helpers';
 
@@ -33,15 +33,13 @@ const summaryCards = [
 export default function Customers() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   // Modal states
   const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', address: '' });
-  const [isSaving, setIsSaving] = useState(false);
-  
+
   // Confirmation Modal State
   const [confirmToggle, setConfirmToggle] = useState({ isOpen: false, customerId: null, currentStatus: null });
-  
+
   // API states
   const [customers, setCustomers] = useState([]);
   const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, revenue: 0 });
@@ -65,7 +63,7 @@ export default function Customers() {
       const response = await fetch(url);
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      
+
       if (data.success) {
         setCustomers(data.data);
         setError(null);
@@ -90,56 +88,12 @@ export default function Customers() {
 
   const handleRowClick = (customer) => {
     setSelectedCustomer(customer);
-    setFormData({
-      name: customer.name || '',
-      email: customer.email || '',
-      phone: customer.phone || '',
-      address: customer.address || ''
-    });
   };
-
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSaveChanges = async (e) => {
-    e.preventDefault();
-    if (!selectedCustomer) return;
-
-    try {
-      setIsSaving(true);
-      const response = await fetch(`http://localhost:5000/api/customers/${selectedCustomer.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setCustomers(prev =>
-          prev.map(cust => (cust.id === selectedCustomer.id ? { ...cust, ...formData } : cust))
-        );
-        setSelectedCustomer(null);
-        alert('Customer profile updated successfully!');
-      } else {
-        alert('Update failed: ' + data.message);
-      }
-    } catch (err) {
-      console.error('Error updating customer:', err);
-      alert('Server error while saving changes.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
 
   const handleToggleClick = (id, currentStatus, e) => {
     if (e) e.stopPropagation();
     setConfirmToggle({ isOpen: true, customerId: id, currentStatus: currentStatus });
   };
-
 
   const processToggleStatus = async () => {
     const { customerId: id, currentStatus } = confirmToggle;
@@ -276,8 +230,8 @@ export default function Customers() {
                     <button
                       onClick={(e) => handleToggleClick(customer.id, customer.status, e)}
                       className={`p-1.5 rounded-lg border transition-all duration-200 shadow-sm ${
-                        customer.status === 'active' 
-                          ? 'border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100/70' 
+                        customer.status === 'active'
+                          ? 'border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100/70'
                           : 'border-red-200 text-red-500 bg-red-50 hover:bg-red-100/70'
                       }`}
                       title={customer.status === 'active' ? 'Click to Deactivate' : 'Click to Activate'}
@@ -296,7 +250,7 @@ export default function Customers() {
         </div>
       </motion.div>
 
-      {/* --- ALL DETAILS + EDIT FORM COMBINED MODAL --- */}
+      {/* --- READ-ONLY CUSTOMER DETAILS MODAL --- */}
       <AnimatePresence>
         {selectedCustomer && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -332,10 +286,10 @@ export default function Customers() {
 
               {/* 2-Column Main Grid Structure */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                
+
                 {/* LEFT SIDE: Non-editable Summary Stats (4 Columns) */}
                 <div className="lg:col-span-4 space-y-4">
-                  
+
                   {/* Account Badge Info */}
                   <div className="bg-gray-50/80 rounded-2xl border border-gray-100 p-5 flex flex-col items-center text-center">
                     <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center text-xl font-bold text-blue-600 mb-3">
@@ -345,12 +299,12 @@ export default function Customers() {
                     <div className="mt-2">
                       <StatusBadge status={selectedCustomer.status} />
                     </div>
-                    
+
                     <button
                       type="button"
                       onClick={(e) => handleToggleClick(selectedCustomer.id, selectedCustomer.status, e)}
                       className={`mt-4 w-full text-xs font-bold py-2.5 rounded-xl border transition-all duration-200 shadow-sm ${
-                        selectedCustomer.status === 'active' 
+                        selectedCustomer.status === 'active'
                           ? 'border-red-200 text-red-700 bg-red-50 hover:bg-red-100/80'
                           : 'border-emerald-200 text-emerald-700 bg-emerald-50 hover:bg-emerald-100/80'
                       }`}
@@ -362,7 +316,7 @@ export default function Customers() {
                   {/* Operational Metrics */}
                   <div className="bg-gray-50/80 rounded-2xl border border-gray-100 p-5 space-y-4">
                     <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Financial Overview</h4>
-                    
+
                     <div>
                       <div className="flex items-center justify-between text-sm mb-1.5">
                         <span className="text-gray-500 flex items-center gap-1.5"><ShoppingBag size={14} /> Total Orders</span>
@@ -392,96 +346,62 @@ export default function Customers() {
 
                 </div>
 
-                {/* RIGHT SIDE: Live Editable Form Fields (8 Columns) */}
+                {/* RIGHT SIDE: Read-only Contact Information (8 Columns) */}
                 <div className="lg:col-span-8 bg-gray-50/40 border border-gray-100 rounded-2xl p-5 md:p-6">
                   <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider flex items-center gap-2">
-                    <ShieldCheck size={16} className="text-blue-600" /> Modify Customer Information
+                    <ShieldCheck size={16} className="text-blue-600" /> Contact Information
                   </h3>
-                  
-                  <form onSubmit={handleSaveChanges} className="space-y-4">
-                    
+
+                  <div className="space-y-4">
+
                     {/* Name */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Full Name</label>
-                      <div className="relative">
-                        <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="text"
-                          name="name"
-                          required
-                          value={formData.name}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        />
+                      <div className="relative flex items-center gap-3 px-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-800">
+                        <User size={16} className="text-gray-400 shrink-0" />
+                        <span>{selectedCustomer.name || '—'}</span>
                       </div>
                     </div>
 
                     {/* Email */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Email Address</label>
-                      <div className="relative">
-                        <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="email"
-                          name="email"
-                          required
-                          value={formData.email}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        />
+                      <div className="relative flex items-center gap-3 px-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-800">
+                        <Mail size={16} className="text-gray-400 shrink-0" />
+                        <span>{selectedCustomer.email || '—'}</span>
                       </div>
                     </div>
 
                     {/* Phone */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Phone Number</label>
-                      <div className="relative">
-                        <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                        <input
-                          type="text"
-                          name="phone"
-                          value={formData.phone}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        />
+                      <div className="relative flex items-center gap-3 px-4 py-2.5 text-sm border border-gray-200 rounded-xl bg-white text-gray-800">
+                        <Phone size={16} className="text-gray-400 shrink-0" />
+                        <span>{selectedCustomer.phone || 'N/A'}</span>
                       </div>
                     </div>
 
                     {/* Address */}
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 uppercase mb-1.5">Postal Address</label>
-                      <div className="relative">
-                        <MapPin size={16} className="absolute left-3 top-3 text-gray-400" />
-                        <textarea
-                          name="address"
-                          rows="3"
-                          value={formData.address}
-                          onChange={handleInputChange}
-                          className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white resize-none"
-                        />
+                      <div className="relative flex items-start gap-3 px-4 py-3 text-sm border border-gray-200 rounded-xl bg-white text-gray-800 min-h-[84px]">
+                        <MapPin size={16} className="text-gray-400 shrink-0 mt-0.5" />
+                        <span>{selectedCustomer.address || '—'}</span>
                       </div>
                     </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100 mt-6">
+                    {/* Close action */}
+                    <div className="flex items-center justify-end pt-4 border-t border-gray-100 mt-6">
                       <button
                         type="button"
                         onClick={() => setSelectedCustomer(null)}
-                        className="px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100 transition-colors"
+                        className="px-5 py-2 rounded-xl text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
                       >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={isSaving}
-                        className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-medium bg-blue-600 text-white shadow-sm hover:bg-blue-700 transition-colors disabled:bg-blue-400"
-                      >
-                        <Save size={16} />
-                        {isSaving ? 'Saving...' : 'Save Changes'}
+                        Close
                       </button>
                     </div>
 
-                  </form>
+                  </div>
                 </div>
 
               </div>

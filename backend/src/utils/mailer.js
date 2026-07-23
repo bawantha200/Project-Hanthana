@@ -46,6 +46,40 @@ function getTransporter() {
 }
 
 /**
+ * Wraps a plain message (with \n line breaks already converted to <br>)
+ * in a simple branded HTML shell: logo header, divider, message body.
+ * Set EMAIL_LOGO_URL in .env to a public image URL (e.g. a Supabase
+ * Storage public bucket link) to show your logo at the top of every email.
+ */
+function buildBrandedHtml(bodyHtml) {
+  const logoUrl = process.env.EMAIL_LOGO_URL;
+  const brandName = process.env.SMTP_FROM_NAME || 'Hanthana Water';
+
+  const logoBlock = logoUrl
+    ? `<img src="${logoUrl}" alt="${brandName}" width="48" height="48" style="display:block; width:48px; height:48px; object-fit:contain;" />`
+    : `<span style="font-size: 18px; font-weight: bold; color: #1d4ed8;">${brandName}</span>`;
+
+  return `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding: 24px 24px 16px 24px;">
+        <tr>
+          <td style="width: 48px; vertical-align: middle;">
+            ${logoBlock}
+          </td>
+          <td style="vertical-align: middle; padding-left: 10px; font-size: 15px; font-weight: 600; color: #1f2937;">
+            ${brandName}
+          </td>
+        </tr>
+      </table>
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 0;" />
+      <div style="padding: 24px; line-height: 1.6;">
+        ${bodyHtml}
+      </div>
+    </div>
+  `;
+}
+
+/**
  * Resolves a comma-separated targetRole string (e.g. "CASHIER,ADMIN", "DELIVERY",
  * or "ALL") into a list of staff email addresses from the `profiles`/`roles`
  * tables. Customers (in the `users` table) are intentionally excluded — this
@@ -71,22 +105,27 @@ async function resolveRecipientEmails(targetRole) {
     return [];
   }
 
-  // Supabase's .in() on a joined table can still return rows where the join
-  // didn't match the filter (depending on join type), so filter defensively
-  // in JS as well.
   const roleNames = targetRole && targetRole !== 'ALL'
     ? targetRole.split(',').map((r) => r.trim().toUpperCase()).filter(Boolean)
     : null;
 
+  // ✅ Handle both shapes Supabase can return for the `roles` embed:
+  //    - object:  { role_name: 'ADMIN' }
+  //    - array:   [{ role_name: 'ADMIN' }]
+  const getRoleName = (roles) => {
+    if (!roles) return '';
+    if (Array.isArray(roles)) return (roles[0]?.role_name || '').toUpperCase();
+    return (roles.role_name || '').toUpperCase();
+  };
+
   const emails = (data || [])
     .filter((row) => {
       if (!roleNames) return true; // targetRole === 'ALL'
-      return roleNames.includes((row.roles?.role_name || '').toUpperCase());
+      return roleNames.includes(getRoleName(row.roles));
     })
     .map((row) => row.email)
     .filter(Boolean);
 
-  // De-duplicate in case someone holds multiple matching roles.
   return [...new Set(emails)];
 }
 
@@ -115,7 +154,7 @@ async function sendNotificationEmails({ targetRole = 'ALL', subject, message }) 
       to: recipients.join(','),
       subject: subject || 'Hanthana Notification',
       text: message,
-      html: `<p>${message}</p>`,
+      html: buildBrandedHtml(`<p>${message.replace(/\n/g, '<br>')}</p>`),
     });
     console.log(`📧 [mailer] Sent notification email to ${recipients.length} recipient(s).`);
   } catch (err) {
@@ -137,7 +176,7 @@ async function sendOrderConfirmationEmail({ customerEmail, subject, message }) {
       to: customerEmail,
       subject: subject || 'Order Confirmation',
       text: message,
-      html: `<p>${message}</p>`,
+      html: buildBrandedHtml(`<p>${message.replace(/\n/g, '<br>')}</p>`),
     });
     console.log(`📧 [mailer] Sent order confirmation to ${customerEmail}`);
   } catch (err) {
@@ -176,7 +215,7 @@ async function sendBroadcastEmailToCustomers({ subject, message }) {
       bcc: recipients.join(','),
       subject: subject || 'Hanthana Water Notice',
       text: message,
-      html: `<p>${message}</p>`,
+      html: buildBrandedHtml(`<p>${message.replace(/\n/g, '<br>')}</p>`),
     });
     console.log(`📧 [mailer] Sent broadcast email to ${recipients.length} customer(s).`);
   } catch (err) {
@@ -189,4 +228,3 @@ module.exports = {
   sendOrderConfirmationEmail,
   sendBroadcastEmailToCustomers,
 };
-

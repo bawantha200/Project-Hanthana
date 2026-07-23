@@ -87,6 +87,24 @@ export default function Employees() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 
+  // Validation states
+  const [validationErrors, setValidationErrors] = useState({
+    fullName: '',
+    email: '',
+    phoneNo: '',
+    nic: '',
+    gender: '',
+    designation: '',
+    address: '',
+    hiredDate: '',
+    birthday: '',
+    marriageStatus: '',
+    jobType: '',
+    baseSalary: '',
+    bonus: '',
+    status: ''
+  });
+
   // Designation CRUD States
   const [designations, setDesignations] = useState(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
   const [showDesignationModal, setShowDesignationModal] = useState(false);
@@ -105,15 +123,219 @@ export default function Employees() {
     nic: '',
     phoneNo: '',
     designation: '',
-    designationId: '', // Added for tracking designation ID
+    designationId: '',
     address: '',
     marriageStatus: '',
     hiredDate: '',
     jobType: '',
     profileImage: null,
     baseSalary: '',
-    bonus: ''
+    bonus: '',
+    status: 'active'
   });
+
+  // Validation functions
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const validatePhone = (phone) => {
+    // Sri Lankan phone number validation (10 digits starting with 0)
+    const phoneRegex = /^0[0-9]{9}$/;
+    return phoneRegex.test(phone);
+  };
+
+  const validateNIC = (nic) => {
+    // Sri Lankan NIC validation (old: 9 digits + V/X, new: 12 digits)
+    const oldNICRegex = /^[0-9]{9}[VvXx]$/;
+    const newNICRegex = /^[0-9]{12}$/;
+    return oldNICRegex.test(nic) || newNICRegex.test(nic);
+  };
+
+  const validateFullName = (name) => {
+    return name.trim().length >= 2;
+  };
+
+  const validateGender = (gender) => {
+    return gender && gender !== '';
+  };
+
+  const validateDesignation = (designation) => {
+    return designation && designation !== '';
+  };
+
+  const validateAddress = (address) => {
+    return address.trim().length >= 5;
+  };
+
+  const validateHiredDate = (date) => {
+    return date && date !== '';
+  };
+
+  const validateBirthday = (date) => {
+    if (!date) return true; // Optional field
+    const today = new Date();
+    const birthDate = new Date(date);
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      return age - 1 >= 16;
+    }
+    return age >= 16;
+  };
+
+  const validateMarriageStatus = (status) => {
+    return status && status !== '';
+  };
+
+  const validateJobType = (type) => {
+    return type && type !== '';
+  };
+
+  const validateSalary = (salary) => {
+    if (!salary) return true; // Optional
+    const num = parseFloat(salary);
+    return !isNaN(num) && num >= 0;
+  };
+
+  const validateBonus = (bonus) => {
+    if (!bonus) return true; // Optional
+    const num = parseFloat(bonus);
+    return !isNaN(num) && num >= 0;
+  };
+
+  const validateStatus = (status) => {
+    return status && status !== '';
+  };
+
+  // Real-time field validation
+  const validateField = (fieldName, value) => {
+    let error = '';
+    
+    switch (fieldName) {
+      case 'fullName':
+        if (!value || value.trim().length < 2) {
+          error = 'Full name must be at least 2 characters long';
+        }
+        break;
+      case 'email':
+        if (!value) {
+          error = 'Email is required';
+        } else if (!validateEmail(value)) {
+          error = 'Please enter a valid email address (e.g., name@domain.com)';
+        }
+        break;
+      case 'phoneNo':
+        if (!value) {
+          error = 'Phone number is required';
+        } else if (!validatePhone(value)) {
+          error = 'Please enter a valid Sri Lankan phone number (e.g., 0712345678)';
+        }
+        break;
+      case 'nic':
+        if (value && !validateNIC(value)) {
+          error = 'Please enter a valid NIC (9 digits + V/X or 12 digits)';
+        }
+        break;
+      case 'gender':
+        if (!value) {
+          error = 'Gender is required';
+        }
+        break;
+      case 'designation':
+        if (!value) {
+          error = 'Designation is required';
+        }
+        break;
+      case 'address':
+        if (!value || value.trim().length < 5) {
+          error = 'Address must be at least 5 characters long';
+        }
+        break;
+      case 'hiredDate':
+        if (!value) {
+          error = 'Hired date is required';
+        }
+        break;
+      case 'birthday':
+        if (value && !validateBirthday(value)) {
+          error = 'Employee must be at least 16 years old';
+        }
+        break;
+      case 'marriageStatus':
+        if (!value) {
+          error = 'Marriage status is required';
+        }
+        break;
+      case 'jobType':
+        if (!value) {
+          error = 'Job type is required';
+        }
+        break;
+      case 'baseSalary':
+        if (value && !validateSalary(value)) {
+          error = 'Please enter a valid salary amount';
+        }
+        break;
+      case 'bonus':
+        if (value && !validateBonus(value)) {
+          error = 'Please enter a valid bonus amount';
+        }
+        break;
+      case 'status':
+        if (!value) {
+          error = 'Status is required';
+        }
+        break;
+      default:
+        break;
+    }
+    
+    setValidationErrors(prev => ({
+      ...prev,
+      [fieldName]: error
+    }));
+    
+    return error === '';
+  };
+
+  // Validate all fields before submit
+  const validateForm = () => {
+    const fields = [
+      'fullName', 'email', 'phoneNo', 'gender', 'designation', 
+      'address', 'hiredDate', 'marriageStatus', 'jobType', 'status'
+    ];
+    
+    let isValid = true;
+    
+    fields.forEach(field => {
+      const value = formData[field];
+      const isFieldValid = validateField(field, value);
+      if (!isFieldValid) {
+        isValid = false;
+      }
+    });
+
+    // Optional fields validation
+    if (formData.nic && !validateField('nic', formData.nic)) {
+      isValid = false;
+    }
+    
+    if (formData.birthday && !validateField('birthday', formData.birthday)) {
+      isValid = false;
+    }
+    
+    if (formData.baseSalary && !validateField('baseSalary', formData.baseSalary)) {
+      isValid = false;
+    }
+    
+    if (formData.bonus && !validateField('bonus', formData.bonus)) {
+      isValid = false;
+    }
+
+    return isValid;
+  };
 
   // ========== FETCH DESIGNATIONS ==========
   const fetchDesignations = async () => {
@@ -127,12 +349,10 @@ export default function Employees() {
       if (response.data.success && response.data.data.length > 0) {
         setDesignations(response.data.data);
       } else {
-        // If API fails or returns empty, use default designations
         setDesignations(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
       }
     } catch (err) {
       console.error('Error fetching designations:', err);
-      // Use default designations as fallback
       setDesignations(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
     } finally {
       setDesignationLoading(false);
@@ -141,7 +361,6 @@ export default function Employees() {
 
   // ========== CRUD OPERATIONS FOR DESIGNATIONS ==========
 
-  // Add Designation
   const handleAddDesignation = async (e) => {
     e.preventDefault();
     if (!designationForm.name.trim()) {
@@ -149,7 +368,6 @@ export default function Employees() {
       return;
     }
 
-    // Check if designation already exists
     const exists = designations.some(d => 
       d.name.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
@@ -175,7 +393,6 @@ export default function Employees() {
       }
     } catch (err) {
       console.error('Error adding designation:', err);
-      // If API fails, add locally
       const newDesignation = {
         id: Date.now() + Math.random(),
         name: designationForm.name.trim()
@@ -189,7 +406,6 @@ export default function Employees() {
     }
   };
 
-  // Edit Designation
   const handleEditDesignation = async (e) => {
     e.preventDefault();
     if (!designationForm.name.trim()) {
@@ -197,7 +413,6 @@ export default function Employees() {
       return;
     }
 
-    // Check if designation already exists (excluding current one)
     const exists = designations.some(d => 
       d.id !== editingDesignationId && 
       d.name.toLowerCase() === designationForm.name.trim().toLowerCase()
@@ -228,7 +443,6 @@ export default function Employees() {
       }
     } catch (err) {
       console.error('Error updating designation:', err);
-      // Update locally if API fails
       setDesignations(designations.map(d => 
         d.id === editingDesignationId ? { ...d, name: designationForm.name.trim() } : d
       ));
@@ -242,11 +456,9 @@ export default function Employees() {
     }
   };
 
-  // Delete Designation
   const handleDeleteDesignation = async () => {
     if (!designationToDelete) return;
 
-    // Check if any employee has this designation
     const employeesWithDesignation = employees.filter(
       e => e.designation === designationToDelete.name
     );
@@ -271,7 +483,6 @@ export default function Employees() {
       showSuccessNotification('Designation deleted successfully!');
     } catch (err) {
       console.error('Error deleting designation:', err);
-      // Delete locally if API fails
       setDesignations(designations.filter(d => d.id !== designationToDelete.id));
       setShowDesignationDeleteConfirm(false);
       setDesignationToDelete(null);
@@ -281,7 +492,6 @@ export default function Employees() {
     }
   };
 
-  // Open designation modal for add
   const openAddDesignationModal = () => {
     setDesignationForm({ name: '' });
     setIsEditingDesignation(false);
@@ -290,7 +500,6 @@ export default function Employees() {
     setError(null);
   };
 
-  // Open designation modal for edit
   const openEditDesignationModal = (designation) => {
     setDesignationForm({ name: designation.name });
     setIsEditingDesignation(true);
@@ -299,7 +508,6 @@ export default function Employees() {
     setError(null);
   };
 
-  // Open delete confirmation for designation
   const openDeleteDesignationConfirm = (designation) => {
     setDesignationToDelete(designation);
     setShowDesignationDeleteConfirm(true);
@@ -354,7 +562,6 @@ export default function Employees() {
     managers,
   };
 
-  // Get unique designations for filter
   const allDesignations = designations.map(d => d.name);
   const filterTabs = [
     { key: 'All', label: 'All', icon: Filter },
@@ -396,12 +603,19 @@ export default function Employees() {
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     
-    const requiredFields = ['fullName', 'email', 'phoneNo', 'designation', 'address', 'hiredDate'];
-    for (let field of requiredFields) {
-      if (!formData[field]) {
-        alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
-        return;
+    // Validate all fields before submission
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      // Scroll to the first error
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
       }
+      return;
     }
 
     try {
@@ -410,7 +624,7 @@ export default function Employees() {
       
       const employeeData = {
         name: formData.fullName,
-        position:formData.designation,
+        position: formData.designation,
         designation: formData.designation,
         phone: formData.phoneNo,
         email: formData.email,
@@ -423,24 +637,23 @@ export default function Employees() {
         jobType: formData.jobType || null,
         profileImage: formData.profileImage || null,
         baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0
+        bonus: parseFloat(formData.bonus) || 0,
+        status: formData.status || 'active'
       };
 
       console.log('Sending employee data:', JSON.stringify(employeeData, null, 2));
-      console.log('Designation being sent:', employeeData.designation);
 
       const token = localStorage.getItem('token');
       const response = await axios.post(API_URL, employeeData, {
-        headers: { Authorization: `Bearer ${token}` ,
-      'Content-Type': 'application/json' 
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json' 
         }
       });
 
       console.log('✅ Response from server:', response.data);
-
       
       if (response.data.success) {
-        console.log('✅ Employee saved with designation:', response.data.data.designation);
         setEmployees([...employees, response.data.data]);
         setShowCreateForm(false);
         resetForm();
@@ -468,12 +681,18 @@ export default function Employees() {
   const handleEditEmployee = async (e) => {
     e.preventDefault();
     
-    const requiredFields = ['fullName', 'email', 'phoneNo', 'designation', 'address', 'hiredDate'];
-    for (let field of requiredFields) {
-      if (!formData[field]) {
-        alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
-        return;
+    // Validate all fields before submission
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
       }
+      return;
     }
 
     try {
@@ -488,7 +707,8 @@ export default function Employees() {
         hireDate: formData.hiredDate,
         address: formData.address,
         baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0
+        bonus: parseFloat(formData.bonus) || 0,
+        status: formData.status || 'active'
       };
       
       if (formData.birthday) updateData.birthday = formData.birthday;
@@ -544,14 +764,31 @@ export default function Employees() {
       nic: '',
       phoneNo: '',
       designation: '',
-      designationId: '', // Reset designationId
+      designationId: '',
       address: '',
       marriageStatus: '',
       hiredDate: new Date().toISOString().split('T')[0],
       jobType: '',
       profileImage: null,
       baseSalary: '',
-      bonus: ''
+      bonus: '',
+      status: 'active'
+    });
+    setValidationErrors({
+      fullName: '',
+      email: '',
+      phoneNo: '',
+      nic: '',
+      gender: '',
+      designation: '',
+      address: '',
+      hiredDate: '',
+      birthday: '',
+      marriageStatus: '',
+      jobType: '',
+      baseSalary: '',
+      bonus: '',
+      status: ''
     });
     setError(null);
   };
@@ -563,7 +800,6 @@ export default function Employees() {
 
   const openEditForm = (employee) => {
     setSelectedEmployee(employee);
-    // Find the designation ID
     const selectedDesignation = designations.find(d => d.name === employee.designation);
     setFormData({
       fullName: employee.name || '',
@@ -573,14 +809,32 @@ export default function Employees() {
       nic: employee.nic || '',
       phoneNo: employee.phone || '',
       designation: employee.designation || '',
-      designationId: selectedDesignation ? selectedDesignation.id.toString() : '', // Set designationId
+      designationId: selectedDesignation ? selectedDesignation.id.toString() : '',
       address: employee.address || '',
       marriageStatus: employee.marriage_status || '',
       hiredDate: employee.hire_date || '',
       jobType: employee.job_type || '',
       profileImage: employee.profile_image || null,
       baseSalary: employee.base_salary || employee.baseSalary || '',
-      bonus: employee.bonus || ''
+      bonus: employee.bonus || '',
+      status: employee.status || 'active'
+    });
+    // Clear validation errors when editing
+    setValidationErrors({
+      fullName: '',
+      email: '',
+      phoneNo: '',
+      nic: '',
+      gender: '',
+      designation: '',
+      address: '',
+      hiredDate: '',
+      birthday: '',
+      marriageStatus: '',
+      jobType: '',
+      baseSalary: '',
+      bonus: '',
+      status: ''
     });
     setShowCreateForm(true);
     setShowDetailModal(false);
@@ -1105,7 +1359,7 @@ export default function Employees() {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* EMPLOYEE ADD/EDIT MODAL */}
+      {/* EMPLOYEE ADD/EDIT MODAL - WITH STATUS FIELD */}
       {/* ============================================ */}
       <AnimatePresence>
         {showCreateForm && (
@@ -1156,57 +1410,118 @@ export default function Employees() {
 
                 <form onSubmit={selectedEmployee ? handleEditEmployee : handleAddEmployee}>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {/* Full Name */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <User size={14} className="inline mr-1" /> Full Name *
                       </label>
                       <input
                         type="text"
+                        name="fullName"
                         value={formData.fullName}
-                        onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, fullName: e.target.value });
+                          validateField('fullName', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('fullName', e.target.value)}
                         placeholder="Enter full name"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.fullName 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         required
                         disabled={submitting}
                       />
+                      {validationErrors.fullName && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.fullName}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Birthday */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <CalendarIcon size={14} className="inline mr-1" /> Birthday
                       </label>
                       <input
                         type="date"
+                        name="birthday"
                         value={formData.birthday}
-                        onChange={(e) => setFormData({ ...formData, birthday: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        onChange={(e) => {
+                          setFormData({ ...formData, birthday: e.target.value });
+                          if (e.target.value) validateField('birthday', e.target.value);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) validateField('birthday', e.target.value);
+                        }}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.birthday 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         disabled={submitting}
                       />
+                      {validationErrors.birthday && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.birthday}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Email */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <MailIcon size={14} className="inline mr-1" /> Email *
                       </label>
                       <input
                         type="email"
+                        name="email"
                         value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, email: e.target.value });
+                          validateField('email', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('email', e.target.value)}
                         placeholder="Enter email"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.email 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         required
                         disabled={submitting}
                       />
+                      {validationErrors.email && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.email}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Gender */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Users size={14} className="inline mr-1" /> Gender
+                        <Users size={14} className="inline mr-1" /> Gender *
                       </label>
                       <select
+                        name="gender"
                         value={formData.gender}
-                        onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        onChange={(e) => {
+                          setFormData({ ...formData, gender: e.target.value });
+                          validateField('gender', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('gender', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.gender 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        required
                         disabled={submitting}
                       >
                         <option value="">Select Gender</option>
@@ -1214,38 +1529,78 @@ export default function Employees() {
                         <option value="Female">Female</option>
                         <option value="Other">Other</option>
                       </select>
+                      {validationErrors.gender && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.gender}
+                        </p>
+                      )}
                     </div>
 
+                    {/* NIC */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <CreditCard size={14} className="inline mr-1" /> NIC
                       </label>
                       <input
                         type="text"
+                        name="nic"
                         value={formData.nic}
-                        onChange={(e) => setFormData({ ...formData, nic: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, nic: e.target.value });
+                          if (e.target.value) validateField('nic', e.target.value);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) validateField('nic', e.target.value);
+                        }}
                         placeholder="Enter NIC number"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.nic 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         disabled={submitting}
                       />
+                      {validationErrors.nic && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.nic}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Phone No */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Smartphone size={14} className="inline mr-1" /> Phone No *
                       </label>
                       <input
                         type="tel"
+                        name="phoneNo"
                         value={formData.phoneNo}
-                        onChange={(e) => setFormData({ ...formData, phoneNo: e.target.value })}
-                        placeholder="Enter phone number"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        onChange={(e) => {
+                          setFormData({ ...formData, phoneNo: e.target.value });
+                          validateField('phoneNo', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('phoneNo', e.target.value)}
+                        placeholder="Enter phone number (e.g., 0712345678)"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.phoneNo 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         required
                         disabled={submitting}
                       />
+                      {validationErrors.phoneNo && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.phoneNo}
+                        </p>
+                      )}
                     </div>
 
-                    {/* Designation Field with dynamic options - FIXED */}
+                    {/* Designation */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <BriefcaseIcon size={14} className="inline mr-1" /> Designation *
@@ -1261,9 +1616,19 @@ export default function Employees() {
                             designationId: selectedId,
                             designation: selectedDesignation ? selectedDesignation.name : '' 
                           });
+                          validateField('designation', selectedDesignation ? selectedDesignation.name : '');
                         }}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        onBlur={(e) => {
+                          const selectedDesignation = designations.find(d => d.id.toString() === e.target.value);
+                          validateField('designation', selectedDesignation ? selectedDesignation.name : '');
+                        }}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.designation 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         required
+                        disabled={submitting}
                       >
                         <option value="">Select Designation</option>
                         {designations.map((d) => (
@@ -1272,64 +1637,130 @@ export default function Employees() {
                           </option>
                         ))}
                       </select>
-                      <p className="text-xs text-gray-400 mt-1">
-                        {designations.length === 0 && '⚠️ No designations available. Please add designations first.'}
-                      </p>
+                      {validationErrors.designation && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.designation}
+                        </p>
+                      )}
+                      {designations.length === 0 && (
+                        <p className="text-xs text-amber-500 mt-1">⚠️ No designations available. Please add designations first.</p>
+                      )}
                     </div>
 
+                    {/* Address */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Home size={14} className="inline mr-1" /> Address *
                       </label>
                       <input
                         type="text"
+                        name="address"
                         value={formData.address}
-                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, address: e.target.value });
+                          validateField('address', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('address', e.target.value)}
                         placeholder="Enter address"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.address 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         required
                         disabled={submitting}
                       />
+                      {validationErrors.address && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.address}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Marriage Status */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Heart size={14} className="inline mr-1" /> Marriage Status
+                        <Heart size={14} className="inline mr-1" /> Marriage Status *
                       </label>
                       <select
+                        name="marriageStatus"
                         value={formData.marriageStatus}
-                        onChange={(e) => setFormData({ ...formData, marriageStatus: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        onChange={(e) => {
+                          setFormData({ ...formData, marriageStatus: e.target.value });
+                          validateField('marriageStatus', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('marriageStatus', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.marriageStatus 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        required
                         disabled={submitting}
                       >
                         <option value="">Select Status</option>
                         <option value="Married">Married</option>
                         <option value="Unmarried">Unmarried</option>
                       </select>
+                      {validationErrors.marriageStatus && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.marriageStatus}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Hired Date */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Calendar size={14} className="inline mr-1" /> Hired Date *
                       </label>
                       <input
                         type="date"
+                        name="hiredDate"
                         value={formData.hiredDate}
-                        onChange={(e) => setFormData({ ...formData, hiredDate: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        onChange={(e) => {
+                          setFormData({ ...formData, hiredDate: e.target.value });
+                          validateField('hiredDate', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('hiredDate', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.hiredDate 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         required
                         disabled={submitting}
                       />
+                      {validationErrors.hiredDate && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.hiredDate}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Job Type */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <FileText size={14} className="inline mr-1" /> Job Type
+                        <FileText size={14} className="inline mr-1" /> Job Type *
                       </label>
                       <select
+                        name="jobType"
                         value={formData.jobType}
-                        onChange={(e) => setFormData({ ...formData, jobType: e.target.value })}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        onChange={(e) => {
+                          setFormData({ ...formData, jobType: e.target.value });
+                          validateField('jobType', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('jobType', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.jobType 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        required
                         disabled={submitting}
                       >
                         <option value="">Select Job Type</option>
@@ -1337,38 +1768,115 @@ export default function Employees() {
                         <option value="Part Time">Part Time</option>
                         <option value="Contract">Contract</option>
                       </select>
+                      {validationErrors.jobType && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.jobType}
+                        </p>
+                      )}
                     </div>
 
+                    {/* Base Salary */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Wallet size={14} className="inline mr-1" /> Base Salary (LKR)
                       </label>
                       <input
                         type="number"
+                        name="baseSalary"
                         value={formData.baseSalary}
-                        onChange={(e) => setFormData({ ...formData, baseSalary: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, baseSalary: e.target.value });
+                          if (e.target.value) validateField('baseSalary', e.target.value);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) validateField('baseSalary', e.target.value);
+                        }}
                         placeholder="Enter base salary"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.baseSalary 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-emerald-500/20 focus:border-emerald-400'
+                        }`}
                         disabled={submitting}
                       />
+                      {validationErrors.baseSalary && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.baseSalary}
+                        </p>
+                      )}
                       <p className="text-xs text-gray-400 mt-1">Monthly base salary in LKR</p>
                     </div>
 
+                    {/* Bonus */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Coins size={14} className="inline mr-1" /> Bonus (LKR)
                       </label>
                       <input
                         type="number"
+                        name="bonus"
                         value={formData.bonus}
-                        onChange={(e) => setFormData({ ...formData, bonus: e.target.value })}
+                        onChange={(e) => {
+                          setFormData({ ...formData, bonus: e.target.value });
+                          if (e.target.value) validateField('bonus', e.target.value);
+                        }}
+                        onBlur={(e) => {
+                          if (e.target.value) validateField('bonus', e.target.value);
+                        }}
                         placeholder="Enter bonus amount"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.bonus 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
                         disabled={submitting}
                       />
+                      {validationErrors.bonus && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.bonus}
+                        </p>
+                      )}
                       <p className="text-xs text-gray-400 mt-1">Monthly bonus or incentives</p>
                     </div>
 
+                    {/* Status - NEW FIELD WITH CORRECT OPTIONS */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Circle size={14} className="inline mr-1" /> Status *
+                      </label>
+                      <select
+                        name="status"
+                        value={formData.status}
+                        onChange={(e) => {
+                          setFormData({ ...formData, status: e.target.value });
+                          validateField('status', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('status', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.status 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        required
+                        disabled={submitting}
+                      >
+                        <option value="active">Active</option>
+                        <option value="on_leave">On Leave</option>
+                        <option value="inactive">Inactive</option>
+                      </select>
+                      {validationErrors.status && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.status}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">Current employment status</p>
+                    </div>
+
+                    {/* Profile Image */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Image size={14} className="inline mr-1" /> Profile Image
@@ -1401,6 +1909,16 @@ export default function Employees() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Validation Summary */}
+                  {Object.values(validationErrors).some(error => error) && (
+                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-sm text-amber-700 flex items-center gap-2">
+                        <AlertCircle size={16} className="text-amber-500" />
+                        Please fix all validation errors before submitting
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
                     <button

@@ -176,7 +176,7 @@ function NotificationPanel({ isOpen, onClose }) {
   const [loading, setLoading] = useState(false);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  // Panel open වෙනකොට fresh list එකක් fetch කරනවා
+
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     try {
@@ -685,6 +685,12 @@ function RoleSwitcher({ isOpen, onClose, onSelectRole, currentRole, availableRol
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
+
+  const hiddenRoles = ['CUSTOMER', 'MANAGER', 'EMPLOYEE', 'DELIVERY_PERSON'];
+  const visibleRoles = availableRoles.filter(
+    (role) => !hiddenRoles.includes(role.role_name?.toString().trim().toUpperCase())
+  );
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -699,7 +705,7 @@ function RoleSwitcher({ isOpen, onClose, onSelectRole, currentRole, availableRol
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Switch Role</p>
           </div>
           <div className="py-1.5">
-            {availableRoles.map((role) => (
+            {visibleRoles.map((role) => (
               <button
                 key={role.id}
                 onClick={() => {
@@ -793,6 +799,19 @@ function ProfileDropdown({ isOpen, onClose, user, onOpenSettings }) {
   );
 }
 
+const defaultSettings = {
+  companyName: "Hanthana",
+  contactPhone: "+94 76 835 6860",
+  contactEmail: "support@hanthana.com",
+  address: "No 01, Ja Ela, Sri Lanka",
+  services: [
+    "Sealed Bottle Delivery",
+    "Water Refill",
+    "Office Supply",
+    "Bulk Distribution",
+  ],
+};
+
 // ---------- Main AdminLayout Component ----------
 export default function AdminLayout() {
   const { user } = useAuth();
@@ -806,6 +825,8 @@ export default function AdminLayout() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false); 
+  const [settings, setSettings] = useState(defaultSettings);
+  const [settingsLoading, setSettingsLoading] = useState(true);
 
   // Permissions & roles
   const [permissions, setPermissions] = useState([]);
@@ -814,6 +835,45 @@ export default function AdminLayout() {
   const [effectivePermissions, setEffectivePermissions] = useState([]);
 
   const isAdmin = user?.role === 'ADMIN';
+
+    // ── Fetch settings ──
+    useEffect(() => {
+      const fetchSettings = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      const headers = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+  
+      const response = await fetch("http://localhost:5000/api/settings/public", {
+        headers,
+      });
+      const data = await response.json();
+  
+      if (data.success && data.data.general) {
+        const general = data.data.general;
+        setSettings({
+          companyName: general.companyName || defaultSettings.companyName,
+          contactPhone:
+            general.contactPhone ||
+            general.companyPhone ||
+            defaultSettings.contactPhone,
+          contactEmail:
+            general.contactEmail ||
+            general.companyEmail ||
+            defaultSettings.contactEmail,
+          address: general.address || defaultSettings.address,
+          services: general.services || defaultSettings.services,
+        });
+      }
+    } catch (error) {
+      console.error("Fetch settings error:", error);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+  
+      fetchSettings();
+    }, []);
 
   // Fetch current user's permissions
   const fetchPermissions = useCallback(async () => {
@@ -905,6 +965,8 @@ export default function AdminLayout() {
     });
   };
 
+  
+
   // Determine which nav items to show
   const filteredNavItems = NAV_ITEMS.filter((item) => {
     if (isAdmin && viewRole && viewRole !== user.role) {
@@ -960,7 +1022,7 @@ export default function AdminLayout() {
               <Droplets size={20} className="text-white cursor-pointer transition-transform hover:scale-110" onClick={handleClick} />
             </div>
             <div>
-              <span className="text-base font-bold text-slate-800">Hanthana</span>
+              <span className="text-base font-bold text-slate-800">{settings.companyName}</span>
               <p className="text-[10px] font-medium text-slate-400 uppercase">ERP System</p>
             </div>
           </div>
@@ -979,7 +1041,7 @@ export default function AdminLayout() {
           <div className="rounded-xl bg-gradient-to-br from-blue-50 to-slate-50 border border-blue-100/60 p-3">
             <div className="flex items-center gap-2 mb-1.5">
               <Droplets size={14} className="text-blue-600" />
-              <span className="text-xs font-semibold text-blue-800">Hanthana</span>
+              <span className="text-xs font-semibold text-blue-800">{settings.companyName}</span>
             </div>
             <p className="text-[11px] text-slate-500">Water Management ERP v1.0</p>
             <div className="mt-2 flex items-center gap-1.5">
