@@ -27,7 +27,23 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-const roleFilters = ['ALL', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'CUSTOMER'];
+const roleFilters = [
+  'ALL',
+  'ADMIN',
+  'MANAGER',
+  'CUSTOMER',
+  'EMPLOYEE',
+  'HR_MANAGER',
+  'SALES_MANAGER',
+  'INVENTORY_MANAGER',
+  'ACCOUNTANT',
+  'CASHIER',
+  'DELIVERY_PERSON',
+  'RIDER',
+  'CUSTOMER_SERVICES',
+  'CEO',
+];
+
 const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE'];
 
 export default function UserManagement() {
@@ -63,6 +79,9 @@ export default function UserManagement() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // ===== ✅ NEW STATE FOR TOGGLE CONFIRMATION =====
+  const [toggleConfirm, setToggleConfirm] = useState(null);
 
   // ===== FORM STATE FOR CREATE/EDIT USER =====
   const [formData, setFormData] = useState({
@@ -200,10 +219,21 @@ const handleCreateAccount = async () => {
   }
 };
 
-  // ===== TOGGLE USER STATUS (dummy – profiles don't have status) =====
-  const toggleUserStatus = async (userId, currentStatus, e) => {
-    e?.stopPropagation();
-    toast.info("User status toggle is not applicable for profiles. Use employee status instead.");
+  // ===== ✅ TOGGLE USER STATUS (UPDATED – no event parameter) =====
+  const handleToggleClick = async (userId, currentStatus) => {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    try {
+      await axios.patch(
+        `${API_BASE}/users/${userId}/status`,
+        { status: newStatus },
+        { headers: getAuthHeaders() }
+      );
+      toast.success(`User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully`);
+      await fetchUsers();
+    } catch (err) {
+      console.error('Toggle error:', err);
+      toast.error(err.response?.data?.message || 'Failed to update status');
+    }
   };
 
   // ===== MODAL FUNCTIONS (for profiles) =====
@@ -582,13 +612,13 @@ const handleSubmit = async (e) => {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center"><Users size={16} className="text-blue-600" /></div>
-            <div><p className="text-xs text-gray-400 font-medium">Managers</p><p className="text-lg font-bold text-gray-900">{userCounts.managers}</p></div>
+            <div><p className="text-xs text-gray-400 font-medium">Customers</p><p className="text-lg font-bold text-gray-900">{userCounts.customers}</p></div>
           </div>
         </div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-50 flex items-center justify-center"><Users size={16} className="text-cyan-600" /></div>
-            <div><p className="text-xs text-gray-400 font-medium">Employees</p><p className="text-lg font-bold text-gray-900">{userCounts.employees}</p></div>
+            <div><p className="text-xs text-gray-400 font-medium">Employees (Registered)</p><p className="text-lg font-bold text-gray-900">{employeeCounts.total}</p></div>
           </div>
         </div>
         <div
@@ -608,7 +638,7 @@ const handleSubmit = async (e) => {
     </div>
 
     <div>
-      <p className="text-xs text-gray-400 font-medium">Pending</p>
+      <p className="text-xs text-gray-400 font-medium">Pending Employees</p>
       <p className="text-lg font-bold text-yellow-600">
         {employeeCounts.pending}
       </p>
@@ -641,19 +671,17 @@ const handleSubmit = async (e) => {
             <span className="text-xs text-gray-400 font-medium">Role:</span>
           </div>
           <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
-            {roleFilters.map((role) => (
-              <button
-                key={role}
-                onClick={() => setRoleFilter(role)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-                  roleFilter === role
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {role === 'ALL' ? 'All' : role}
-              </button>
-            ))}
+            <select
+  value={roleFilter}
+  onChange={(e) => setRoleFilter(e.target.value)}
+  className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
+>
+  {roleFilters.map((role) => (
+    <option key={role} value={role}>
+      {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
+    </option>
+  ))}
+</select>
           </div>
         </div>
 
@@ -673,6 +701,8 @@ const handleSubmit = async (e) => {
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
+                    
+
                     {canManageUsers && (
                         <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
@@ -704,6 +734,24 @@ const handleSubmit = async (e) => {
                         <div className="flex items-center justify-end gap-1.5">
                           {canManageUsers && (
                             <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setToggleConfirm(user);
+                                }}
+                                className={`p-1.5 rounded-lg border transition-all duration-200 shadow-sm ${
+                                  user.status === 'active'
+                                    ? 'border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100/70'
+                                    : 'border-red-200 text-red-500 bg-red-50 hover:bg-red-100/70'
+                                }`}
+                                title={user.status === 'active' ? 'Click to Deactivate' : 'Click to Activate'}
+                              >
+                                {user.status === 'active' ? (
+                                  <ToggleRight size={18} className="text-emerald-600" />
+                                ) : (
+                                  <ToggleLeft size={18} className="text-red-400" />
+                                )}
+                              </button>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -826,6 +874,7 @@ const handleSubmit = async (e) => {
                         </td>
                         {canManageUsers && (
                         <td className="py-3 px-4 text-right">
+                          
                           {isPending ? (
                             <button
                               onClick={() => {
@@ -1338,6 +1387,43 @@ const handleSubmit = async (e) => {
             </form>
           </motion.div>
         </motion.div>
+      )}
+
+      {/* ===== ✅ TOGGLE CONFIRMATION MODAL ===== */}
+      {toggleConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Confirm {toggleConfirm.status === 'active' ? 'Deactivation' : 'Activation'}
+            </h3>
+            <p className="text-gray-600 text-sm mb-6">
+              Are you sure you want to {toggleConfirm.status === 'active' ? 'deactivate' : 'activate'} user{' '}
+              <strong>{toggleConfirm.full_name}</strong>?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setToggleConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // ✅ call without event parameter
+                  handleToggleClick(toggleConfirm.id, toggleConfirm.status);
+                  setToggleConfirm(null);
+                }}
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
+                  toggleConfirm.status === 'active'
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ===== DELETE CONFIRMATION MODAL ===== */}

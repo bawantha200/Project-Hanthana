@@ -386,39 +386,27 @@ class UserService {
   // ============================================================
   // UPDATE USER STATUS (Employee status by email)
   // ============================================================
-  async updateUserStatus(id, status) {
-    try {
-      console.log(`[UserService] 🔄 Updating status for user ${id} to ${status}`);
+async updateUserStatus(id, status) {
+  try {
+    console.log(`[UserService] 🔄 Updating status for user ${id} to ${status}`);
 
-      // Get user email from profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', id)
-        .maybeSingle();
+    const { error } = await supabase
+      .from('profiles')
+      .update({ status })
+      .eq('id', id);
 
-      if (!profile) {
-        throw new Error('User not found');
-      }
-
-      // Update employee status by email
-      const { error } = await supabase
-        .from('employees')
-        .update({ status })
-        .eq('email', profile.email);
-
-      if (error) {
-        console.error('[UserService] ❌ Status update error:', error);
-        throw error;
-      }
-
-      console.log(`[UserService] 🎯 Status updated to ${status} for ${profile.email}`);
-      return true;
-    } catch (error) {
-      console.error('[UserService] ❌ updateUserStatus error:', error);
+    if (error) {
+      console.error('[UserService] ❌ Status update error:', error);
       throw error;
     }
+
+    console.log(`[UserService] 🎯 Status updated to ${status} for user ${id}`);
+    return true;
+  } catch (error) {
+    console.error('[UserService] ❌ updateUserStatus error:', error);
+    throw error;
   }
+}
 
   // ============================================================
   // GET PENDING EMPLOYEES (Direct from employees table)

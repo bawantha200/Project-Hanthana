@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
@@ -35,6 +35,9 @@ export function AuthProvider({ children }) {
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
+  const idleTimerRef = useRef(null);
+const warningTimerRef = useRef(null);
+const sessionTimeoutMinutesRef = useRef(30); // default, security settings eken update wenawa
 
   /**
    * Standardizes database variations of user objects into camelCase fields used by components
@@ -133,6 +136,77 @@ export function AuthProvider({ children }) {
     setUser(null);
     setPermissions([]);
   }, []);
+
+
+  /**
+ * Security settings eken sessionTimeout (minutes) eka fetch karanawa
+ */
+const fetchSessionTimeout = useCallback(async () => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch('http://localhost:5000/api/settings/security', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const result = await response.json();
+    const minutes = parseInt(result?.settings?.sessionTimeout || '30', 10);
+    sessionTimeoutMinutesRef.current = minutes;
+  } catch (error) {
+    console.error('Failed to fetch session timeout setting:', error);
+    sessionTimeoutMinutesRef.current = 30; // fallback
+  }
+}, []);
+
+/**
+ * Inactivity ekaka nisa auto-logout karanawa
+ */
+const handleIdleLogout = useCallback(() => {
+  clearTimeout(idleTimerRef.current);
+  clearTimeout(warningTimerRef.current);
+  localStorage.removeItem('token');
+  setUser(null);
+  setPermissions([]);
+  window.location.href = '/login';
+}, []);
+
+/**
+ * User activity ekak awoth idle timer eka reset karanawa
+ */
+const resetIdleTimer = useCallback(() => {
+  clearTimeout(idleTimerRef.current);
+  clearTimeout(warningTimerRef.current);
+
+  const timeoutMs = sessionTimeoutMinutesRef.current * 60 * 1000;
+  const warningMs = Math.max(timeoutMs - 60000, timeoutMs * 0.9); // 1 min kalin warning
+
+  warningTimerRef.current = setTimeout(() => {
+    console.warn('Session will expire in 1 minute due to inactivity.');
+    // Optional: toast.error('Session will expire in 1 minute due to inactivity.');
+  }, warningMs);
+
+  idleTimerRef.current = setTimeout(() => {
+    handleIdleLogout();
+  }, timeoutMs);
+}, [handleIdleLogout]);
+
+
+useEffect(() => {
+  if (!user) return;
+
+  fetchSessionTimeout().then(() => {
+    resetIdleTimer();
+  });
+
+  const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+  const handleActivity = () => resetIdleTimer();
+
+  events.forEach(evt => window.addEventListener(evt, handleActivity));
+
+  return () => {
+    events.forEach(evt => window.removeEventListener(evt, handleActivity));
+    clearTimeout(idleTimerRef.current);
+    clearTimeout(warningTimerRef.current);
+  };
+}, [user, fetchSessionTimeout, resetIdleTimer]);
 
   /**
    * Sends updated profile changes to the database and refreshes local application state
