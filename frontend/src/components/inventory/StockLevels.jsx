@@ -219,7 +219,6 @@ const StockModal = ({ isOpen, onClose, onSave, onDelete, mode, item, products })
                 ) : (
                   <>
                     <option value="restock">Restock Sealed</option>
-                    <option value="vendor_order">Vendor Order</option>
                     <option value="adjustment">Adjustment</option>
                   </>
                 )}

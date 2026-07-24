@@ -14,7 +14,6 @@ const getDeliveryPersonnel = async (req, res) => {
   try {
     console.log('🔍 [getDeliveryPersonnel] Fetching all RIDERS...');
 
-    // Get RIDER role ID
     const { data: role, error: roleError } = await supabase
       .from('roles')
       .select('id')
@@ -31,7 +30,6 @@ const getDeliveryPersonnel = async (req, res) => {
 
     console.log(`✅ Found RIDER role with ID: ${role.id}`);
 
-    // Get all profiles with RIDER role
     const { data: personnel, error } = await supabase
       .from('profiles')
       .select(`
@@ -54,7 +52,6 @@ const getDeliveryPersonnel = async (req, res) => {
 
     console.log(`✅ Found ${personnel?.length || 0} riders`);
 
-    // Format response
     const formattedPersonnel = (personnel || []).map(person => ({
       id: person.id,
       name: person.full_name || 'Unknown Rider',
@@ -82,7 +79,6 @@ const getDeliveries = async (req, res) => {
     const { status, orderId } = req.query;
     const userId = req.user.id;
 
-    // Check if user is admin
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role_id')
@@ -136,7 +132,6 @@ const getMyDeliveries = async (req, res) => {
     const userId = req.user.id;
     const { status } = req.query;
 
-    // Check if user is a rider
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('role_id')
@@ -167,7 +162,7 @@ const getMyDeliveries = async (req, res) => {
   }
 };
 
-// ========== UPDATE DELIVERY STATUS (Rider) ==========
+// ========== UPDATE DELIVERY STATUS (Rider) - FIXED ==========
 const updateDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -179,7 +174,7 @@ const updateDelivery = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid delivery ID' });
     }
 
-    const { status, emptyBottles } = req.body;
+    const { status } = req.body;
     if (!status) {
       return res.status(400).json({ success: false, message: 'Status is required' });
     }
@@ -199,10 +194,8 @@ const updateDelivery = async (req, res) => {
       return res.status(403).json({ success: false, message: 'This delivery is not assigned to you' });
     }
 
-    const updatedDelivery = await updateDeliveryStatus(
-      deliveryId,
-      status
-    );
+    // ✅ This is the IMPORTANT line - calls the service that handles empty bottle collection
+    const updatedDelivery = await updateDeliveryStatus(deliveryId, status);
 
     res.json({ success: true, delivery: updatedDelivery });
   } catch (err) {
@@ -215,7 +208,6 @@ const updateDelivery = async (req, res) => {
 const getMyStats = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const stats = await getRiderStats(userId);
     res.json({ success: true, stats });
   } catch (err) {
@@ -255,5 +247,5 @@ module.exports = {
   updateDelivery,
   getMyStats,
   assignRider,
-  getDeliveryPersonnel // Added
+  getDeliveryPersonnel
 };

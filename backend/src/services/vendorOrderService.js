@@ -312,56 +312,58 @@ const vendorOrderService = {
   /**
    * Get vendor purchase summary for charts
    */
-  async getVendorPurchaseSummary() {
-    console.log('📡 Fetching vendor purchase summary...');
-    
-    const { data, error } = await supabase
-      .from('vendor_orders')
-      .select(`
-        vendor_id,
-        vendors!vendor_orders_vendor_id_fkey (
-          vendor_name
-        ),
-        total,
-        quantity,
-        order_type,
-        status
-      `);
 
-    if (error) {
-      console.error('❌ Error fetching vendor summary:', error);
-      throw new Error(error.message);
+async getVendorPurchaseSummary() {
+  console.log('📡 Fetching vendor purchase summary...');
+  
+  const { data, error } = await supabase
+    .from('vendor_orders')
+    .select(`
+      vendor_id,
+      vendors (
+        vendor_name
+      ),
+      total,
+      quantity,
+      order_type,
+      status
+    `);
+
+  if (error) {
+    console.error('❌ Error fetching vendor summary:', error);
+    throw new Error(error.message);
+  }
+  
+  // Filter out cancelled orders for summary
+  const activeOrders = (data || []).filter(order => order.status !== 'cancelled');
+  
+  // Aggregate by vendor
+  const summary = {};
+  activeOrders.forEach(order => {
+    const vendorId = order.vendor_id;
+    // Use order.vendors?.vendor_name instead of nested object
+    const vendorName = order.vendors?.vendor_name || 'Unknown Vendor';
+    
+    if (!summary[vendorId]) {
+      summary[vendorId] = {
+        vendor_id: vendorId,
+        vendor_name: vendorName,
+        total_spent: 0,
+        total_bottles: 0,
+        total_other: 0,
+        order_count: 0
+      };
     }
     
-    // Filter out cancelled orders for summary
-    const activeOrders = (data || []).filter(order => order.status !== 'cancelled');
-    
-    // Aggregate by vendor
-    const summary = {};
-    activeOrders.forEach(order => {
-      const vendorId = order.vendor_id;
-      const vendorName = order.vendors?.vendor_name || 'Unknown Vendor';
-      
-      if (!summary[vendorId]) {
-        summary[vendorId] = {
-          vendor_id: vendorId,
-          vendor_name: vendorName,
-          total_spent: 0,
-          total_bottles: 0,
-          total_other: 0,
-          order_count: 0
-        };
-      }
-      
-      summary[vendorId].total_spent += Number(order.total) || 0;
-      summary[vendorId].total_bottles += order.order_type === 'bottle' ? (order.quantity || 0) : 0;
-      summary[vendorId].total_other += order.order_type !== 'bottle' ? (order.quantity || 0) : 0;
-      summary[vendorId].order_count += 1;
-    });
-    
-    console.log(`✅ Summary generated for ${Object.keys(summary).length} vendors`);
-    return Object.values(summary);
-  }
+    summary[vendorId].total_spent += Number(order.total) || 0;
+    summary[vendorId].total_bottles += order.order_type === 'bottle' ? (order.quantity || 0) : 0;
+    summary[vendorId].total_other += order.order_type !== 'bottle' ? (order.quantity || 0) : 0;
+    summary[vendorId].order_count += 1;
+  });
+  
+  console.log(`✅ Summary generated for ${Object.keys(summary).length} vendors`);
+  return Object.values(summary);
+}
 };
 
 module.exports = { vendorOrderService };
