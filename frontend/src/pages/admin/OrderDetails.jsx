@@ -24,7 +24,9 @@ import {
   CreditCard,
   Building2,
   FileText,
-  Printer
+  Printer,
+  HandHelping,
+  Store
 } from 'lucide-react';
 import api from '../../services/api';
 import { formatCurrency } from '../../utils/helpers';
@@ -34,6 +36,7 @@ const statusConfig = {
   PLACED: { label: 'Pending', color: 'bg-amber-100 text-amber-700', icon: Clock },
   PROCESSING: { label: 'Processing', color: 'bg-blue-100 text-blue-700', icon: RefreshCw },
   DELIVERED: { label: 'Delivered', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
+  COMPLETED: { label: 'Completed', color: 'bg-emerald-100 text-emerald-700', icon: CheckCircle },
   CANCELLED: { label: 'Cancelled', color: 'bg-red-100 text-red-700', icon: XCircle }
 };
 
@@ -45,7 +48,9 @@ const deliveryStatusConfig = {
   CANCELLED: { label: 'Cancelled', color: 'bg-red-100 text-red-700' }
 };
 
-const statusSteps = ['PLACED', 'PROCESSING', 'DELIVERED'];
+// Different status steps based on order type
+const deliveryStatusSteps = ['PLACED', 'PROCESSING', 'DELIVERED'];
+const pickupStatusSteps = ['PLACED', 'PROCESSING', 'COMPLETED'];
 
 export default function OrderDetails() {
   const { id } = useParams();
@@ -57,8 +62,6 @@ export default function OrderDetails() {
   const [deliveryPersonnel, setDeliveryPersonnel] = useState([]);
   const [selectedDeliveryPerson, setSelectedDeliveryPerson] = useState('');
   const [showAssignModal, setShowAssignModal] = useState(false);
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState('');
 
   useEffect(() => {
     loadOrderDetails();
@@ -112,7 +115,6 @@ export default function OrderDetails() {
       if (response.data.success) {
         toast.success(`Order status updated to ${statusConfig[newStatus].label}`);
         await loadOrderDetails();
-        setShowStatusModal(false);
       }
     } catch (error) {
       console.error('Failed to update status:', error);
@@ -146,9 +148,20 @@ export default function OrderDetails() {
     }
   };
 
+  const isHomeDelivery = order?.order_type === 'HOME_DELIVERY';
+  const isPickup = order?.order_type === 'PICKUP';
+  
+  // Get the appropriate status steps based on order type
+  const getStatusSteps = () => {
+    if (isHomeDelivery) return deliveryStatusSteps;
+    if (isPickup) return pickupStatusSteps;
+    return deliveryStatusSteps;
+  };
+
   const getCurrentStepIndex = () => {
     if (!order) return 0;
-    const stepIndex = statusSteps.indexOf(order.order_status);
+    const steps = getStatusSteps();
+    const stepIndex = steps.indexOf(order.order_status);
     return stepIndex >= 0 ? stepIndex : 0;
   };
 
@@ -160,6 +173,8 @@ export default function OrderDetails() {
     }
     return <Clock size={16} />;
   };
+
+  const statusSteps = getStatusSteps();
 
   if (loading) {
     return (
@@ -201,7 +216,21 @@ export default function OrderDetails() {
             <ArrowLeft size={20} />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Order #{order.id}</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Order #{order.id}
+              {isPickup && (
+                <span className="ml-3 text-sm font-medium text-purple-600 bg-purple-100 px-3 py-1 rounded-full">
+                  <HandHelping size={14} className="inline mr-1" />
+                  Pickup
+                </span>
+              )}
+              {isHomeDelivery && (
+                <span className="ml-3 text-sm font-medium text-blue-600 bg-blue-100 px-3 py-1 rounded-full">
+                  <Truck size={14} className="inline mr-1" />
+                  Home Delivery
+                </span>
+              )}
+            </h1>
             <p className="text-sm text-gray-500">
               Placed on {new Date(order.created_at).toLocaleString()}
             </p>
@@ -211,7 +240,7 @@ export default function OrderDetails() {
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusConfig[order.order_status]?.color || 'bg-gray-100 text-gray-700'}`}>
             {statusConfig[order.order_status]?.label || order.order_status}
           </span>
-          {order.delivery && (
+          {order.delivery && isHomeDelivery && (
             <span className={`px-3 py-1 rounded-full text-xs font-medium ${deliveryStatusConfig[order.delivery.status]?.color || 'bg-gray-100 text-gray-700'}`}>
               🚚 {deliveryStatusConfig[order.delivery.status]?.label || order.delivery.status}
             </span>
@@ -227,13 +256,37 @@ export default function OrderDetails() {
 
       {/* Status Progress */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">Order Progress</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+            <Clock size={18} className="text-blue-600" /> 
+            Order Progress
+            {isPickup && (
+              <span className="text-xs text-gray-400 font-normal">
+                (Pickup Order - No Delivery Required)
+              </span>
+            )}
+            {isHomeDelivery && (
+              <span className="text-xs text-gray-400 font-normal">
+                (Home Delivery)
+              </span>
+            )}
+          </h3>
+          {isHomeDelivery && order.delivery?.delivery_person && (
+            <span className="text-xs text-green-600 bg-green-50 px-3 py-1 rounded-full flex items-center gap-1">
+              <Bike size={14} />
+              {order.delivery.delivery_person.full_name}
+            </span>
+          )}
+        </div>
         <div className="relative">
           <div className="flex items-center justify-between">
             {statusSteps.map((step, index) => {
               const isCompleted = index <= getCurrentStepIndex();
               const isCurrent = index === getCurrentStepIndex();
               const StatusIcon = statusConfig[step]?.icon || Clock;
+              // For pickup orders, show COMPLETED instead of DELIVERED in label
+              const stepLabel = isPickup && step === 'DELIVERED' ? 'Completed' : statusConfig[step]?.label || step;
+              
               return (
                 <div key={step} className="flex flex-col items-center flex-1">
                   <div className="relative">
@@ -257,7 +310,7 @@ export default function OrderDetails() {
                     )}
                   </div>
                   <p className={`text-xs mt-2 font-medium ${isCompleted ? 'text-blue-600' : 'text-gray-400'}`}>
-                    {statusConfig[step]?.label || step}
+                    {stepLabel}
                   </p>
                 </div>
               );
@@ -308,16 +361,26 @@ export default function OrderDetails() {
             )}
           </div>
 
-          {/* Delivery Info */}
+          {/* Order Details */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <Truck size={18} className="text-blue-600" /> Delivery Information
+              <FileText size={18} className="text-blue-600" /> Order Details
             </h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div>
                 <p className="text-xs text-gray-400 font-medium">Order Type</p>
-                <p className="font-medium mt-1">
-                  {order.order_type === 'HOME_DELIVERY' ? '🏠 Home Delivery' : '📦 Pickup'}
+                <p className="font-medium mt-1 flex items-center gap-1.5">
+                  {isHomeDelivery ? (
+                    <>
+                      <Truck size={14} className="text-blue-500" />
+                      Home Delivery
+                    </>
+                  ) : (
+                    <>
+                      <Store size={14} className="text-purple-500" />
+                      Pickup
+                    </>
+                  )}
                 </p>
               </div>
               <div>
@@ -326,17 +389,25 @@ export default function OrderDetails() {
               </div>
               <div>
                 <p className="text-xs text-gray-400 font-medium">Payment Status</p>
-                <p className={`font-medium mt-1 ${order.payment_status === 'PAID' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                <p className={`font-medium mt-1 ${order.payment_status === 'PAID' || order.payment_status === 'COMPLETED' ? 'text-emerald-600' : 'text-amber-600'}`}>
                   {order.payment_status}
                 </p>
               </div>
-              {order.delivery_location && (
+              {isHomeDelivery && order.delivery_location && (
                 <div className="col-span-2">
                   <p className="text-xs text-gray-400 font-medium">Delivery Location</p>
                   <p className="font-medium mt-1">{order.delivery_location}</p>
                 </div>
               )}
-              {order.delivery && (
+              {isPickup && (
+                <div className="col-span-2 bg-purple-50 rounded-lg p-3 border border-purple-100">
+                  <p className="text-xs text-purple-600 font-medium flex items-center gap-1.5">
+                    <HandHelping size={14} />
+                    This is a pickup order - Customer will collect from store
+                  </p>
+                </div>
+              )}
+              {isHomeDelivery && order.delivery && (
                 <>
                   <div>
                     <p className="text-xs text-gray-400 font-medium">Delivery Status</p>
@@ -434,50 +505,77 @@ export default function OrderDetails() {
               <UserCheck size={18} className="text-blue-600" /> Actions
             </h3>
 
-            {/* Delivery Person Assignment */}
-            <div className="mb-4">
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                Delivery Person
-              </label>
-              {order.delivery?.delivery_person ? (
-                <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
-                  <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center">
-                    <Bike size={16} />
+            {/* Delivery Person Assignment - Only for Home Delivery */}
+            {isHomeDelivery && (
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  Delivery Person
+                </label>
+                {order.delivery?.delivery_person ? (
+                  <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
+                    <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                      <Bike size={16} />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">{order.delivery.delivery_person.full_name}</p>
+                      <p className="text-xs text-gray-500">{order.delivery.delivery_person.phone_number}</p>
+                    </div>
+                    <button
+                      onClick={() => setShowAssignModal(true)}
+                      className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Change
+                    </button>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{order.delivery.delivery_person.full_name}</p>
-                    <p className="text-xs text-gray-500">{order.delivery.delivery_person.phone_number}</p>
-                  </div>
+                ) : (
                   <button
                     onClick={() => setShowAssignModal(true)}
-                    className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    className="w-full px-4 py-3 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border-2 border-dashed border-blue-200"
                   >
-                    Change
+                    <div className="flex items-center justify-center gap-2">
+                      <Bike size={16} />
+                      Assign Delivery Person
+                    </div>
                   </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowAssignModal(true)}
-                  className="w-full px-4 py-3 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border-2 border-dashed border-blue-200"
-                >
-                  <div className="flex items-center justify-center gap-2">
-                    <Bike size={16} />
-                    Assign Delivery Person
+                )}
+              </div>
+            )}
+
+            {/* Pickup Info - No delivery assignment needed */}
+            {isPickup && (
+              <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center">
+                    <HandHelping size={20} />
                   </div>
-                </button>
-              )}
-            </div>
+                  <div>
+                    <p className="text-sm font-medium text-purple-800">Pickup Order</p>
+                    <p className="text-xs text-purple-600">No delivery assignment needed</p>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-purple-600 bg-purple-100/50 p-2 rounded-lg">
+                  Customer will collect from store at their convenience
+                </div>
+              </div>
+            )}
 
             {/* Status Update */}
             <div className="space-y-2">
               <p className="text-xs font-medium text-gray-600">Update Order Status</p>
               <div className="grid grid-cols-2 gap-2">
                 {Object.entries(statusConfig).map(([key, config]) => {
+                  // For pickup orders, don't show DELIVERED (use COMPLETED instead)
+                  if (isPickup && key === 'DELIVERED') return null;
+                  // For home delivery, don't show COMPLETED (use DELIVERED instead)
+                  if (isHomeDelivery && key === 'COMPLETED') return null;
+                  
                   const isDisabled = 
                     updating || 
                     key === order.order_status || 
                     (key === 'CANCELLED' && order.order_status === 'DELIVERED') ||
-                    (key === 'DELIVERED' && order.order_status === 'CANCELLED');
+                    (key === 'DELIVERED' && order.order_status === 'CANCELLED') ||
+                    (key === 'COMPLETED' && order.order_status === 'CANCELLED') ||
+                    (key === 'CANCELLED' && order.order_status === 'COMPLETED');
                   
                   return (
                     <button
@@ -517,7 +615,7 @@ export default function OrderDetails() {
                     {new Date(order.created_at).toLocaleDateString()}
                   </span>
                 </div>
-                {order.delivery?.delivery_start_time && (
+                {isHomeDelivery && order.delivery?.delivery_start_time && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Assigned Date</span>
                     <span className="font-semibold text-gray-900 text-xs">
@@ -534,15 +632,15 @@ export default function OrderDetails() {
                 onClick={() => navigate(`/admin/deliveries?order=${order.id}`)}
                 className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium text-center"
               >
-                View in Deliveries
+                {isHomeDelivery ? 'View in Deliveries' : 'View Order Details'}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Assign Delivery Person Modal */}
-      {showAssignModal && (
+      {/* Assign Delivery Person Modal - Only for Home Delivery */}
+      {showAssignModal && isHomeDelivery && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}

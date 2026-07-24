@@ -12,7 +12,14 @@ import {
   HandHelping,
   Plus,
   Trash2,
-  Eye
+  Eye,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  TrendingUp,
+  BarChart3,
+  PieChart,
+  XCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchOrders, fetchUsers, fetchProducts, createOrder } from '../../services/ordersService';
@@ -48,41 +55,8 @@ const filterTabsMain = [
   { key: 'PICKUP', label: 'Physical', icon: HandHelping },
 ];
 
-// Summary cards
-const summaryCards = [
-  {
-    key: 'total',
-    label: 'Total Orders',
-    icon: ShoppingCart,
-    color: 'blue',
-    bgClass: 'bg-blue-50',
-    textClass: 'text-blue-600',
-  },
-  {
-    key: 'placed',
-    label: 'Pending',
-    icon: Clock,
-    color: 'amber',
-    bgClass: 'bg-amber-50',
-    textClass: 'text-amber-600',
-  },
-  {
-    key: 'processing',
-    label: 'Processing',
-    icon: Package,
-    color: 'cyan',
-    bgClass: 'bg-cyan-50',
-    textClass: 'text-cyan-600',
-  },
-  {
-    key: 'delivered',
-    label: 'Delivered',
-    icon: CheckCircle,
-    color: 'emerald',
-    bgClass: 'bg-emerald-50',
-    textClass: 'text-emerald-600',
-  },
-];
+// Pagination constants
+const PAGE_SIZE = 10;
 
 export default function Orders() {
   const navigate = useNavigate();
@@ -93,6 +67,14 @@ export default function Orders() {
   const [activeTypeFilter, setActiveTypeFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Date filter state
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [dateFilterApplied, setDateFilterApplied] = useState(false);
 
   // Form state
   const [users, setUsers] = useState([]);
@@ -126,6 +108,7 @@ export default function Orders() {
       setOrders(ordersData || []);
       setUsers(usersData || []);
       setProducts(productsData || []);
+      setCurrentPage(1); // Reset to first page when data loads
     } catch (err) {
       console.error('Failed to load data:', err);
       toast.error('Failed to load orders');
@@ -142,15 +125,72 @@ export default function Orders() {
   const totalOrders = orders.length;
   const placedOrders = orders.filter((o) => o.order_status === 'PLACED').length;
   const processingOrders = orders.filter((o) => o.order_status === 'PROCESSING').length;
-  const deliveredOrders = orders.filter((o) => o.order_status === 'DELIVERED').length;
-  const totalRevenue = orders.reduce((sum, o) => sum + o.total_amount, 0);
+  const completedOrders = orders.filter((o) => o.order_status === 'DELIVERED' || o.order_status === 'COMPLETED').length;
+  const cancelledOrders = orders.filter((o) => o.order_status === 'CANCELLED').length;
+  const homeDeliveryOrders = orders.filter((o) => o.order_type === 'HOME_DELIVERY').length;
+  const pickupOrders = orders.filter((o) => o.order_type === 'PICKUP').length;
 
-  const summaryValues = {
-    total: totalOrders,
-    placed: placedOrders,
-    processing: processingOrders,
-    delivered: deliveredOrders,
+  // ---------- Monthly Summary ----------
+  const getMonthlySummary = () => {
+    const monthlyData = {};
+    
+    orders.forEach((order) => {
+      const date = new Date(order.created_at);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const monthName = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+      
+      if (!monthlyData[monthKey]) {
+        monthlyData[monthKey] = {
+          month: monthName,
+          key: monthKey,
+          total: 0,
+          pending: 0,
+          processing: 0,
+          completed: 0,
+          cancelled: 0,
+          homeDelivery: 0,
+          pickup: 0,
+          statuses: {
+            PLACED: 0,
+            PROCESSING: 0,
+            DELIVERED: 0,
+            COMPLETED: 0,
+            CANCELLED: 0
+          }
+        };
+      }
+      
+      monthlyData[monthKey].total += 1;
+      
+      // Count by status
+      if (order.order_status === 'PLACED') {
+        monthlyData[monthKey].pending += 1;
+      } else if (order.order_status === 'PROCESSING') {
+        monthlyData[monthKey].processing += 1;
+      } else if (order.order_status === 'DELIVERED' || order.order_status === 'COMPLETED') {
+        monthlyData[monthKey].completed += 1;
+      } else if (order.order_status === 'CANCELLED') {
+        monthlyData[monthKey].cancelled += 1;
+      }
+      
+      // Count by type
+      if (order.order_type === 'HOME_DELIVERY') {
+        monthlyData[monthKey].homeDelivery += 1;
+      } else if (order.order_type === 'PICKUP') {
+        monthlyData[monthKey].pickup += 1;
+      }
+      
+      if (monthlyData[monthKey].statuses[order.order_status] !== undefined) {
+        monthlyData[monthKey].statuses[order.order_status] += 1;
+      }
+    });
+    
+    // Sort by month (newest first)
+    return Object.values(monthlyData).sort((a, b) => b.key.localeCompare(a.key));
   };
+
+  const monthlySummary = getMonthlySummary();
+  const currentMonthSummary = monthlySummary[0] || null;
 
   // ---------- Filtering ----------
   const filteredOrders = orders.filter((order) => {
@@ -162,8 +202,52 @@ export default function Orders() {
       (order.items?.some((item) =>
         item.product_name?.toLowerCase().includes(searchQuery.toLowerCase())
       ) ?? false);
-    return matchesStatus && matchesType && matchesSearch;
+
+    // Date filtering
+    let matchesDate = true;
+    if (dateFilterApplied) {
+      const orderDate = new Date(order.created_at);
+      const start = startDate ? new Date(startDate) : null;
+      const end = endDate ? new Date(endDate) : null;
+
+      if (start) {
+        start.setHours(0, 0, 0, 0);
+        matchesDate = matchesDate && orderDate >= start;
+      }
+      if (end) {
+        end.setHours(23, 59, 59, 999);
+        matchesDate = matchesDate && orderDate <= end;
+      }
+    }
+
+    return matchesStatus && matchesType && matchesSearch && matchesDate;
   });
+
+  // ---------- Pagination ----------
+  const totalPages = Math.ceil(filteredOrders.length / PAGE_SIZE);
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const paginatedOrders = filteredOrders.slice(startIndex, startIndex + PAGE_SIZE);
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+      // Scroll to top of table when changing pages
+      document.querySelector('.orders-table-container')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  // ---------- Date filter handlers ----------
+  const applyDateFilter = () => {
+    setDateFilterApplied(true);
+    setCurrentPage(1);
+  };
+
+  const clearDateFilter = () => {
+    setStartDate('');
+    setEndDate('');
+    setDateFilterApplied(false);
+    setCurrentPage(1);
+  };
 
   // ---------- Form handlers ----------
   const handleAddItem = () => {
@@ -246,283 +330,316 @@ export default function Orders() {
           <h1 className="text-2xl font-bold text-gray-900">Orders Management</h1>
           <p className="text-sm text-gray-500 mt-1">Track and manage all customer orders</p>
         </div>
-        <motion.button
-         whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => navigate('/admin/pos')}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <Plus size={18} />
-          Customer Order
-        </motion.button>
+        
       </motion.div>
 
-      {/* Summary Cards */}
+      {/* Overview Summary Cards */}
       <motion.div
         variants={itemVariants}
-        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4"
       >
-        {summaryCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <motion.div
-              key={card.key}
-              variants={itemVariants}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200"
-            >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-10 h-10 rounded-xl ${card.bgClass} flex items-center justify-center`}
-                >
-                  <Icon size={18} className={card.textClass} />
+        {/* Total Orders */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
+              <ShoppingCart size={16} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Total Orders</p>
+              <p className="text-lg font-bold text-gray-900">{totalOrders}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Pending */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center">
+              <Clock size={16} className="text-amber-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Pending</p>
+              <p className="text-lg font-bold text-amber-600">{placedOrders}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Processing */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-cyan-50 flex items-center justify-center">
+              <Package size={16} className="text-cyan-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Processing</p>
+              <p className="text-lg font-bold text-cyan-600">{processingOrders}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Completed (DELIVERED + COMPLETED) */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-emerald-50 flex items-center justify-center">
+              <CheckCircle size={16} className="text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Completed</p>
+              <p className="text-lg font-bold text-emerald-600">{completedOrders}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Cancelled */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
+              <XCircle size={16} className="text-red-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Cancelled</p>
+              <p className="text-lg font-bold text-red-600">{cancelledOrders}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Home Delivery */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-50 flex items-center justify-center">
+              <Computer size={16} className="text-indigo-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Home Delivery</p>
+              <p className="text-lg font-bold text-indigo-600">{homeDeliveryOrders}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Pickup */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-purple-50 flex items-center justify-center">
+              <HandHelping size={16} className="text-purple-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Pickup</p>
+              <p className="text-lg font-bold text-purple-600">{pickupOrders}</p>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Monthly Summary Section */}
+      {monthlySummary.length > 0 && currentMonthSummary && (
+        <motion.div
+          variants={itemVariants}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
+        >
+          <div className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <div className="flex items-center gap-2">
+              <BarChart3 size={18} className="text-blue-600" />
+              <h3 className="text-sm font-semibold text-gray-700">Monthly Summary</h3>
+              <span className="text-xs text-gray-400">|</span>
+              <span className="text-xs text-gray-500">{currentMonthSummary.month}</span>
+            </div>
+          </div>
+          
+          <div className="p-5">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+              {/* Total Orders */}
+              <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart size={14} className="text-blue-600" />
+                  <p className="text-xs text-blue-600 font-medium">Total</p>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-400 font-medium">{card.label}</p>
-                  <p className="text-xl font-bold text-gray-900">{summaryValues[card.key]}</p>
+                <p className="text-xl font-bold text-blue-700">{currentMonthSummary.total}</p>
+              </div>
+              
+              {/* Pending */}
+              <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+                <div className="flex items-center gap-2">
+                  <Clock size={14} className="text-amber-600" />
+                  <p className="text-xs text-amber-600 font-medium">Pending</p>
+                </div>
+                <p className="text-xl font-bold text-amber-700">{currentMonthSummary.pending}</p>
+              </div>
+              
+              {/* Processing */}
+              <div className="bg-cyan-50 rounded-xl p-3 border border-cyan-100">
+                <div className="flex items-center gap-2">
+                  <Package size={14} className="text-cyan-600" />
+                  <p className="text-xs text-cyan-600 font-medium">Processing</p>
+                </div>
+                <p className="text-xl font-bold text-cyan-700">{currentMonthSummary.processing}</p>
+              </div>
+              
+              {/* Completed */}
+              <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+                <div className="flex items-center gap-2">
+                  <CheckCircle size={14} className="text-emerald-600" />
+                  <p className="text-xs text-emerald-600 font-medium">Completed</p>
+                </div>
+                <p className="text-xl font-bold text-emerald-700">{currentMonthSummary.completed}</p>
+              </div>
+              
+              {/* Cancelled */}
+              <div className="bg-red-50 rounded-xl p-3 border border-red-100">
+                <div className="flex items-center gap-2">
+                  <XCircle size={14} className="text-red-600" />
+                  <p className="text-xs text-red-600 font-medium">Cancelled</p>
+                </div>
+                <p className="text-xl font-bold text-red-700">{currentMonthSummary.cancelled}</p>
+              </div>
+              
+              {/* Home Delivery */}
+              <div className="bg-indigo-50 rounded-xl p-3 border border-indigo-100">
+                <div className="flex items-center gap-2">
+                  <Computer size={14} className="text-indigo-600" />
+                  <p className="text-xs text-indigo-600 font-medium">Home Delivery</p>
+                </div>
+                <p className="text-xl font-bold text-indigo-700">{currentMonthSummary.homeDelivery}</p>
+              </div>
+              
+              {/* Pickup */}
+              <div className="bg-purple-50 rounded-xl p-3 border border-purple-100">
+                <div className="flex items-center gap-2">
+                  <HandHelping size={14} className="text-purple-600" />
+                  <p className="text-xs text-purple-600 font-medium">Pickup</p>
+                </div>
+                <p className="text-xl font-bold text-purple-700">{currentMonthSummary.pickup}</p>
+              </div>
+            </div>
+            
+            {/* Previous Months Quick View */}
+            {monthlySummary.length > 1 && (
+              <div className="mt-4 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-400 font-medium">Previous Months:</span>
+                  {monthlySummary.slice(1, 4).map((month) => (
+                    <span key={month.key} className="text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                      {month.month}: {month.total} orders
+                    </span>
+                  ))}
+                  {monthlySummary.length > 4 && (
+                    <span className="text-xs text-gray-400">+{monthlySummary.length - 4} more</span>
+                  )}
                 </div>
               </div>
-            </motion.div>
-          );
-        })}
-      </motion.div>
+            )}
+          </div>
+        </motion.div>
+      )}
 
       {/* Filter Tabs & Search */}
       <motion.div
         variants={itemVariants}
-        className="flex items-center justify-between gap-4 flex-wrap"
+        className="flex flex-col gap-4"
       >
-        {/* Type filters */}
-        <div className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100">
-          {filterTabsMain.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTypeFilter(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  activeTypeFilter === tab.key
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Icon size={16} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Status filters */}
-        <div className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100">
-          {filterTabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveStatusFilter(tab.key)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
-                  activeStatusFilter === tab.key
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                <Icon size={16} />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Search */}
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search orders..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
-          />
-        </div>
-      </motion.div>
-
-      {/* Create Order Modal */}
-      {showCreateForm && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          className="bg-white rounded-2xl shadow-sm border border-blue-200 p-6 ring-2 ring-blue-100"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-gray-900">Customer Order</h2>
-            <button
-              onClick={() => setShowCreateForm(false)}
-              className="text-gray-400 hover:text-gray-600 text-sm font-medium transition-colors"
-            >
-              Cancel
-            </button>
+        {/* Type and Status filters row */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* Type filters */}
+          <div className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100">
+            {filterTabsMain.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTypeFilter(tab.key)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    activeTypeFilter === tab.key
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <Icon size={16} />
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Customer */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Customer</label>
-                <select
-                  required
-                  value={formData.customerId}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, customerId: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                >
-                  <option value="">Select customer</option>
-                  {users.map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.name} {user.phone ? `(${user.phone})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Order Type */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Order Type</label>
-                <select
-                  value={formData.orderType}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, orderType: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                >
-                  <option value="HOME_DELIVERY">Home Delivery</option>
-                  <option value="PICKUP">Pickup</option>
-                </select>
-              </div>
-
-              {/* Payment Method */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Payment Method</label>
-                <select
-                  value={formData.paymentMethod}
-                  onChange={(e) =>
-                    setFormData((prev) => ({ ...prev, paymentMethod: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                >
-                  <option value="CASH">Cash</option>
-                  <option value="ONLINE">Online</option>
-                </select>
-              </div>
-
-              {/* Delivery Location (only for HOME_DELIVERY) */}
-              {formData.orderType === 'HOME_DELIVERY' && (
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">
-                    Delivery Location
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Address"
-                    value={formData.deliveryLocation}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, deliveryLocation: e.target.value }))
-                    }
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Order Items */}
-            <div className="mt-4">
-              <div className="flex items-center justify-between">
-                <label className="block text-xs font-medium text-gray-600">Products</label>
+          {/* Status filters */}
+          <div className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100">
+            {filterTabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
                 <button
-                  type="button"
-                  onClick={handleAddItem}
-                  className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                  key={tab.key}
+                  onClick={() => setActiveStatusFilter(tab.key)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    activeStatusFilter === tab.key
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  }`}
                 >
-                  <Plus size={14} /> Add Item
+                  <Icon size={16} />
+                  {tab.label}
                 </button>
-              </div>
-              <div className="space-y-2 mt-1">
-                {formData.items.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <select
-                      value={item.productId}
-                      onChange={(e) =>
-                        handleItemChange(index, 'productId', Number(e.target.value))
-                      }
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 bg-white"
-                    >
-                      {products.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({formatCurrency(p.unit_price)})
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      type="number"
-                      min="1"
-                      value={item.quantity}
-                      onChange={(e) =>
-                        handleItemChange(index, 'quantity', Number(e.target.value))
-                      }
-                      className="w-20 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveItem(index)}
-                      className="text-red-400 hover:text-red-600 p-1"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
-                {formData.items.length === 0 && (
-                  <p className="text-xs text-gray-400">No products added yet.</p>
-                )}
-              </div>
-            </div>
+              );
+            })}
+          </div>
 
-            <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                type="reset"
-                onClick={() =>
-                  setFormData({
-                    customerId: '',
-                    orderType: 'HOME_DELIVERY',
-                    paymentMethod: 'CASH',
-                    deliveryLocation: '',
-                    items: [],
-                  })
-                }
-                className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors shadow-sm"
-              >
-                Clear
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                type="submit"
-                disabled={formLoading}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
-              >
-                {formLoading ? 'Placing...' : 'Place Order'}
-              </motion.button>
-            </div>
-          </form>
-        </motion.div>
-      )}
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search orders..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
+            />
+          </div>
+        </div>
+
+        {/* Date Filter Row */}
+        <div className="flex items-center gap-3 flex-wrap bg-white rounded-2xl px-4 py-3 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2">
+            <Calendar size={16} className="text-gray-400" />
+            <span className="text-sm font-medium text-gray-600">Date Range:</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-gray-50"
+            />
+            <span className="text-gray-400 text-sm">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-gray-50"
+            />
+          </div>
+          <button
+            onClick={applyDateFilter}
+            className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            Apply
+          </button>
+          {(dateFilterApplied || startDate || endDate) && (
+            <button
+              onClick={clearDateFilter}
+              className="px-3 py-1.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+          {dateFilterApplied && (
+            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+              Filtered
+            </span>
+          )}
+        </div>
+      </motion.div>
 
       {/* Orders Table */}
       <motion.div
         variants={itemVariants}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"
+        className="orders-table-container bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200"
       >
         <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
           <div>
@@ -531,11 +648,11 @@ export default function Orders() {
             </h2>
             <p className="text-xs text-gray-400 mt-0.5">
               {filteredOrders.length} order{filteredOrders.length !== 1 ? 's' : ''} found
+              {dateFilterApplied && ' (filtered by date)'}
             </p>
           </div>
           <div className="text-xs text-gray-500">
-            Total Revenue:{' '}
-            <span className="font-semibold text-gray-900">{formatCurrency(totalRevenue)}</span>
+            Page {currentPage} of {totalPages || 1}
           </div>
         </div>
 
@@ -554,7 +671,7 @@ export default function Orders() {
               </tr>
             </thead>
             <tbody>
-              {filteredOrders.map((order) => (
+              {paginatedOrders.map((order) => (
                 <tr key={order.id} className="border-t border-gray-100 hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-3 font-medium text-gray-900">#{order.id}</td>
                   <td className="px-6 py-3">
@@ -581,6 +698,8 @@ export default function Orders() {
                           ? 'bg-cyan-100 text-cyan-700'
                           : order.order_status === 'DELIVERED'
                           ? 'bg-emerald-100 text-emerald-700'
+                          : order.order_status === 'COMPLETED'
+                          ? 'bg-emerald-100 text-emerald-700'
                           : 'bg-red-100 text-red-700'
                       }`}
                     >
@@ -590,6 +709,8 @@ export default function Orders() {
                         ? 'Processing'
                         : order.order_status === 'DELIVERED'
                         ? 'Delivered'
+                        : order.order_status === 'COMPLETED'
+                        ? 'Completed'
                         : 'Cancelled'}
                     </span>
                   </td>
@@ -620,6 +741,77 @@ export default function Orders() {
             <ShoppingCart size={36} className="mb-3 text-gray-300" />
             <p className="font-medium">No orders found</p>
             <p className="text-xs mt-1">Try adjusting your search or filter criteria</p>
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {filteredOrders.length > 0 && (
+          <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-wrap gap-3">
+            <div className="text-xs text-gray-500">
+              Showing {startIndex + 1} - {Math.min(startIndex + PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length} orders
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={currentPage === 1}
+                className={`p-2 rounded-lg text-sm transition-colors ${
+                  currentPage === 1
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <div className="flex items-center gap-1">
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => handlePageChange(pageNum)}
+                      className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                        currentPage === pageNum
+                          ? 'bg-blue-600 text-white'
+                          : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                {totalPages > 5 && currentPage < totalPages - 2 && (
+                  <>
+                    <span className="text-gray-400">...</span>
+                    <button
+                      onClick={() => handlePageChange(totalPages)}
+                      className="w-8 h-8 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
+                    >
+                      {totalPages}
+                    </button>
+                  </>
+                )}
+              </div>
+              <button
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className={`p-2 rounded-lg text-sm transition-colors ${
+                  currentPage === totalPages
+                    ? 'text-gray-300 cursor-not-allowed'
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
           </div>
         )}
       </motion.div>
