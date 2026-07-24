@@ -189,10 +189,10 @@ const updateUserStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!status || !['pending', 'active'].includes(status)) {
+    if (!status || !['active', 'inactive'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be "pending" or "active".'
+        message: 'Invalid status. Must be "active" or "inactive".'
       });
     }
 

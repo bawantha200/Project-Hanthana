@@ -163,7 +163,7 @@ export default function Settings() {
     if (currentRole === 'CEO') {
       setActiveTab('general');
     } else if (currentRole === 'ADMIN') {
-      setActiveTab('notifications');
+      setActiveTab('general');
     }
   }, [user]);
 

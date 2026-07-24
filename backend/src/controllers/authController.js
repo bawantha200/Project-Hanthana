@@ -261,12 +261,11 @@ const loginUser = async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, message: 'All fields are required.' });
 
-    // 1️⃣ Profile එක email එකෙන් fetch කරන්න (lock status check කරන්න)
     const { data: profile, error: profileFetchError } = await supabase
-      .from('profiles')
-      .select('id, failed_login_attempts, locked_until, full_name, phone_number, address, role_id ( role_name ), two_factor_enabled, two_factor_secret')
-      .eq('email', email)
-      .maybeSingle();
+    .from('profiles')
+    .select('id, status, failed_login_attempts, locked_until, full_name, phone_number, address, role_id ( role_name ), two_factor_enabled, two_factor_secret')
+    .eq('email', email)
+    .maybeSingle();
 
     // 2️⃣ Account එක දැනටමත් locked ද check කරන්න
     if (profile?.locked_until) {
@@ -340,6 +339,14 @@ const loginUser = async (req, res) => {
         .from('profiles')
         .update({ failed_login_attempts: 0, locked_until: null })
         .eq('id', profile.id);
+    }
+
+    if (profile && profile.status !== 'active') {
+      await logAction(profile.id, 'LOGIN_BLOCKED_INACTIVE', { email }, req);
+      return res.status(403).json({
+        success: false,
+        message: 'Your account has been deactivated. Please contact an administrator.',
+      });
     }
 
     const role = profile?.role_id?.role_name?.toUpperCase() || 'CUSTOMER';
