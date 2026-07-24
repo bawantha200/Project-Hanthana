@@ -236,6 +236,22 @@ export default function Orders() {
     }
   };
 
+  // ---------- Filter change handlers with page reset ----------
+  const handleStatusFilterChange = (filterKey) => {
+    setActiveStatusFilter(filterKey);
+    setCurrentPage(1); // Reset to first page
+  };
+
+  const handleTypeFilterChange = (filterKey) => {
+    setActiveTypeFilter(filterKey);
+    setCurrentPage(1); // Reset to first page
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1); // Reset to first page when search changes
+  };
+
   // ---------- Date filter handlers ----------
   const applyDateFilter = () => {
     setDateFilterApplied(true);
@@ -545,7 +561,7 @@ export default function Orders() {
               return (
                 <button
                   key={tab.key}
-                  onClick={() => setActiveTypeFilter(tab.key)}
+                  onClick={() => handleTypeFilterChange(tab.key)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                     activeTypeFilter === tab.key
                       ? 'bg-blue-600 text-white shadow-sm'
@@ -566,7 +582,7 @@ export default function Orders() {
               return (
                 <button
                   key={tab.key}
-                  onClick={() => setActiveStatusFilter(tab.key)}
+                  onClick={() => handleStatusFilterChange(tab.key)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                     activeStatusFilter === tab.key
                       ? 'bg-blue-600 text-white shadow-sm'
@@ -587,7 +603,7 @@ export default function Orders() {
               type="text"
               placeholder="Search orders..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
               className="pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
             />
           </div>
