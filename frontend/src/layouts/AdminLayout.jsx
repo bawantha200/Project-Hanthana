@@ -54,6 +54,7 @@ const NAV_ITEMS = [
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },
   { id: 'pos', label: 'POS', icon: Clipboard, path: '/admin/pos' },
   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/admin/deliveries' },
+  { id: 'deliveryconfig', label: 'Delivery Configuration', icon: Truck, path: '/admin/delivery/config' },
   { id: 'messages', label: 'Messages', icon: Inbox, path: '/admin/messages' },
 
   { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/admin/rider-dashboard' },

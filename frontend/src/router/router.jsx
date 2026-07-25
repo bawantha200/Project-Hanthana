@@ -29,6 +29,7 @@ import ExpenseManagement from '../pages/admin/ExpenseManagement';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
+import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -82,6 +83,7 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        <Route path="delivery/config" element={<DeliveryConfiguration />} />
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
     </Routes>
