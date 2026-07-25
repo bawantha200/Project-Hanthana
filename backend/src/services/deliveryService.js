@@ -732,6 +732,148 @@ const assignRiderToDelivery = async (deliveryId, riderId) => {
   }
 };
 
+// ============ GET DELIVERY LOCATION ============
+const getDeliveryLocation = async (orderId) => {
+  console.log(`📍 [getDeliveryLocation] Fetching location for order ${orderId}...`);
+
+  try {
+    const { data, error } = await supabase
+      .from('order_delivery_locations')
+      .select('id, address, latitude, longitude')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ [getDeliveryLocation] Error:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error in getDeliveryLocation:', error);
+    return null;
+  }
+};
+
+// ============ UPDATE DELIVERY LOCATION ============
+const updateDeliveryLocation = async (orderId, address, latitude, longitude) => {
+  console.log(`📍 [updateDeliveryLocation] Updating location for order ${orderId}...`);
+
+  try {
+    // Check if location exists
+    const { data: existing, error: checkError } = await supabase
+      .from('order_delivery_locations')
+      .select('id')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    let result;
+
+    if (existing) {
+      // Update existing
+      const { data, error } = await supabase
+        .from('order_delivery_locations')
+        .update({
+          address,
+          latitude,
+          longitude,
+          updated_at: new Date().toISOString()
+        })
+        .eq('order_id', orderId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+    } else {
+      // Insert new
+      const { data, error } = await supabase
+        .from('order_delivery_locations')
+        .insert({
+          order_id: orderId,
+          address,
+          latitude,
+          longitude
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+    }
+
+    console.log(`✅ Location updated for order ${orderId}`);
+    return result;
+  } catch (error) {
+    console.error('Error in updateDeliveryLocation:', error);
+    throw error;
+  }
+};
+
+// ============ GET DELIVERY WITH LOCATION ============
+const getDeliveryWithLocation = async (deliveryId) => {
+  console.log(`🔍 [getDeliveryWithLocation] Fetching delivery ${deliveryId} with location...`);
+
+  try {
+    const delivery = await getDeliveryById(deliveryId);
+    
+    if (delivery && delivery.orderId) {
+      const location = await getDeliveryLocation(delivery.orderId);
+      delivery.location = location;
+    }
+
+    return delivery;
+  } catch (error) {
+    console.error('Error in getDeliveryWithLocation:', error);
+    throw error;
+  }
+};
+
+// ============ GET ALL DELIVERIES WITH LOCATIONS ============
+const getAllDeliveriesWithLocations = async (filters = {}) => {
+  console.log('🔍 [getAllDeliveriesWithLocations] Fetching all deliveries with locations...');
+
+  try {
+    const deliveries = await getAllDeliveries(filters);
+    
+    // Add location to each delivery
+    for (const delivery of deliveries) {
+      if (delivery.orderId) {
+        const location = await getDeliveryLocation(delivery.orderId);
+        delivery.location = location;
+      }
+    }
+
+    return deliveries;
+  } catch (error) {
+    console.error('Error in getAllDeliveriesWithLocations:', error);
+    throw error;
+  }
+};
+
+// ============ GET RIDER DELIVERIES WITH LOCATIONS ============
+const getRiderDeliveriesWithLocations = async (riderId, status = null) => {
+  console.log(`🔍 [getRiderDeliveriesWithLocations] Fetching deliveries for rider ${riderId}...`);
+
+  try {
+    const deliveries = await getRiderDeliveries(riderId, status);
+    
+    // Add location to each delivery
+    for (const delivery of deliveries) {
+      if (delivery.orderId) {
+        const location = await getDeliveryLocation(delivery.orderId);
+        delivery.location = location;
+      }
+    }
+
+    return deliveries;
+  } catch (error) {
+    console.error('Error in getRiderDeliveriesWithLocations:', error);
+    throw error;
+  }
+};
+
+
 // ============ EXPORTS ============
 module.exports = {
   getAllDeliveries,
@@ -744,5 +886,10 @@ module.exports = {
   getRefill19LProduct,
   getOrderItemsWithProducts,
   getAll19LProducts,
-  updateEmptyBottleStockFor19L
+  updateEmptyBottleStockFor19L,
+  getDeliveryLocation,
+  updateDeliveryLocation,
+  getDeliveryWithLocation,
+  getAllDeliveriesWithLocations,
+  getRiderDeliveriesWithLocations
 };

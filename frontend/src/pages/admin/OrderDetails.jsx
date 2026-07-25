@@ -26,7 +26,8 @@ import {
   FileText,
   Printer,
   HandHelping,
-  Store
+  Store,
+  RotateCcw
 } from 'lucide-react';
 import api from '../../services/api';
 import { formatCurrency } from '../../utils/helpers';
@@ -148,6 +149,61 @@ export default function OrderDetails() {
     }
   };
 
+  // Helper function to calculate total with delivery fee
+  const calculateTotalWithDelivery = (order) => {
+    const totalAmount = parseFloat(order?.total_amount) || 0;
+    const deliveryFee = parseFloat(order?.delivery_fee) || 0;
+    return totalAmount + deliveryFee;
+  };
+
+  // Helper function to check if an item is a Refill 19L (not Sealed)
+  const isRefillItem = (item) => {
+    const productName = item.product?.name?.toLowerCase() || item.product_name?.toLowerCase() || '';
+    const productType = item.product?.type?.toLowerCase() || item.type?.toLowerCase() || '';
+    const productSize = item.product?.size || item.size || '';
+    const productCategory = item.product?.category?.toLowerCase() || item.category?.toLowerCase() || '';
+    
+    // Must be a REFILL type, not SEALED
+    // Check if it's explicitly a refill
+    const isRefillType = 
+      productType === 'refill' || 
+      productType === 'REFILL' ||
+      productCategory === 'refill' ||
+      productCategory === 'REFILL';
+    
+    // Check if the name indicates it's a refill (not sealed)
+    const isRefillName = 
+      productName.includes('refill') && 
+      !productName.includes('sealed');
+    
+    // Check size is 19L
+    const is19L = 
+      productSize === '19L' || 
+      productSize === '19 L' ||
+      productName.includes('19l') || 
+      productName.includes('19 l') ||
+      productName.includes('19-liter') ||
+      productName.includes('19 litre');
+    
+    // Must be a refill AND 19L
+    return (isRefillType || isRefillName) && is19L;
+  };
+
+  // Helper function to count empty bottles (Refill 19L items only)
+  const countEmptyBottles = (items) => {
+    if (!items || !Array.isArray(items)) return 0;
+    
+    return items.reduce((count, item) => {
+      if (isRefillItem(item)) {
+        return count + (item.quantity || 0);
+      }
+      return count;
+    }, 0);
+  };
+
+  // Get empty bottles count
+  const emptyBottlesCount = countEmptyBottles(order?.items);
+
   const isHomeDelivery = order?.order_type === 'HOME_DELIVERY';
   const isPickup = order?.order_type === 'PICKUP';
   
@@ -199,6 +255,11 @@ export default function OrderDetails() {
       </div>
     );
   }
+
+  // Get delivery fee (from order or from delivery object)
+  const deliveryFee = parseFloat(order.delivery_fee) || 
+                     parseFloat(order.delivery?.delivery_fee) || 0;
+  const totalWithDelivery = calculateTotalWithDelivery(order);
 
   return (
     <motion.div
@@ -417,11 +478,15 @@ export default function OrderDetails() {
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-medium">Delivery Fee</p>
-                    <p className="font-medium mt-1">{formatCurrency(order.delivery.delivery_fee || 0)}</p>
+                    <p className="font-medium mt-1">{formatCurrency(deliveryFee)}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-400 font-medium">Empty Bottles</p>
-                    <p className="font-medium mt-1">{order.delivery.collecting_empty_bottles || 0}</p>
+                    <p className="font-medium mt-1 flex items-center gap-1.5">
+                      <RotateCcw size={14} className="text-emerald-600" />
+                      <span className="font-bold text-emerald-600">{emptyBottlesCount}</span>
+                      <span className="text-xs text-gray-400">bottle{emptyBottlesCount !== 1 ? 's' : ''}</span>
+                    </p>
                   </div>
                 </>
               )}
@@ -434,30 +499,92 @@ export default function OrderDetails() {
               <Package size={18} className="text-blue-600" /> Order Items
             </h3>
             <div className="space-y-3">
-              {order.items?.map((item, index) => (
-                <div key={index} className="flex items-center justify-between border-b border-gray-100 pb-3 last:border-0 last:pb-0">
-                  <div className="flex items-center gap-3 flex-1">
-                    {item.product?.image_url && (
-                      <img
-                        src={item.product.image_url}
-                        alt={item.product.name}
-                        className="w-12 h-12 object-cover rounded-lg"
-                      />
-                    )}
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900">{item.product?.name || 'Product'}</p>
-                      <p className="text-sm text-gray-500">
-                        {item.quantity} x {formatCurrency(item.product?.unit_price || 0)}
-                      </p>
+              {order.items?.map((item, index) => {
+                const productName = item.product?.name || item.product_name || 'Product';
+                const isRefill = isRefillItem(item);
+                const isSealed = productName.toLowerCase().includes('sealed');
+                
+                return (
+                  <div key={index} className="flex items-center justify-between border-b border-gray-100 pb-3 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3 flex-1">
+                      {item.product?.image_url && (
+                        <img
+                          src={item.product.image_url}
+                          alt={item.product.name}
+                          className="w-12 h-12 object-cover rounded-lg"
+                        />
+                      )}
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-medium text-gray-900">{productName}</p>
+                          {isRefill && (
+                            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
+                              <RotateCcw size={12} />
+                              Refill
+                            </span>
+                          )}
+                          {isSealed && (
+                            <span className="inline-flex items-center gap-0.5 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                              <PackageCheck size={12} />
+                              Sealed
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          {item.quantity} x {formatCurrency(item.product?.unit_price || item.unit_price || 0)}
+                        </p>
+                      </div>
                     </div>
+                    <p className="font-semibold text-gray-900">{formatCurrency(item.subTotal || 0)}</p>
                   </div>
-                  <p className="font-semibold text-gray-900">{formatCurrency(item.subTotal || 0)}</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
-            <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+            
+            {/* Empty Bottles Summary - Only for Refill items */}
+            {emptyBottlesCount > 0 && (
+              <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                    <RotateCcw size={16} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-emerald-800">
+                      Empty Bottles to Collect
+                    </p>
+                    <p className="text-xs text-emerald-600">
+                      Customer is returning <span className="font-bold">{emptyBottlesCount}</span> empty 19L bottle{emptyBottlesCount !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Subtotal */}
+            <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
+              <p className="text-sm text-gray-600">Subtotal</p>
+              <p className="font-semibold text-gray-900">{formatCurrency(order.total_amount || 0)}</p>
+            </div>
+            
+            {/* Delivery Fee - Only show for home delivery with fee > 0 */}
+            {isHomeDelivery && deliveryFee > 0 && (
+              <div className="mt-1 flex justify-between items-center">
+                <p className="text-sm text-gray-600">Delivery Fee</p>
+                <p className="font-semibold text-gray-900">+{formatCurrency(deliveryFee)}</p>
+              </div>
+            )}
+            
+            {/* Total with Delivery */}
+            <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
               <p className="font-semibold text-gray-900">Total Amount</p>
-              <p className="font-bold text-xl text-blue-600">{formatCurrency(order.total_amount || 0)}</p>
+              <p className="font-bold text-xl text-blue-600">
+                {formatCurrency(totalWithDelivery)}
+                {isHomeDelivery && deliveryFee > 0 && (
+                  <span className="text-xs text-gray-400 font-normal block text-right">
+                    (includes delivery fee)
+                  </span>
+                )}
+              </p>
             </div>
           </div>
 
@@ -602,13 +729,32 @@ export default function OrderDetails() {
             <div className="mt-4 pt-4 border-t border-gray-100">
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Order Total</span>
+                  <span className="text-gray-500">Subtotal</span>
                   <span className="font-semibold text-gray-900">{formatCurrency(order.total_amount || 0)}</span>
+                </div>
+                {isHomeDelivery && deliveryFee > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Delivery Fee</span>
+                    <span className="font-semibold text-gray-900">+{formatCurrency(deliveryFee)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between text-sm pt-1 border-t border-gray-100">
+                  <span className="font-semibold text-gray-700">Total</span>
+                  <span className="font-bold text-blue-600">{formatCurrency(totalWithDelivery)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Items Count</span>
                   <span className="font-semibold text-gray-900">{order.items?.length || 0}</span>
                 </div>
+                {emptyBottlesCount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500 flex items-center gap-1">
+                      <RotateCcw size={14} className="text-emerald-600" />
+                      Empty Bottles
+                    </span>
+                    <span className="font-semibold text-emerald-600">{emptyBottlesCount}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Created Date</span>
                   <span className="font-semibold text-gray-900 text-xs">

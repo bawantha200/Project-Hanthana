@@ -321,6 +321,13 @@ export default function Orders() {
     }
   };
 
+  // Helper function to calculate total with delivery fee
+  const calculateTotalWithDelivery = (order) => {
+    const totalAmount = parseFloat(order.total_amount) || 0;
+    const deliveryFee = parseFloat(order.delivery_fee) || 0;
+    return totalAmount + deliveryFee;
+  };
+
   // ---------- Render ----------
   if (loading) {
     return (
@@ -730,7 +737,15 @@ export default function Orders() {
                         : 'Cancelled'}
                     </span>
                   </td>
-                  <td className="px-6 py-3 font-semibold">{formatCurrency(order.total_amount)}</td>
+                  {/* Updated Total cell to show total_amount + delivery_fee */}
+                  <td className="px-6 py-3 font-semibold">
+                    {formatCurrency(calculateTotalWithDelivery(order))}
+                    {/* {order.delivery_fee > 0 && (
+                      <span className="text-xs text-gray-400 block">
+                        +{formatCurrency(order.delivery_fee)} delivery
+                      </span>
+                    )} */}
+                  </td>
                   <td className="px-6 py-3 text-gray-600">
                     {order.items?.map((item) => `${item.quantity}x ${item.product_name}`).join(', ')}
                   </td>
