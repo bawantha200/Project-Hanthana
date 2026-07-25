@@ -8,6 +8,7 @@ import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
 import Deliveries from '../pages/admin/Deliveries';
@@ -29,6 +30,7 @@ import ExpenseManagement from '../pages/admin/ExpenseManagement';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
+import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -50,6 +52,7 @@ import PaymentCancel from '../pages/customer/PaymentCancel';
 import InvoicingReports from "../pages/admin/InvoicingReports";
 
 
+
 function AdminRoutes() {
   const { user } = useAuth();
 
@@ -60,8 +63,17 @@ function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route
+          index
+          element={
+            <Navigate
+              to={user?.role === 'SALES_MANAGER' ? '/admin/sales-dashboard' : '/admin/dashboard'}
+              replace
+            />
+          }
+        /> 
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="sales-dashboard" element={<SalesDashboard />} />
         <Route path="hrm-dashboard" element={<HrmDashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
@@ -82,6 +94,7 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        <Route path="delivery/config" element={<DeliveryConfiguration />} />
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
     </Routes>

@@ -38,7 +38,8 @@ const paymentRoutes = require('./src/routes/paymentRoutes');
 const stockRoutes = require('./src/routes/stockRoutes');
 const emptyBottlesRoutes = require('./src/routes/emptyBottlesRoutes');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
-
+const salesRoutes = require('./src/routes/salesRoutes');
+const deliveryFeeRoutes = require('./src/routes/deliveryFeeRoutes');
 
 
 const app = express();
@@ -92,6 +93,8 @@ app.use('/api/empty-bottles', emptyBottlesRoutes);
 app.use('/api/vendor-orders', vendorOrdersRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/maintenance', maintenanceRoutes); // 🆕
+app.use('/api/sales', salesRoutes);
+app.use('/api/delivery-fee', deliveryFeeRoutes);
 
 
 
