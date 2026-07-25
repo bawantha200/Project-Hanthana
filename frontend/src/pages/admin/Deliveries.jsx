@@ -7,12 +7,16 @@ import {
   RefreshCw, XCircle, Package, Phone, Mail, Bike,
   X, ChevronRight, ClipboardList, MessageSquare, Star,
   TrendingUp, TrendingDown, Minus, AlertCircle,
-  ChevronLeft, ChevronRight as ChevronRightIcon
+  ChevronLeft, ChevronRight as ChevronRightIcon, Map,
+  RotateCcw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { formatCurrency } from '../../utils/helpers';
 import toast from 'react-hot-toast';
+
+// Import MapView component
+import MapView from '../../components/MapView';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -54,7 +58,11 @@ export default function Deliveries() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDelivery, setSelectedDelivery] = useState(null);
+  const [selectedDeliveryItems, setSelectedDeliveryItems] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [mapLocation, setMapLocation] = useState({ lat: null, lng: null });
+  const [loadingDetails, setLoadingDetails] = useState(false);
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -116,16 +124,32 @@ export default function Deliveries() {
     });
   };
 
-  const handleViewDelivery = (delivery) => {
-    // Fetch full delivery details including order items
-    fetchDeliveryDetails(delivery.id);
-  };
-
-  const fetchDeliveryDetails = async (deliveryId) => {
+  const handleViewDelivery = async (delivery) => {
+    setLoadingDetails(true);
     try {
-      const response = await api.get(`/deliveries/${deliveryId}`);
+      // Fetch full delivery details with order items
+      const response = await api.get(`/deliveries/${delivery.id}`);
       if (response.data.success) {
-        setSelectedDelivery(response.data.delivery);
+        const fullDelivery = response.data.delivery;
+        
+        // Fetch order details to get items and delivery fee
+        if (fullDelivery.orderId) {
+          const orderResponse = await api.get(`/orders/${fullDelivery.orderId}/details`);
+          if (orderResponse.data.success) {
+            const orderData = orderResponse.data.order;
+            // Merge order data into delivery
+            fullDelivery.order = {
+              ...fullDelivery.order,
+              ...orderData,
+              items: orderData.items || [],
+              total_amount: orderData.total_amount || orderData.totalAmount || 0,
+              delivery_fee: orderData.delivery_fee || fullDelivery.deliveryFee || 0
+            };
+            setSelectedDeliveryItems(orderData.items || []);
+          }
+        }
+        
+        setSelectedDelivery(fullDelivery);
         setShowModal(true);
       } else {
         toast.error('Failed to load delivery details');
@@ -133,11 +157,31 @@ export default function Deliveries() {
     } catch (error) {
       console.error('Failed to load delivery details:', error);
       toast.error('Failed to load delivery details');
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
   const closeModal = () => {
     setShowModal(false);
+    setTimeout(() => {
+      setSelectedDelivery(null);
+      setSelectedDeliveryItems([]);
+    }, 300);
+  };
+
+  const handleOpenMap = (delivery) => {
+    const location = delivery?.order?.location || delivery?.location || {};
+    setMapLocation({
+      lat: location.latitude || null,
+      lng: location.longitude || null
+    });
+    setSelectedDelivery(delivery);
+    setShowMapModal(true);
+  };
+
+  const closeMapModal = () => {
+    setShowMapModal(false);
     setTimeout(() => setSelectedDelivery(null), 300);
   };
 
@@ -162,6 +206,52 @@ export default function Deliveries() {
   const handleFilterChange = (filterKey) => {
     setActiveFilter(filterKey);
     setCurrentPage(1);
+  };
+
+  // Helper function to check if an item is a Refill 19L product
+  const isRefillItem = (item) => {
+    if (!item) return false;
+    
+    const productName = (item.product_name || item.product?.name || item.name || '').toLowerCase();
+    const productType = (item.product?.type || item.type || '').toLowerCase();
+    const productSize = (item.product?.size || item.size || '').toLowerCase();
+    
+    // Check if it's a REFILL type (not SEALED)
+    const isRefillType = productType === 'refill' || productType === 'REFILL';
+    
+    // Check if name contains 'refill' and not 'sealed'
+    const isRefillName = productName.includes('refill') && !productName.includes('sealed');
+    
+    // Check if size is 19L
+    const is19L = productName.includes('19l') || 
+                  productName.includes('19 l') ||
+                  productSize === '19l' || 
+                  productSize === '19 l';
+    
+    // Must be a REFILL type AND 19L
+    return (isRefillType || isRefillName) && is19L;
+  };
+
+  // Calculate empty bottles count from order items
+  const calculateEmptyBottles = (delivery) => {
+    if (!delivery) return 0;
+    
+    // Get items from order
+    const items = delivery.order?.items || selectedDeliveryItems || delivery.items || [];
+    
+    if (!items || items.length === 0) return 0;
+    
+    // Count only Refill 19L items
+    let emptyBottles = 0;
+    
+    items.forEach(item => {
+      if (isRefillItem(item)) {
+        const quantity = item.quantity || 0;
+        emptyBottles += quantity;
+      }
+    });
+    
+    return emptyBottles;
   };
 
   // Filter deliveries for display
@@ -221,30 +311,27 @@ export default function Deliveries() {
 
   // Helper function to safely get order items
   const getOrderItems = (delivery) => {
-    if (!delivery) return [];
+    if (!delivery) return selectedDeliveryItems || [];
     
-    // Check if items are in the delivery object directly
-    if (delivery.items && Array.isArray(delivery.items)) {
-      return delivery.items;
-    }
-    
-    // Check if items are in the order object
     if (delivery.order?.items && Array.isArray(delivery.order.items)) {
       return delivery.order.items;
     }
     
-    // Check if items are in order_items
+    if (delivery.items && Array.isArray(delivery.items)) {
+      return delivery.items;
+    }
+    
     if (delivery.order_items && Array.isArray(delivery.order_items)) {
       return delivery.order_items;
     }
     
-    return [];
+    return selectedDeliveryItems || [];
   };
 
   // Helper function to get item display name
   const getItemName = (item) => {
     if (!item) return 'Item';
-    return item.product_name || item.product?.name || item.name || 'Item';
+    return item.product_name || item.product?.name || item.name || 'Product';
   };
 
   // Helper function to get item price
@@ -458,6 +545,8 @@ export default function Deliveries() {
               <tbody className="divide-y divide-gray-50">
                 {paginatedDeliveries.map((delivery, index) => {
                   const StatusIcon = statusConfig[delivery?.status]?.icon || Clock;
+                  const emptyBottles = calculateEmptyBottles(delivery);
+                  
                   return (
                     <motion.tr
                       key={delivery?.id || index}
@@ -510,19 +599,41 @@ export default function Deliveries() {
                         </div>
                       </td>
                       <td className="px-3 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-center font-medium hidden sm:table-cell">
-                        {delivery?.collectingEmptyBottles || 0}
+                        {emptyBottles > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-amber-600 font-semibold">
+                            <RotateCcw size={12} />
+                            {emptyBottles}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </td>
                       <td className="px-3 sm:px-4 py-2 sm:py-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (delivery) handleViewDelivery(delivery);
-                          }}
-                          className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap"
-                        >
-                          <Eye size={12} />
-                          <span className="hidden xs:inline">View</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          {delivery?.order?.deliveryLocation && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenMap(delivery);
+                              }}
+                              className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium text-emerald-600 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition-colors whitespace-nowrap"
+                              title="View on Map"
+                            >
+                              <Map size={12} />
+                              <span className="hidden xs:inline">Map</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (delivery) handleViewDelivery(delivery);
+                            }}
+                            className="flex items-center gap-1 px-2 sm:px-3 py-1 sm:py-1.5 text-[10px] sm:text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors whitespace-nowrap"
+                          >
+                            <Eye size={12} />
+                            <span className="hidden xs:inline">View</span>
+                          </button>
+                        </div>
                       </td>
                     </motion.tr>
                   );
@@ -669,15 +780,22 @@ export default function Deliveries() {
                   </div>
                   <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                     <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Delivery Fee</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900">{formatCurrency(selectedDelivery.deliveryFee || 0)}</p>
+                    <p className="text-sm sm:text-base font-semibold text-gray-900">
+                      {formatCurrency(selectedDelivery?.order?.delivery_fee || 0)}
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                     <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Empty Bottles</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900">{selectedDelivery.collectingEmptyBottles || 0}</p>
+                    <p className="text-sm sm:text-base font-semibold text-gray-900 flex items-center gap-2">
+                      <RotateCcw size={16} className="text-amber-600" />
+                      {calculateEmptyBottles(selectedDelivery)}
+                    </p>
                   </div>
                   <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                     <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Total Amount</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900">{formatCurrency(selectedDelivery.order?.totalAmount || 0)}</p>
+                    <p className="text-sm sm:text-base font-semibold text-gray-900">
+                      {formatCurrency(selectedDelivery?.order?.total_amount || 0)}
+                    </p>
                   </div>
                 </div>
 
@@ -744,6 +862,31 @@ export default function Deliveries() {
                   </div>
                 </div>
 
+                {/* Empty Bottles Summary */}
+                {(() => {
+                  const emptyBottles = calculateEmptyBottles(selectedDelivery);
+                  if (emptyBottles > 0) {
+                    return (
+                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                            <RotateCcw size={20} className="text-amber-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-amber-800">
+                              Empty Bottles to Collect
+                            </p>
+                            <p className="text-sm text-amber-700">
+                              <span className="font-bold">{emptyBottles}</span> empty 19L bottle{emptyBottles !== 1 ? 's' : ''} from Refill 19L orders
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {/* Delivery Timeline */}
                 <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                   <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -779,10 +922,29 @@ export default function Deliveries() {
                   </div>
                 </div>
 
-                {/* Order Items - Fixed */}
+                {/* View on Map Button in Modal */}
+                {selectedDelivery?.order?.deliveryLocation && (
+                  <button
+                    onClick={() => {
+                      closeModal();
+                      setTimeout(() => handleOpenMap(selectedDelivery), 300);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium hover:bg-emerald-100 transition-colors text-sm border border-emerald-200"
+                  >
+                    <Map size={18} />
+                    View Delivery Location on Map
+                  </button>
+                )}
+
+                {/* Order Items with Refill Badge */}
                 {(() => {
                   const items = getOrderItems(selectedDelivery);
                   if (items && items.length > 0) {
+                    let subtotal = 0;
+                    items.forEach(item => {
+                      subtotal += getItemSubtotal(item);
+                    });
+                    
                     return (
                       <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
                         <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
@@ -790,34 +952,60 @@ export default function Deliveries() {
                           Order Items
                         </h3>
                         <div className="space-y-1.5 sm:space-y-2">
-                          {items.slice(0, 5).map((item, index) => {
+                          {items.map((item, index) => {
                             const itemName = getItemName(item);
                             const quantity = getItemQuantity(item);
                             const price = getItemPrice(item);
-                            const subtotal = getItemSubtotal(item);
+                            const itemSubtotal = getItemSubtotal(item);
+                            const isRefill = isRefillItem(item);
                             
                             return (
                               <div key={index} className="flex items-center justify-between text-xs sm:text-sm">
-                                <span className="text-gray-600 truncate mr-2">{itemName}</span>
-                                <span className="text-gray-900 font-medium whitespace-nowrap">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <span className="text-gray-600 truncate">{itemName}</span>
+                                  {isRefill && (
+                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                                      <RotateCcw size={10} />
+                                      Refill
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-gray-900 font-medium whitespace-nowrap ml-2">
                                   {quantity} × {formatCurrency(price)}
-                                  {subtotal > 0 && (
+                                  {itemSubtotal > 0 && (
                                     <span className="text-gray-400 text-[10px] ml-1">
-                                      = {formatCurrency(subtotal)}
+                                      = {formatCurrency(itemSubtotal)}
                                     </span>
                                   )}
                                 </span>
                               </div>
                             );
                           })}
-                          {items.length > 5 && (
-                            <p className="text-xs text-gray-400">+{items.length - 5} more items</p>
+                          <div className="pt-2 border-t border-gray-200 flex justify-between font-semibold text-sm">
+                            <span className="text-gray-700">Subtotal</span>
+                            <span className="text-gray-900">{formatCurrency(subtotal)}</span>
+                          </div>
+                          {selectedDelivery?.order?.delivery_fee > 0 && (
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-600">Delivery Fee</span>
+                              <span className="text-gray-900">{formatCurrency(selectedDelivery.order.delivery_fee)}</span>
+                            </div>
                           )}
+                          <div className="pt-1 border-t border-gray-200 flex justify-between font-bold text-base">
+                            <span className="text-gray-900">Total</span>
+                            <span className="text-blue-600">
+                              {formatCurrency((selectedDelivery?.order?.total_amount || 0))}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );
                   }
-                  return null;
+                  return (
+                    <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+                      <p className="text-sm text-gray-400 text-center">No items found for this order</p>
+                    </div>
+                  );
                 })()}
 
                 {/* Action Buttons */}
@@ -843,6 +1031,22 @@ export default function Deliveries() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Map Modal - View Delivery Location */}
+      <MapView
+        isOpen={showMapModal}
+        onClose={closeMapModal}
+        address={selectedDelivery?.order?.deliveryLocation}
+        latitude={mapLocation.lat}
+        longitude={mapLocation.lng}
+        customerName={selectedDelivery?.order?.customer?.name}
+        customerPhone={selectedDelivery?.order?.customer?.phone}
+        deliveryId={selectedDelivery?.id}
+        orderItems={selectedDelivery?.order?.items}
+        onLocationSelect={(location) => {
+          setMapLocation(location);
+        }}
+      />
     </>
   );
 }
