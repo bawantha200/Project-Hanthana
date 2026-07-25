@@ -46,28 +46,32 @@ export function AuthProvider({ children }) {
   /**
    * Standardizes database variations of user objects into consistent camelCase/snake_case fields
    */
-  const formatUserData = useCallback((data) => {
-    if (!data) return null;
+const formatUserData = useCallback((data) => {
+  if (!data) return null;
 
-    const finalFullName = data.fullName || data.full_name || 'User Profile';
-    const finalRole = data.role || data.role_name || 'CUSTOMER';
-    const finalPhone = data.phone || data.phone_number || '';
-    const finalAddress = data.address || '';
+  const { isGoogleUser, hasPassword } = detectUserType(data);
 
-    return {
-      ...data,
-      id: data.id,
-      email: data.email || '',
-      fullName: finalFullName, 
-      full_name: finalFullName, 
-      role: finalRole.toUpperCase(),
-      role_name: finalRole.toUpperCase(), 
-      phone: finalPhone,
-      phone_number: finalPhone,
-      address: finalAddress,
-      roleColor: getRoleColorClass(finalRole)
-    };
-  }, []);
+  const finalFullName = data.fullName || data.full_name || 'User Profile';
+  const finalRole = data.role || data.role_name || 'CUSTOMER';
+  const finalPhone = data.phone || data.phone_number || '';
+  const finalAddress = data.address || '';
+
+  return {
+    ...data,
+    id: data.id,
+    email: data.email || '',
+    fullName: finalFullName, 
+    full_name: finalFullName, 
+    role: finalRole.toUpperCase(),
+    role_name: finalRole.toUpperCase(), 
+    phone: finalPhone,
+    phone_number: finalPhone,
+    address: finalAddress,
+    hasPassword: hasPassword || data.hasPassword || false,
+    provider: isGoogleUser ? 'google' : 'email',
+    roleColor: getRoleColorClass(finalRole)
+  };
+}, []);
 
   /**
    * Retrieves active Supabase session token and verifies user authentication with Express backend
@@ -310,6 +314,26 @@ export function AuthProvider({ children }) {
       throw err;
     }
   }, []);
+
+  // Add this function inside AuthContext.jsx
+// ============ FILE: AuthContext.jsx ============
+// LOCATION: Add this function inside your AuthContext component
+
+// Add this function to detect user type
+const detectUserType = (user) => {
+  if (!user) return { isGoogleUser: false, hasPassword: false };
+  
+  // Check if user is from Google
+  const isGoogleUser = user?.provider === 'google' || 
+                       user?.authProvider === 'google' ||
+                       user?.identities?.some?.(id => id.provider === 'google') ||
+                       user?.app_metadata?.provider === 'google';
+  
+  // Check if user has a password
+  const hasPassword = user?.hasPassword || false;
+  
+  return { isGoogleUser, hasPassword };
+};
 
   return (
     <AuthContext.Provider value={{ 

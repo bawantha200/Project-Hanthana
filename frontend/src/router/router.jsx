@@ -31,6 +31,7 @@ import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
+import InvoicingReports from "../pages/admin/InvoicingReports";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -48,8 +49,9 @@ import Profile from '../pages/customer/Profile';
 import CustomerOrderDetails from '../pages/customer/OrderDetails';
 import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
+import ForgotPassword from '../pages/customer/ForgotPassword';
+import ResetPassword from '../pages/customer/ResetPassword';
 
-import InvoicingReports from "../pages/admin/InvoicingReports";
 
 /**
  * Guest-only wrapper to prevent authenticated users from opening Login & Register pages
@@ -137,6 +139,8 @@ function CustomerRoutes() {
         <Route path="order/:id" element={<CustomerOrderDetails />} />
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="forgot-password" element={<ForgotPassword />} />
+        <Route path="reset-password" element={<ResetPassword />} />
 
         {/* 🔒 Restricted for logged-in users */}
         <Route element={<GuestRoute />}>
