@@ -27,6 +27,7 @@ import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
 import ExpenseManagement from '../pages/admin/ExpenseManagement';
+import ExpenseComparison from '../pages/admin/ExpenseComparison';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
@@ -90,6 +91,7 @@ function AdminRoutes() {
         <Route path="finance" element={<Finance />} />
         <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
+        <Route path="finance/expenses/compare" element={<ExpenseComparison />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
