@@ -13,6 +13,8 @@ import { financialData } from '../../data/mockData';
 import { formatCurrency } from '../../utils/helpers';
 import { getExpenseSummary, getPeriodRange } from '../../services/reportService';
 
+const API_BASE = 'http://localhost:5000/api';
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -43,16 +45,46 @@ function growthPct(current, previous) {
 export default function Finance() {
   const navigate = useNavigate();
 
-  // --- Income side stays on mock data until the invoice page is connected ---
-  const latestMonth = financialData[financialData.length - 1];
-  const previousMonth = financialData[financialData.length - 2];
-  const totalIncome = latestMonth.income;
-  const incomeGrowth = growthPct(latestMonth.income, previousMonth.income).toFixed(1);
+  // --- Real income data, from the invoices report endpoint ---
+  const [thisMonthRevenue, setThisMonthRevenue] = useState(0);
+  const [lastMonthRevenue, setLastMonthRevenue] = useState(0);
+  const [loadingIncome, setLoadingIncome] = useState(true);
+  const [pendingPayments, setPendingPayments] = useState(0);
+  const [monthlyRevenue, setMonthlyRevenue] = useState([]);
 
   // --- Real expense data ---
   const [thisMonthSummary, setThisMonthSummary] = useState(null);
   const [lastMonthSummary, setLastMonthSummary] = useState(null);
   const [loadingExpenses, setLoadingExpenses] = useState(true);
+
+  const loadIncomeData = useCallback(async () => {
+    setLoadingIncome(true);
+    try {
+      const thisRange = getPeriodRange('this-month');
+      const lastRange = getPeriodRange('last-month');
+      const [thisReport, lastReport, pendingData, monthlyData] = await Promise.all([
+        fetch(
+          `${API_BASE}/invoices/report?dateFrom=${thisRange.dateFrom}&dateTo=${thisRange.dateTo}`
+        ).then((res) => res.json()),
+        fetch(
+          `${API_BASE}/invoices/report?dateFrom=${lastRange.dateFrom}&dateTo=${lastRange.dateTo}`
+        ).then((res) => res.json()),
+        fetch(`${API_BASE}/invoices/pending-payments`).then((res) => res.json()),
+        fetch(`${API_BASE}/invoices/monthly-revenue`).then((res) => res.json()),
+      ]);
+      setThisMonthRevenue(thisReport.revenue || 0);
+      setLastMonthRevenue(lastReport.revenue || 0);
+      setPendingPayments(pendingData.pendingPayments || 0);
+      setMonthlyRevenue(monthlyData || []);
+    } catch (error) {
+      console.error('Failed to load invoice revenue for dashboard:', error);
+    } finally {
+      setLoadingIncome(false);
+    }
+  }, []);
+
+  const totalIncome = thisMonthRevenue;
+  const incomeGrowth = growthPct(thisMonthRevenue, lastMonthRevenue).toFixed(1);
 
   const loadExpenseData = useCallback(async () => {
     setLoadingExpenses(true);
@@ -73,8 +105,9 @@ export default function Finance() {
   }, []);
 
   useEffect(() => {
+    loadIncomeData();
     loadExpenseData();
-  }, [loadExpenseData]);
+  }, [loadIncomeData, loadExpenseData]);
 
   // --- Derive real figures (default to 0 while loading) ---
   const s = thisMonthSummary;
@@ -98,7 +131,9 @@ export default function Finance() {
   const prevSalaryCosts = p?.salaryExpenses.total || 0;
 
   const netProfit = totalIncome - realTotalExpenses;
-  const prevNetProfit = previousMonth.income - prevTotalExpenses;
+  const prevNetProfit = lastMonthRevenue - prevTotalExpenses;
+
+  const loading = loadingIncome || loadingExpenses;
 
   const expenseGrowth = growthPct(realTotalExpenses, prevTotalExpenses).toFixed(1);
   const profitGrowth = growthPct(netProfit, prevNetProfit).toFixed(1);
@@ -145,11 +180,11 @@ export default function Finance() {
       <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1">
         <StatCard
           title="Total Income"
-          value={formatCurrency(totalIncome)}
-          subtitle="vs last month (mock — pending invoice module)"
+          value={loadingIncome ? '...' : formatCurrency(totalIncome)}
+          subtitle="vs last month"
           icon={DollarSign}
-          trend="up"
-          trendValue={`+${incomeGrowth}%`}
+          trend={incomeGrowth >= 0 ? 'up' : 'down'}
+          trendValue={`${incomeGrowth >= 0 ? '+' : ''}${incomeGrowth}%`}
           color="blue"
           delay={0}
         />
@@ -165,7 +200,7 @@ export default function Finance() {
         />
         <StatCard
           title="Net Profit"
-          value={loadingExpenses ? '...' : formatCurrency(netProfit)}
+          value={loading ? '...' : formatCurrency(netProfit)}
           subtitle="vs last month"
           icon={TrendingUp}
           trend={profitGrowth >= 0 ? 'up' : 'down'}
@@ -175,7 +210,7 @@ export default function Finance() {
         />
         <StatCard
           title="Pending Payments"
-          value={formatCurrency(57900)}
+          value={loadingIncome ? '...' : formatCurrency(pendingPayments)}
           subtitle="outstanding dues"
           icon={CreditCard}
           color="rose"
@@ -257,37 +292,51 @@ export default function Finance() {
         </motion.div>
       </motion.div>
 
-      {/* Revenue Growth & P&L Summary — still mock, pending invoice module */}
+      {/* Revenue Growth & P&L Summary — still mock, pending monthly-history invoice query */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-5">
-            <div><h2 className="text-base font-semibold text-gray-900">Revenue Growth</h2><p className="text-xs text-gray-400 mt-0.5">Month-over-month income trend (mock)</p></div>
+            <div><h2 className="text-base font-semibold text-gray-900">Revenue Growth</h2><p className="text-xs text-gray-400 mt-0.5">Month-over-month income trend</p></div>
             <div className="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center"><TrendingUp size={18} className="text-emerald-600" /></div>
           </div>
-          <div className="space-y-4">
-            {financialData.map((entry, idx) => {
-              const growth = idx > 0 ? ((entry.income - financialData[idx - 1].income) / financialData[idx - 1].income * 100).toFixed(1) : 0;
-              const isPositive = growth >= 0;
-              return (
-                <div key={entry.month} className="flex items-center gap-4">
-                  <span className="text-sm font-medium text-gray-600 w-8">{entry.month}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="w-full bg-gray-100 rounded-full h-2">
-                      <div className="h-2 rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 to-blue-600" style={{ width: `${(entry.income / 400000 * 100).toFixed(0)}%` }} />
+          {loadingIncome ? (
+            <div className="flex items-center justify-center py-10">
+              <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {(() => {
+                const maxIncome = Math.max(...monthlyRevenue.map((e) => e.income), 1);
+                return monthlyRevenue.map((entry, idx) => {
+                  const prev = idx > 0 ? monthlyRevenue[idx - 1].income : null;
+                  const growth = prev ? (((entry.income - prev) / prev) * 100).toFixed(1) : null;
+                  const isPositive = growth === null || growth >= 0;
+                  return (
+                    <div key={`${entry.month}-${idx}`} className="flex items-center gap-4">
+                      <span className="text-sm font-medium text-gray-600 w-8">{entry.month}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="w-full bg-gray-100 rounded-full h-2">
+                          <div
+                            className="h-2 rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 to-blue-600"
+                            style={{ width: `${((entry.income / maxIncome) * 100).toFixed(0)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900 w-24 text-right">{formatCurrency(entry.income)}</span>
+                      {growth !== null ? (
+                        <span className={`flex items-center gap-0.5 text-xs font-medium w-16 justify-end ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          {isPositive ? <ArrowUpRight size={12} /> : <TrendingDown size={12} />}
+                          {isPositive ? '+' : ''}{growth}%
+                        </span>
+                      ) : (
+                        <span className="w-16"></span>
+                      )}
                     </div>
-                  </div>
-                  <span className="text-sm font-semibold text-gray-900 w-24 text-right">{formatCurrency(entry.income)}</span>
-                  {idx > 0 && (
-                    <span className={`flex items-center gap-0.5 text-xs font-medium w-16 justify-end ${isPositive ? 'text-emerald-600' : 'text-rose-600'}`}>
-                      {isPositive ? <ArrowUpRight size={12} /> : <TrendingDown size={12} />}
-                      {isPositive ? '+' : ''}{growth}%
-                    </span>
-                  )}
-                  {idx === 0 && <span className="w-16"></span>}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                });
+              })()}
+            </div>
+          )}
         </motion.div>
 
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
