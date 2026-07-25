@@ -8,6 +8,7 @@ import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
 import Deliveries from '../pages/admin/Deliveries';
@@ -50,6 +51,7 @@ import PaymentCancel from '../pages/customer/PaymentCancel';
 import InvoicingReports from "../pages/admin/InvoicingReports";
 
 
+
 function AdminRoutes() {
   const { user } = useAuth();
 
@@ -60,8 +62,17 @@ function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route
+          index
+          element={
+            <Navigate
+              to={user?.role === 'SALES_MANAGER' ? '/admin/sales-dashboard' : '/admin/dashboard'}
+              replace
+            />
+          }
+        /> 
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="sales-dashboard" element={<SalesDashboard />} />
         <Route path="hrm-dashboard" element={<HrmDashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
