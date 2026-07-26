@@ -53,6 +53,7 @@ import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
 import ForgotPassword from '../pages/customer/ForgotPassword';
 import ResetPassword from '../pages/customer/ResetPassword';
+import SalesAnalytics from '../pages/admin/salesAnalytics';
 
 
 /**
@@ -126,6 +127,7 @@ function AdminRoutes() {
         <Route path="rider-dashboard" element={<RiderDashboard />} />
         <Route path="delivery/config" element={<DeliveryConfiguration />} />
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="sales-analytics" element={<SalesAnalytics />} />
       </Route>
     </Routes>
   );

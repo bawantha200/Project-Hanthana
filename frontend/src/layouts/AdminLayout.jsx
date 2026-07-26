@@ -49,6 +49,7 @@ import { supabase } from '../supabaseClient';
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
   { id: 'sales-dashboard', label: 'Sales Dashboard', icon: BarChart3, path: '/admin/sales-dashboard' },
+  { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/admin/sales-analytics' },
   { id: 'products', label: 'Products', icon: Package, path: '/admin/products' },
 
   { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/admin/inventory' },
