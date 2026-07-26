@@ -1,5 +1,6 @@
 // backend/src/services/ordersService.js
 const supabase = require('../config/db');
+const { calculateDeliveryFee, getDeliveryFeeConfig } = require('./deliveryFeeService');
 
 // ========== GET ALL ORDERS (Admin) ==========
 const getAllOrders = async () => {
@@ -12,9 +13,10 @@ const getAllOrders = async () => {
       payment_status,
       order_status,
       total_amount,
-      delivery_location,
+      delivery_fee,
       created_at,
-      users ( id, name, phone )
+      users ( id, name, phone ),
+      order_delivery_locations ( address, latitude, longitude )
     `)
     .order('created_at', { ascending: false });
 
@@ -40,10 +42,15 @@ const getAllOrders = async () => {
         throw new Error(`Items error: ${itemsError.message}`);
       }
 
+      const deliveryLocation = order.order_delivery_locations?.[0] || null;
+
       return {
         ...order,
         customer_name: order.users?.name || null,
         customer_phone: order.users?.phone || null,
+        delivery_location: deliveryLocation?.address || null,
+        delivery_latitude: deliveryLocation?.latitude || null,
+        delivery_longitude: deliveryLocation?.longitude || null,
         items: (items || []).map((item) => ({
           id: item.id,
           quantity: item.quantity,
@@ -59,7 +66,7 @@ const getAllOrders = async () => {
   return ordersWithItems;
 };
 
-// ========== GET ALL USERS (for dropdown) ==========
+// ========== GET ALL USERS ==========
 const getAllUsers = async () => {
   const { data, error } = await supabase
     .from('users')
@@ -73,7 +80,7 @@ const getAllUsers = async () => {
   return data || [];
 };
 
-// ========== GET ALL PRODUCTS (for dropdown) ==========
+// ========== GET ALL PRODUCTS ==========
 const getAllProducts = async () => {
   const { data, error } = await supabase
     .from('products')
@@ -87,7 +94,7 @@ const getAllProducts = async () => {
   return data || [];
 };
 
-// ========== DEDUCT INVENTORY (Called after payment completion) ==========
+// ========== DEDUCT INVENTORY ==========
 const deductInventory = async (items) => {
   console.log('[deductInventory] Starting inventory deduction for', items?.length || 0, 'items');
 
@@ -100,19 +107,8 @@ const deductInventory = async (items) => {
     const productId = item.product_id || item.productId;
     const quantity = Number(item.quantity) || 0;
 
-    console.log('[deductInventory] Processing product', productId, 'quantity:', quantity);
+    if (!productId || quantity <= 0) continue;
 
-    if (!productId) {
-      console.warn('[deductInventory] Skipping item with no productId:', item);
-      continue;
-    }
-
-    if (quantity <= 0) {
-      console.warn('[deductInventory] Skipping item with quantity <= 0:', item);
-      continue;
-    }
-
-    // Fetch current inventory row (if it exists)
     const { data: existingInventory, error: fetchError } = await supabase
       .from('inventory')
       .select('current_stock, reorder_level')
@@ -124,15 +120,9 @@ const deductInventory = async (items) => {
       throw new Error(`Inventory fetch error for product ${productId}: ${fetchError.message}`);
     }
 
-    // ✅ FIX: build a fresh local object instead of Object.assign()'ing onto a
-    // possibly-null destructured value. The previous version crashed here
-    // with "Cannot convert undefined or null to object" whenever a product
-    // had no inventory row yet, which silently aborted the whole loop.
     let inventoryRow = existingInventory;
 
     if (!inventoryRow) {
-      console.log('[deductInventory] No inventory found for product', productId, '- creating with default stock');
-
       const { data: newInventory, error: createError } = await supabase
         .from('inventory')
         .insert({
@@ -156,16 +146,12 @@ const deductInventory = async (items) => {
     const reorderLevel = inventoryRow.reorder_level ?? 20;
 
     if (currentStock < quantity) {
-      console.error('[deductInventory] Insufficient stock for product', productId, 'Available:', currentStock, 'Required:', quantity);
+      console.error('[deductInventory] Insufficient stock for product', productId);
       throw new Error(`Insufficient stock for product ${productId}. Available: ${currentStock}, Required: ${quantity}`);
     }
 
     const newStock = currentStock - quantity;
-    console.log('[deductInventory] Product', productId, 'stock:', currentStock, '->', newStock);
 
-    // ✅ FIX: .select() the update result so we can detect a silent
-    // 0-row update (e.g. caused by an RLS policy blocking the write or a
-    // stale product_id) instead of assuming success.
     const { data: updateResult, error: updateError } = await supabase
       .from('inventory')
       .update({
@@ -181,21 +167,10 @@ const deductInventory = async (items) => {
     }
 
     if (!updateResult || updateResult.length === 0) {
-      console.error(
-        '[deductInventory] UPDATE affected 0 rows for product', productId,
-        '- check RLS policies on `inventory` and confirm the backend Supabase client uses the service_role key'
-      );
-      throw new Error(
-        `Inventory update affected 0 rows for product ${productId}. Check RLS policy / service_role key.`
-      );
+      throw new Error(`Inventory update affected 0 rows for product ${productId}.`);
     }
 
-    console.log('[deductInventory] Confirmed new stock in DB:', updateResult[0].current_stock);
-
-    // Low stock alert
     if (newStock <= reorderLevel) {
-      console.log('[deductInventory] Low stock alert for product', productId, '- current stock:', newStock, 'reorder level:', reorderLevel);
-
       const { data: product, error: productError } = await supabase
         .from('products')
         .select('name')
@@ -212,7 +187,6 @@ const deductInventory = async (items) => {
             related_order_id: productId,
             created_at: new Date().toISOString()
           });
-        console.log('[deductInventory] Low stock notification created for', product.name);
       }
     }
   }
@@ -221,16 +195,19 @@ const deductInventory = async (items) => {
 };
 
 // ========== CREATE ORDER ==========
+
 const createOrder = async (orderData) => {
   console.log('[createOrder] Creating new order with', orderData.items?.length || 0, 'items');
+  console.log('[createOrder] Received orderData:', JSON.stringify(orderData, null, 2));
 
-  const { customerId, orderType, paymentMethod, deliveryLocation, items } = orderData;
+  const { customerId, orderType, paymentMethod, deliveryAddress, items, latitude, longitude } = orderData;
 
   if (!items || items.length === 0) {
     console.error('[createOrder] No items in order');
     throw new Error('No items in order');
   }
 
+  // Get product prices
   const { data: products, error: prodError } = await supabase
     .from('products')
     .select('id, unit_price')
@@ -241,18 +218,73 @@ const createOrder = async (orderData) => {
     throw new Error(`Products error: ${prodError.message}`);
   }
 
+  // Calculate total
   const total = items.reduce((sum, item) => {
     const product = products?.find(p => p.id === item.productId);
     return sum + (product ? product.unit_price * item.quantity : 0);
   }, 0);
 
+  // ✅ Calculate delivery fee if home delivery
+  let deliveryFee = 0;
+  let deliveryLatitude = latitude || null;
+  let deliveryLongitude = longitude || null;
+  
+  // ✅ IMPORTANT: Use the customer's selected delivery address, NOT the store address
+  let deliveryAddressText = deliveryAddress || null;
+
+  console.log('[createOrder] Received latitude from frontend:', latitude);
+  console.log('[createOrder] Received longitude from frontend:', longitude);
+  console.log('[createOrder] Received deliveryAddress from frontend:', deliveryAddress);
+
+  if (orderType === 'HOME_DELIVERY' && deliveryAddress) {
+    try {
+      console.log('[createOrder] Calculating delivery fee for address:', deliveryAddress);
+      
+      const feeResult = await calculateDeliveryFee(deliveryAddress, total);
+      console.log('[createOrder] Fee result:', JSON.stringify(feeResult, null, 2));
+      
+      // ✅ Extract delivery fee from the result
+      if (feeResult && feeResult.data) {
+        deliveryFee = feeResult.data.delivery_fee || 0;
+        
+        // ✅ If we don't have coordinates from the frontend, use the ones from geocoding
+        if (!deliveryLatitude && feeResult.data.to_lat) {
+          deliveryLatitude = feeResult.data.to_lat;
+          deliveryLongitude = feeResult.data.to_lng;
+          // ✅ Use the formatted address from geocoding as fallback
+          if (feeResult.data.store_address && !deliveryAddressText) {
+            deliveryAddressText = feeResult.data.store_address;
+          }
+        }
+      } else if (feeResult && typeof feeResult.delivery_fee === 'number') {
+        deliveryFee = feeResult.delivery_fee || 0;
+      }
+      
+      console.log('[createOrder] Final delivery fee:', deliveryFee);
+      console.log('[createOrder] Final delivery address:', deliveryAddressText);
+      console.log('[createOrder] Final coordinates:', deliveryLatitude, deliveryLongitude);
+    } catch (error) {
+      console.error('[createOrder] ❌ Delivery fee calculation error:', error);
+      try {
+        const config = await getDeliveryFeeConfig();
+        deliveryFee = config.base_fee || 350;
+      } catch (configError) {
+        deliveryFee = 350;
+      }
+    }
+  } else {
+    // ✅ For PICKUP, set a clear description
+    deliveryAddressText = 'Pickup at store';
+  }
+
   const isCash = paymentMethod === 'CASH';
   const paymentStatus = isCash ? 'COMPLETED' : 'PENDING';
 
-  console.log('[createOrder] Total amount:', total);
-  console.log('[createOrder] Is Cash:', isCash);
-  console.log('[createOrder] Payment Status:', paymentStatus);
-
+  // ✅ INSERT ORDER - delivery_location should be the customer's address
+  console.log('[createOrder] Inserting order with:');
+  console.log('[createOrder]   - delivery_location (customer address):', deliveryAddressText);
+  console.log('[createOrder]   - delivery_fee:', deliveryFee);
+  
   const { data: orderInsert, error: orderError } = await supabase
     .from('orders')
     .insert({
@@ -260,20 +292,22 @@ const createOrder = async (orderData) => {
       order_type: orderType,
       payment_method: paymentMethod,
       payment_status: paymentStatus,
-      order_status: 'PLACED',
+      order_status: orderType === 'PICKUP' ? 'COMPLETED' : 'PLACED',
       total_amount: total,
-      delivery_location: deliveryLocation || null,
+      delivery_fee: deliveryFee,
+      delivery_location: deliveryAddressText, // ✅ This should be the customer's address
     })
     .select('id')
     .single();
 
   if (orderError) {
-    console.error('[createOrder] Order insert error:', orderError);
+    console.error('[createOrder] ❌ Order insert error:', orderError);
     throw new Error(`Order insert error: ${orderError.message}`);
   }
 
-  console.log('[createOrder] Order created with ID:', orderInsert.id);
+  console.log('[createOrder] ✅ Order created with ID:', orderInsert.id);
 
+  // Insert order items
   const orderItems = items.map((item) => {
     const product = products?.find(p => p.id === item.productId);
     return {
@@ -289,19 +323,56 @@ const createOrder = async (orderData) => {
     .insert(orderItems);
 
   if (itemsError) {
-    console.error('[createOrder] Order items error:', itemsError);
+    console.error('[createOrder] ❌ Order items error:', itemsError);
     await supabase.from('orders').delete().eq('id', orderInsert.id);
     throw new Error(`Order items error: ${itemsError.message}`);
   }
 
-  console.log('[createOrder] Created', orderItems.length, 'order items');
+  console.log('[createOrder] ✅ Created', orderItems.length, 'order items');
+
+  // ✅ INSERT DELIVERY LOCATION - Use the customer's address and coordinates
+  if (orderType === 'HOME_DELIVERY') {
+    // ✅ Use the customer's address from frontend
+    const finalAddress = deliveryAddress || deliveryAddressText;
+    const finalLat = deliveryLatitude;
+    const finalLng = deliveryLongitude;
+
+    console.log('[createOrder] 📍 Inserting into order_delivery_locations:');
+    console.log('[createOrder]   - Address (customer):', finalAddress);
+    console.log('[createOrder]   - Latitude:', finalLat);
+    console.log('[createOrder]   - Longitude:', finalLng);
+
+    const insertData = {
+      order_id: orderInsert.id,
+      address: finalAddress || 'Address not provided',
+    };
+
+    if (finalLat !== null && finalLat !== undefined) {
+      insertData.latitude = finalLat;
+    }
+    if (finalLng !== null && finalLng !== undefined) {
+      insertData.longitude = finalLng;
+    }
+
+    const { data: locationData, error: locationError } = await supabase
+      .from('order_delivery_locations')
+      .insert(insertData)
+      .select()
+      .single();
+
+    if (locationError) {
+      console.error('[createOrder] ❌ Delivery location insert error:', locationError);
+    } else {
+      console.log('[createOrder] ✅ Delivery location inserted:', JSON.stringify(locationData, null, 2));
+    }
+  }
 
   // For CASH payments, deduct inventory immediately
   if (isCash) {
     try {
       console.log('[createOrder] Deducting inventory for cash order...');
       await deductInventory(items);
-      console.log('[createOrder] Inventory deducted successfully');
+      console.log('[createOrder] ✅ Inventory deducted successfully');
 
       const orderStatus = orderType === 'PICKUP' ? 'COMPLETED' : 'PLACED';
       await supabase
@@ -314,11 +385,9 @@ const createOrder = async (orderData) => {
 
       console.log('[createOrder] Order status updated to:', orderStatus);
     } catch (inventoryError) {
-      // ✅ FIX: don't silently swallow this. A cash order that "succeeds"
-      // while stock silently fails to deduct is worse than a failed order.
-      // Roll back the order + items and surface the real error to the caller.
-      console.error('[createOrder] Inventory deduction failed, rolling back order:', inventoryError);
+      console.error('[createOrder] ❌ Inventory deduction failed, rolling back order:', inventoryError);
       await supabase.from('order_items').delete().eq('order_id', orderInsert.id);
+      await supabase.from('order_delivery_locations').delete().eq('order_id', orderInsert.id);
       await supabase.from('orders').delete().eq('id', orderInsert.id);
       throw new Error(`Order creation failed during inventory deduction: ${inventoryError.message}`);
     }
@@ -339,6 +408,10 @@ const createOrder = async (orderData) => {
   return {
     id: orderInsert.id,
     total,
+    delivery_fee: deliveryFee,
+    delivery_latitude: deliveryLatitude,
+    delivery_longitude: deliveryLongitude,
+    delivery_address: deliveryAddressText,
     customerEmail: customer?.email || null,
     customerPhone: customer?.phone || null,
     customerName: customer?.name || null,
@@ -347,7 +420,207 @@ const createOrder = async (orderData) => {
   };
 };
 
-// ========== COMPLETE ORDER (Deduct inventory after payment) ==========
+// ========== GET ORDERS BY USER ID ==========
+const getOrdersByUserId = async (userId) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_status,
+      payment_status,
+      total_amount,
+      delivery_fee,
+      created_at,
+      order_items ( quantity, product_id, products ( name ) )
+    `)
+    .eq('customer_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('[getOrdersByUserId] Error:', error);
+    throw new Error(`Supabase error: ${error.message}`);
+  }
+
+  return (data || []).map(order => ({
+    id: order.id,
+    orderId: order.id,
+    product: order.order_items?.[0]?.products?.name || 'No product',
+    qty: order.order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0,
+    amount: order.total_amount || 0,
+    deliveryFee: order.delivery_fee || 0,
+    status: order.order_status === 'PLACED' ? 'Pending' :
+            order.order_status === 'PROCESSING' ? 'Preparing' :
+            order.order_status === 'DELIVERED' ? 'Delivered' :
+            order.order_status === 'COMPLETED' ? 'Completed' :
+            order.order_status === 'CANCELLED' ? 'Cancelled' : order.order_status,
+    paymentStatus: order.payment_status || 'PENDING',
+    date: order.created_at?.slice(0, 10) || '',
+  }));
+};
+
+// ========== GET SINGLE ORDER ==========
+const getOrderById = async (orderId, userId, isAdmin = false) => {
+  let query = supabase
+    .from('orders')
+    .select(`
+      id,
+      order_type,
+      payment_method,
+      payment_status,
+      order_status,
+      total_amount,
+      delivery_fee,
+      created_at,
+      users ( name, email, phone, address ),
+      order_delivery_locations ( address, latitude, longitude ),
+      order_items ( quantity, sub_total, products ( id, name, unit_price, image_url ) )
+    `)
+    .eq('id', orderId);
+
+  if (!isAdmin) {
+    query = query.eq('customer_id', userId);
+  }
+
+  const { data, error } = await query.single();
+  if (error) {
+    console.error('[getOrderById] Error:', error);
+    throw new Error(`Supabase error: ${error.message}`);
+  }
+
+  const deliveryLocation = data.order_delivery_locations?.[0] || null;
+
+  return {
+    id: `ORD-${String(data.id).padStart(4, '0')}`,
+    orderId: data.id,
+    orderType: data.order_type,
+    paymentMethod: data.payment_method,
+    paymentStatus: data.payment_status,
+    status: data.order_status,
+    totalAmount: data.total_amount,
+    deliveryFee: data.delivery_fee || 0,
+    deliveryLocation: deliveryLocation?.address || null,
+    deliveryLatitude: deliveryLocation?.latitude || null,
+    deliveryLongitude: deliveryLocation?.longitude || null,
+    createdAt: data.created_at,
+    customer: data.users ? {
+      name: data.users.name,
+      email: data.users.email,
+      phone: data.users.phone,
+      address: data.users.address,
+    } : null,
+    items: (data.order_items || []).map(item => ({
+      productId: item.products?.id,
+      productName: item.products?.name,
+      unitPrice: item.products?.unit_price,
+      quantity: item.quantity,
+      subTotal: item.sub_total,
+      imageUrl: item.products?.image_url,
+    })),
+  };
+};
+
+// ========== GET ORDER WITH DETAILS ==========
+const getOrderWithDetails = async (orderId) => {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_type,
+      payment_method,
+      payment_status,
+      order_status,
+      total_amount,
+      delivery_fee,
+      created_at,
+      customer_id,
+      users!orders_customer_id_fkey (
+        id,
+        name,
+        email,
+        phone,
+        address
+      ),
+      order_delivery_locations (
+        id,
+        address,
+        latitude,
+        longitude,
+        created_at
+      ),
+      order_items (
+        id,
+        quantity,
+        sub_total,
+        products (
+          id,
+          name,
+          unit_price,
+          image_url,
+          description
+        )
+      ),
+      deliveries (
+        id,
+        status,
+        delivery_start_time,
+        delivery_end_time,
+        delivery_fee,
+        collecting_empty_bottles,
+        delivery_person_id,
+        profiles!deliveries_delivery_person_id_fkey (
+          id,
+          full_name,
+          phone_number,
+          email
+        )
+      )
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (error) {
+    console.error('[getOrderWithDetails] Error:', error);
+    throw new Error(`Failed to fetch order details: ${error.message}`);
+  }
+
+  const delivery = data.deliveries?.[0] || null;
+  const deliveryLocation = data.order_delivery_locations?.[0] || null;
+
+  return {
+    id: `ORD-${String(data.id).padStart(4, '0')}`,
+    orderId: data.id,
+    ...data,
+    customer: data.users || null,
+    deliveryLocation: deliveryLocation,
+    delivery: delivery ? {
+      id: delivery.id,
+      status: delivery.status,
+      delivery_start_time: delivery.delivery_start_time,
+      delivery_end_time: delivery.delivery_end_time,
+      delivery_fee: delivery.delivery_fee,
+      collecting_empty_bottles: delivery.collecting_empty_bottles,
+      delivery_person: delivery.profiles || null
+    } : null,
+    items: data.order_items?.map(item => ({
+      id: item.id,
+      quantity: item.quantity,
+      subTotal: item.sub_total,
+      product: item.products || null
+    })) || []
+  };
+};
+
+
+
+
+
+
+
+
+
+
+
+// ========== COMPLETE ORDER ==========
 const completeOrder = async (orderId, items) => {
   console.log('[completeOrder] Processing payment completion for order', orderId);
   console.log('[completeOrder] Items:', JSON.stringify(items, null, 2));
@@ -396,7 +669,6 @@ const completeOrder = async (orderId, items) => {
 
   console.log('[completeOrder] Order', orderId, 'payment status updated to COMPLETED, order status:', orderStatus);
 
-  // ✅ Deduct inventory AFTER payment confirmation
   try {
     await deductInventory(items);
     console.log('[completeOrder] Inventory deducted for order', orderId);
@@ -408,96 +680,9 @@ const completeOrder = async (orderId, items) => {
   return order;
 };
 
-// ========== GET ORDERS BY USER ID (Customer) ==========
-const getOrdersByUserId = async (userId) => {
-  const { data, error } = await supabase
-    .from('orders')
-    .select(`
-      id,
-      order_status,
-      payment_status,
-      total_amount,
-      created_at,
-      order_items ( quantity, product_id, products ( name ) )
-    `)
-    .eq('customer_id', userId)
-    .order('created_at', { ascending: false });
 
-  if (error) {
-    console.error('[getOrdersByUserId] Error:', error);
-    throw new Error(`Supabase error: ${error.message}`);
-  }
 
-  return (data || []).map(order => ({
-    id: order.id,
-    orderId: order.id,
-    product: order.order_items?.[0]?.products?.name || 'No product',
-    qty: order.order_items?.reduce((sum, i) => sum + i.quantity, 0) || 0,
-    amount: order.total_amount || 0,
-    status: order.order_status === 'PLACED' ? 'Pending' :
-            order.order_status === 'PROCESSING' ? 'Preparing' :
-            order.order_status === 'DELIVERED' ? 'Delivered' :
-            order.order_status === 'COMPLETED' ? 'Completed' :
-            order.order_status === 'CANCELLED' ? 'Cancelled' : order.order_status,
-    paymentStatus: order.payment_status || 'PENDING',
-    date: order.created_at?.slice(0, 10) || '',
-  }));
-};
 
-// ========== GET SINGLE ORDER ==========
-const getOrderById = async (orderId, userId, isAdmin = false) => {
-  let query = supabase
-    .from('orders')
-    .select(`
-      id,
-      order_type,
-      payment_method,
-      payment_status,
-      order_status,
-      total_amount,
-      delivery_location,
-      created_at,
-      users ( name, email, phone, address ),
-      order_items ( quantity, sub_total, products ( id, name, unit_price, image_url ) )
-    `)
-    .eq('id', orderId);
-
-  if (!isAdmin) {
-    query = query.eq('customer_id', userId);
-  }
-
-  const { data, error } = await query.single();
-  if (error) {
-    console.error('[getOrderById] Error:', error);
-    throw new Error(`Supabase error: ${error.message}`);
-  }
-
-  return {
-    id: `ORD-${String(data.id).padStart(4, '0')}`,
-    orderId: data.id,
-    orderType: data.order_type,
-    paymentMethod: data.payment_method,
-    paymentStatus: data.payment_status,
-    status: data.order_status,
-    totalAmount: data.total_amount,
-    deliveryLocation: data.delivery_location,
-    createdAt: data.created_at,
-    customer: data.users ? {
-      name: data.users.name,
-      email: data.users.email,
-      phone: data.users.phone,
-      address: data.users.address,
-    } : null,
-    items: (data.order_items || []).map(item => ({
-      productId: item.products?.id,
-      productName: item.products?.name,
-      unitPrice: item.products?.unit_price,
-      quantity: item.quantity,
-      subTotal: item.sub_total,
-      imageUrl: item.products?.image_url,
-    })),
-  };
-};
 
 // ========== GET ORDER ITEMS ==========
 const getOrderItems = async (orderId) => {
@@ -704,87 +889,7 @@ const failOrder = async (orderId) => {
   return order;
 };
 
-// ========== GET ORDER WITH DETAILS ==========
-const getOrderWithDetails = async (orderId) => {
-  const { data, error } = await supabase
-    .from('orders')
-    .select(`
-      id,
-      order_type,
-      payment_method,
-      payment_status,
-      order_status,
-      total_amount,
-      delivery_location,
-      created_at,
-      customer_id,
-      users!orders_customer_id_fkey (
-        id,
-        name,
-        email,
-        phone,
-        address
-      ),
-      order_items (
-        id,
-        quantity,
-        sub_total,
-        products (
-          id,
-          name,
-          unit_price,
-          image_url,
-          description
-        )
-      ),
-      deliveries (
-        id,
-        status,
-        delivery_start_time,
-        delivery_end_time,
-        delivery_fee,
-        collecting_empty_bottles,
-        delivery_person_id,
-        profiles!deliveries_delivery_person_id_fkey (
-          id,
-          full_name,
-          phone_number,
-          email
-        )
-      )
-    `)
-    .eq('id', orderId)
-    .single();
 
-  if (error) {
-    console.error('[getOrderWithDetails] Error:', error);
-    throw new Error(`Failed to fetch order details: ${error.message}`);
-  }
-
-  const delivery = data.deliveries?.[0] || null;
-
-  return {
-    id: `ORD-${String(data.id).padStart(4, '0')}`,
-    orderId: data.id,
-    ...data,
-    customer: data.users || null,
-    delivery: delivery ? {
-      id: delivery.id,
-      status: delivery.status,
-      delivery_start_time: delivery.delivery_start_time,
-      delivery_end_time: delivery.delivery_end_time,
-      delivery_fee: delivery.delivery_fee,
-      collecting_empty_bottles: delivery.collecting_empty_bottles,
-      delivery_person: delivery.profiles || null
-    } : null,
-    items: data.order_items?.map(item => ({
-      id: item.id,
-      quantity: item.quantity,
-      subTotal: item.sub_total,
-      product: item.products || null
-    })) || []
-  };
-};
 
 // ========== GET ORDER STATUS HISTORY ==========
 const getOrderStatusHistory = async (orderId) => {

@@ -5,7 +5,12 @@ const {
   getRiderDeliveries,
   updateDeliveryStatus,
   getRiderStats,
-  assignRiderToDelivery
+  assignRiderToDelivery,
+  getDeliveryLocation,
+  updateDeliveryLocation,
+  getDeliveryWithLocation,
+  getAllDeliveriesWithLocations,
+  getRiderDeliveriesWithLocations
 } = require('../services/deliveryService');
 const supabase = require('../config/db');
 
@@ -99,7 +104,7 @@ const getDeliveries = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Admin access required' });
     }
 
-    const deliveries = await getAllDeliveries({ status, orderId });
+    const deliveries = await getAllDeliveriesWithLocations({ status, orderId });
     res.json({ success: true, deliveries });
   } catch (err) {
     console.error('💥 [getDeliveries]', err);
@@ -118,7 +123,7 @@ const getDelivery = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid delivery ID' });
     }
 
-    const delivery = await getDeliveryById(deliveryId);
+    const delivery = await getDeliveryWithLocation(deliveryId);
     res.json({ success: true, delivery });
   } catch (err) {
     console.error('💥 [getDelivery]', err);
@@ -152,7 +157,7 @@ const getMyDeliveries = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Rider access required' });
     }
 
-    const deliveries = await getRiderDeliveries(userId, status);
+    const deliveries = await getRiderDeliveriesWithLocations(userId, status);
     const stats = await getRiderStats(userId);
 
     res.json({ success: true, deliveries, stats });
@@ -162,7 +167,7 @@ const getMyDeliveries = async (req, res) => {
   }
 };
 
-// ========== UPDATE DELIVERY STATUS (Rider) - FIXED ==========
+// ========== UPDATE DELIVERY STATUS ==========
 const updateDelivery = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -194,9 +199,7 @@ const updateDelivery = async (req, res) => {
       return res.status(403).json({ success: false, message: 'This delivery is not assigned to you' });
     }
 
-    // ✅ This is the IMPORTANT line - calls the service that handles empty bottle collection
     const updatedDelivery = await updateDeliveryStatus(deliveryId, status);
-
     res.json({ success: true, delivery: updatedDelivery });
   } catch (err) {
     console.error('💥 [updateDelivery]', err);
@@ -240,6 +243,40 @@ const assignRider = async (req, res) => {
   }
 };
 
+// ========== UPDATE DELIVERY LOCATION (Admin/Rider) ==========
+const updateLocation = async (req, res) => {
+  try {
+    const { orderId, address, latitude, longitude } = req.body;
+    
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: 'Order ID is required' });
+    }
+
+    const location = await updateDeliveryLocation(orderId, address, latitude, longitude);
+    res.json({ success: true, location });
+  } catch (err) {
+    console.error('💥 [updateLocation]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== GET DELIVERY LOCATION ==========
+const getLocation = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    
+    if (!orderId) {
+      return res.status(400).json({ success: false, message: 'Order ID is required' });
+    }
+
+    const location = await getDeliveryLocation(parseInt(orderId, 10));
+    res.json({ success: true, location });
+  } catch (err) {
+    console.error('💥 [getLocation]', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   getDeliveries,
   getDelivery,
@@ -247,5 +284,7 @@ module.exports = {
   updateDelivery,
   getMyStats,
   assignRider,
-  getDeliveryPersonnel
+  getDeliveryPersonnel,
+  updateLocation,
+  getLocation
 };

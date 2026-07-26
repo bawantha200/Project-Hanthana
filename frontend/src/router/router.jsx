@@ -1,5 +1,5 @@
 // frontend/src/router/router.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import ProtectedRoute from '../router/ProtectedRoute';
@@ -33,6 +33,7 @@ import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
+import InvoicingReports from "../pages/admin/InvoicingReports";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -50,10 +51,35 @@ import Profile from '../pages/customer/Profile';
 import CustomerOrderDetails from '../pages/customer/OrderDetails';
 import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
+import ForgotPassword from '../pages/customer/ForgotPassword';
+import ResetPassword from '../pages/customer/ResetPassword';
 
-import InvoicingReports from "../pages/admin/InvoicingReports";
 
+/**
+ * Guest-only wrapper to prevent authenticated users from opening Login & Register pages
+ */
+function GuestRoute() {
+  const { user, loading } = useAuth();
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // If user is already logged in, redirect them away from login/register
+  if (user) {
+    const role = user.role?.toUpperCase();
+    if (role === 'ADMIN' || role === 'STAFF' || role === 'SALES_MANAGER') {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
+    return <Navigate to="/" replace />;
+  }
+
+  return <Outlet />;
+}
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -65,7 +91,7 @@ function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-          <Route
+        <Route
           index
           element={
             <Navigate
@@ -80,7 +106,7 @@ function AdminRoutes() {
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />
-        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* Admin order details */}
+        <Route path="orders/:id" element={<AdminOrderDetails />} />
         <Route path="deliveries" element={<Deliveries />} />
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
@@ -114,11 +140,18 @@ function CustomerRoutes() {
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
         <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* Customer order details */}
+        <Route path="order/:id" element={<CustomerOrderDetails />} />
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
-        <Route path="register" element={<Register />} />
-        <Route path="login" element={<Login />} />
+        <Route path="forgot-password" element={<ForgotPassword />} />
+        <Route path="reset-password" element={<ResetPassword />} />
+
+        {/* 🔒 Restricted for logged-in users */}
+        <Route element={<GuestRoute />}>
+          <Route path="register" element={<Register />} />
+          <Route path="login" element={<Login />} />
+        </Route>
+
         <Route path="payment-result" element={<PaymentResult />} />
         <Route path="payment-cancel" element={<PaymentCancel />} />
         <Route path="*" element={<Navigate to="/" replace />} />

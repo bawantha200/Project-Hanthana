@@ -19,13 +19,16 @@ import {
   ShoppingCart,   
   Truck,         
   Package,        
-  DollarSign, 
+  DollarSign,
+  AlertCircle,
+  AlertTriangle,
+  Eye,
+  EyeOff,
+  CheckCircle,
 } from "lucide-react";
 import FloatingOrderButton from "../components/FloatingOrderButton";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../supabaseClient";
-
-
 
 // ─── Notification Panel (Customer) ──────────────────────────────
 const NOTIFICATION_ICONS = {
@@ -232,10 +235,24 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [showPassword, setShowPassword] = useState(false);
+  const [touchedFields, setTouchedFields] = useState({ email: false, password: false });
+  const [loginError, setLoginError] = useState("");
+  
+  // Modal states
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showFailureModal, setShowFailureModal] = useState(false);
+  const [failureMessage, setFailureMessage] = useState('');
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, login, loginWithGoogle } = useAuth();
+
+  // Handle field blur to mark as touched
+  const handleFieldBlur = (fieldName) => {
+    setTouchedFields(prev => ({ ...prev, [fieldName]: true }));
+  };
 
   // ── Fetch settings ──
   useEffect(() => {
@@ -349,7 +366,6 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   return links;
 };
 
-
   const fetchUnreadCount = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -363,7 +379,6 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
     }
   };
 
-
   useEffect(() => {
   if (!user) {
     setUnreadCount(0);
@@ -376,7 +391,7 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
 
   const handleToggle = () => {
     setIsOpen((prev) => !prev);
-    if (!isOpen) fetchUnreadCount(); // panel open karanna kalin count eka refresh karanna
+    if (!isOpen) fetchUnreadCount();
   };
 
   const handleSignOut = async () => {
@@ -392,7 +407,23 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   const handleLogin = useCallback(
     async (e) => {
       e.preventDefault();
+      
+      // Mark both fields as touched for validation
+      setTouchedFields({ email: true, password: true });
+      
+      // Validate required fields
+      if (!email.trim()) {
+        setLoginError('Email address is required');
+        return;
+      }
+      if (!password.trim()) {
+        setLoginError('Password is required');
+        return;
+      }
+
       setLoading(true);
+      setLoginError('');
+      
       try {
         const response = await fetch("http://localhost:5000/api/auth/login", {
           method: "POST",
@@ -402,6 +433,11 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
         const data = await response.json();
 
         if (!response.ok || !data.success) {
+          if (data.locked) {
+            setLoginError('Account locked. Please try again later.');
+            setLoading(false);
+            return;
+          }
           if (data.requireTwoFactorSetup) {
             setShowLoginModal(false);
             navigate("/admin/2fa-setup", {
@@ -418,20 +454,39 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
             setLoading(false);
             return;
           }
-          throw new Error(data.message || "Login failed");
+          // Show failure modal
+          setFailureMessage(data.message || "Login failed. Please check your credentials and try again.");
+          setShowFailureModal(true);
+          setLoading(false);
+          return;
         }
 
         login(data.user, data.session.access_token, data.permissions || []);
         setShowLoginModal(false);
+        
+        // Show success modal
+        setShowSuccessModal(true);
+        setIsRedirecting(true);
+        
         const targetRole = data.user.role?.toUpperCase();
-        if (targetRole === "ADMIN" || targetRole === "STAFF") {
-          navigate("/admin/dashboard", { replace: true });
-        } else {
-          navigate("/customer/dashboard", { replace: true });
-        }
+        
+        // Set timeout for navigation - wait 2.5 seconds
+        setTimeout(() => {
+          setShowSuccessModal(false);
+          setIsRedirecting(false);
+          
+          if (targetRole === "ADMIN" || targetRole === "STAFF") {
+            navigate("/admin/dashboard", { replace: true });
+          } else {
+            navigate("/customer/dashboard", { replace: true });
+          }
+        }, 2500);
+
+        setLoading(false);
       } catch (error) {
-        alert("Login Failure: " + error.message);
-      } finally {
+        console.error("Login error:", error);
+        setFailureMessage('Network error. Please check your connection and try again.');
+        setShowFailureModal(true);
         setLoading(false);
       }
     },
@@ -444,7 +499,8 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
       try {
         await loginWithGoogle();
       } catch (error) {
-        alert("Google Sign-In error: " + error.message);
+        setFailureMessage('Google Sign-In failed. Please try again.');
+        setShowFailureModal(true);
       }
     },
     [loginWithGoogle]
@@ -508,12 +564,8 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
               ))}
             </div>
 
-
-            
-
             {/* Desktop CTA */}
             <div className="hidden lg:flex items-center gap-3">
-
               {user && (
                 <div className="relative">
                   <button
@@ -800,45 +852,113 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                   </p>
                 </div>
 
+                {/* Login Error Display */}
+                {loginError && !showFailureModal && !showSuccessModal && (
+                  <div className="flex items-start gap-3 rounded-xl p-3 mb-5 border bg-red-50 border-red-200">
+                    <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-red-700">Login Failed</p>
+                      <p className="text-xs text-red-600 mt-0.5">{loginError}</p>
+                    </div>
+                  </div>
+                )}
+
                 <form onSubmit={handleLogin} className="space-y-5">
+                  {/* Email Field */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 ml-1">
-                      Email
-                    </label>
-                    <div className="mt-1 relative">
-                      <Mail className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-sm font-medium text-gray-700">
+                        Email
+                      </label>
+                    </div>
+                    <div className={`relative transition-all duration-200 ${
+                      touchedFields.email && !email.trim() 
+                        ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                        : ''
+                    }`}>
+                      <Mail className={`absolute left-3 top-3.5 h-5 w-5 ${
+                        touchedFields.email && !email.trim() ? 'text-red-500' : 'text-gray-400'
+                      }`} />
                       <input
                         type="email"
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        onBlur={() => handleFieldBlur('email')}
+                        className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
+                          touchedFields.email && !email.trim() 
+                            ? 'border-red-500 bg-red-50' 
+                            : 'border-gray-200'
+                        }`}
                         placeholder="name@example.com"
                       />
+                      {touchedFields.email && !email.trim() && (
+                        <div className="absolute right-3 top-3.5">
+                          <AlertTriangle size={18} className="text-red-500" />
+                        </div>
+                      )}
                     </div>
+                    {touchedFields.email && !email.trim() && (
+                      <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        Email address is required
+                      </p>
+                    )}
                   </div>
 
+                  {/* Password Field */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 ml-1">
-                      Password
-                    </label>
-                    <div className="mt-1 relative">
-                      <Lock className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                    <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-sm font-medium text-gray-700">
+                        Password
+                      </label>
+                    </div>
+                    <div className={`relative transition-all duration-200 ${
+                      touchedFields.password && !password.trim() 
+                        ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                        : ''
+                    }`}>
+                      <Lock className={`absolute left-3 top-3.5 h-5 w-5 ${
+                        touchedFields.password && !password.trim() ? 'text-red-500' : 'text-gray-400'
+                      }`} />
                       <input
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        onBlur={() => handleFieldBlur('password')}
+                        className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
+                          touchedFields.password && !password.trim() 
+                            ? 'border-red-500 bg-red-50' 
+                            : 'border-gray-200'
+                        }`}
                         placeholder="••••••••"
                       />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                      </button>
+                      {touchedFields.password && !password.trim() && (
+                        <div className="absolute right-12 top-3.5">
+                          <AlertTriangle size={18} className="text-red-500" />
+                        </div>
+                      )}
                     </div>
+                    {touchedFields.password && !password.trim() && (
+                      <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                        <AlertCircle size={12} />
+                        Password is required
+                      </p>
+                    )}
                   </div>
 
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center disabled:bg-blue-400"
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-600/20 transition-all flex justify-center items-center disabled:bg-blue-400 disabled:cursor-not-allowed"
                   >
                     <LogIn className="w-5 h-5 mr-2" />{" "}
                     {loading ? "Signing In..." : "Sign In"}
@@ -878,6 +998,112 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                     Register Now
                   </Link>
                 </p>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── LOGIN SUCCESS MODAL ── */}
+      <AnimatePresence>
+        {showSuccessModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => {
+              if (!isRedirecting) {
+                setShowSuccessModal(false);
+              }
+            }}
+          >
+            <motion.div
+              initial={{ scale: 0.8, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.8, y: 30 }}
+              transition={{ type: "spring", damping: 25 }}
+              className="relative max-w-sm w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-white rounded-3xl shadow-2xl p-8 text-center border border-green-100">
+                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="w-10 h-10 text-green-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Welcome Back!</h3>
+                <p className="text-gray-500 mt-2">
+                  You have successfully logged in to your account.
+                </p>
+                <p className="text-sm text-green-600 mt-1 font-medium">
+                  {isRedirecting ? 'Redirecting to dashboard...' : 'Click anywhere to continue'}
+                </p>
+                {isRedirecting && (
+                  <div className="mt-4 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                    <motion.div
+                      className="h-full bg-green-600 rounded-full"
+                      initial={{ width: "0%" }}
+                      animate={{ width: "100%" }}
+                      transition={{ duration: 2, ease: "linear" }}
+                    />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── LOGIN FAILURE MODAL ── */}
+      <AnimatePresence>
+        {showFailureModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowFailureModal(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8, y: 30 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.8, y: 30 }}
+              transition={{ type: "spring", damping: 25 }}
+              className="relative max-w-sm w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="bg-white rounded-3xl shadow-2xl p-8 text-center border border-red-100">
+                <button
+                  onClick={() => setShowFailureModal(false)}
+                  className="absolute top-4 right-4 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                >
+                  <X size={20} className="text-gray-500" />
+                </button>
+                <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <AlertCircle className="w-10 h-10 text-red-600" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900">Login Failed</h3>
+                <p className="text-gray-500 mt-2">
+                  {failureMessage || 'Invalid email or password. Please try again.'}
+                </p>
+                <div className="mt-6 flex flex-col gap-3">
+                  <button
+                    onClick={() => {
+                      setShowFailureModal(false);
+                      setLoginError('');
+                    }}
+                    className="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-200 flex items-center justify-center gap-2"
+                  >
+                    <LogIn size={18} />
+                    Try Again
+                  </button>
+                  <Link
+                    to="/forgot-password"
+                    onClick={() => setShowFailureModal(false)}
+                    className="text-sm text-blue-600 hover:underline"
+                  >
+                    Forgot Password?
+                  </Link>
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -1199,7 +1425,7 @@ export default function CustomerLayout() {
                   <button
                     onClick={() => {
                       setShowAuthPrompt(false);
-                      navigate("/login");
+                      setShowLoginModal(true);
                     }}
                     className="flex-1 px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-200"
                   >
