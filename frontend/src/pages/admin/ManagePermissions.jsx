@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { motion } from 'framer-motion';
-import { Shield, UserCog, Plus, Loader } from 'lucide-react';
+import { Shield, UserCog, Plus, Loader, Pencil, Trash2, Check, X } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000/api';
+
+// Core system roles — cannot be renamed or deleted from this UI
+const PROTECTED_ROLES = ['ADMIN', 'CEO', 'CUSTOMER', 'MANAGER', 'EMPLOYEE'];
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -27,6 +30,13 @@ function ManagePermissions() {
   const [newRoleName, setNewRoleName] = useState('');
   const [addingRole, setAddingRole] = useState(false);
 
+  // ✅ CRUD state for roles list
+  const [editingRoleId, setEditingRoleId] = useState(null);
+  const [editRoleName, setEditRoleName] = useState('');
+  const [savingRoleId, setSavingRoleId] = useState(null);
+  const [deletingRoleId, setDeletingRoleId] = useState(null);
+  const [roleError, setRoleError] = useState('');
+
   useEffect(() => {
     fetchRoles();
     fetchPermissions();
@@ -36,6 +46,7 @@ function ManagePermissions() {
     if (!newRoleName.trim()) return;
 
     setAddingRole(true);
+    setRoleError('');
     try {
       const token = localStorage.getItem('token');
       const res = await axios.post(`${API_URL}/roles`,
@@ -48,6 +59,7 @@ function ManagePermissions() {
       }
     } catch (err) {
       console.error('Error adding role:', err);
+      setRoleError(err.response?.data?.message || 'Failed to add role');
     } finally {
       setAddingRole(false);
     }
@@ -118,10 +130,84 @@ function ManagePermissions() {
     }
   };
 
+  // ✅ Start editing a role name
+  const startEditRole = (role) => {
+    setRoleError('');
+    setEditingRoleId(role.id);
+    setEditRoleName(role.role_name);
+  };
+
+  const cancelEditRole = () => {
+    setEditingRoleId(null);
+    setEditRoleName('');
+  };
+
+  // ✅ Update (rename) a role
+  const handleUpdateRole = async (roleId) => {
+    const formatted = editRoleName
+      .toUpperCase()
+      .replace(/\s+/g, '_')
+      .replace(/[^A-Z0-9_]/g, '');
+
+    if (!formatted.trim()) {
+      setRoleError('Role name cannot be empty');
+      return;
+    }
+
+    setSavingRoleId(roleId);
+    setRoleError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.put(`${API_URL}/roles/${roleId}`,
+        { role_name: formatted },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (res.data.success) {
+        setRoles(roles.map(r => (r.id === roleId ? { ...r, role_name: formatted } : r)));
+        if (selectedRole?.id === roleId) {
+          setSelectedRole({ ...selectedRole, role_name: formatted });
+        }
+        setEditingRoleId(null);
+        setEditRoleName('');
+      }
+    } catch (err) {
+      console.error('Error updating role:', err);
+      setRoleError(err.response?.data?.message || 'Failed to update role');
+    } finally {
+      setSavingRoleId(null);
+    }
+  };
+
+  // ✅ Delete a role
+  const handleDeleteRole = async (role) => {
+    if (!window.confirm(`Delete the role "${role.role_name}"? This cannot be undone.`)) return;
+
+    setDeletingRoleId(role.id);
+    setRoleError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.delete(`${API_URL}/roles/${role.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.success) {
+        setRoles(roles.filter(r => r.id !== role.id));
+        if (selectedRole?.id === role.id) {
+          setSelectedRole(null);
+          setRolePermissions([]);
+        }
+      }
+    } catch (err) {
+      console.error('Error deleting role:', err);
+      setRoleError(err.response?.data?.message || 'Failed to delete role. It may still be assigned to users.');
+    } finally {
+      setDeletingRoleId(null);
+    }
+  };
+
   const Toggle = ({ enabled, onToggle }) => (
     <button
       onClick={onToggle}
-      className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none ${
+      className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none shrink-0 ${
         enabled ? 'bg-blue-600' : 'bg-gray-200'
       }`}
     >
@@ -132,6 +218,8 @@ function ManagePermissions() {
       />
     </button>
   );
+
+  const editableRoles = roles.filter((role) => !PROTECTED_ROLES.includes(role.role_name));
 
   return (
     <motion.div
@@ -144,17 +232,17 @@ function ManagePermissions() {
       <motion.div variants={itemVariants}>
         <h1 className="text-2xl font-bold text-gray-900">Manage Permissions</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Assign permissions to user roles and create new roles
+          Create, rename, or remove roles, and assign permissions to them
         </p>
       </motion.div>
 
       {/* Add Role Card */}
       <motion.div
         variants={itemVariants}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
       >
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+          <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
             <UserCog size={18} className="text-blue-600" />
           </div>
           <div>
@@ -198,15 +286,104 @@ function ManagePermissions() {
             )}
           </motion.button>
         </div>
+
+        {roleError && (
+          <p className="text-xs text-rose-600 mt-3">{roleError}</p>
+        )}
+
+        {/* ✅ Roles list — rename / delete */}
+        {editableRoles.length > 0 && (
+          <div className="mt-5 pt-4 border-t border-gray-100 space-y-2">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Custom Roles
+            </h3>
+            {editableRoles.map((role) => (
+              <div
+                key={role.id}
+                className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-lg border border-gray-200"
+              >
+                {editingRoleId === role.id ? (
+                  <>
+                    <input
+                      type="text"
+                      value={editRoleName}
+                      onChange={(e) => {
+                        const formatted = e.target.value
+                          .toUpperCase()
+                          .replace(/\s+/g, '_')
+                          .replace(/[^A-Z0-9_]/g, '');
+                        setEditRoleName(formatted);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleUpdateRole(role.id);
+                        if (e.key === 'Escape') cancelEditRole();
+                      }}
+                      autoFocus
+                      className="flex-1 min-w-0 px-3 py-1.5 text-sm border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all"
+                    />
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleUpdateRole(role.id)}
+                        disabled={savingRoleId === role.id}
+                        title="Save"
+                        className="p-1.5 text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors disabled:opacity-50"
+                      >
+                        {savingRoleId === role.id ? (
+                          <Loader size={14} className="animate-spin" />
+                        ) : (
+                          <Check size={14} />
+                        )}
+                      </button>
+                      <button
+                        onClick={cancelEditRole}
+                        title="Cancel"
+                        className="p-1.5 text-gray-500 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 break-words">
+                      {role.role_name}
+                    </p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => startEditRole(role)}
+                        title="Rename role"
+                        className="p-1.5 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteRole(role)}
+                        disabled={deletingRoleId === role.id}
+                        title="Delete role"
+                        className="p-1.5 text-rose-600 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50"
+                      >
+                        {deletingRoleId === role.id ? (
+                          <Loader size={14} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Role Permissions Card */}
       <motion.div
         variants={itemVariants}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
       >
         <div className="flex items-center gap-3 mb-5">
-          <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+          <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
             <Shield size={18} className="text-blue-600" />
           </div>
           <div>

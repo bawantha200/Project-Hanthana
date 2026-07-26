@@ -260,7 +260,7 @@ const handleSave = async () => {
   const Toggle = ({ enabled, onToggle }) => (
     <button
       onClick={onToggle}
-      className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none ${
+      className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none shrink-0 ${
         enabled ? 'bg-blue-600' : 'bg-gray-200'
       }`}
     >
@@ -426,9 +426,9 @@ const handleSave = async () => {
       className="space-y-6"
     >
       {/* Page Header */}
-      <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4">
+      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Settings</h1>
           <p className="text-sm text-gray-500 mt-1">
             Configure system preferences and company settings
           </p>
@@ -438,7 +438,7 @@ const handleSave = async () => {
           whileTap={{ scale: 0.97 }}
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-70"
+          className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-70"
         >
           {saving ? (
             <>
@@ -457,7 +457,7 @@ const handleSave = async () => {
       {/* Tab Navigation */}
       <motion.div
         variants={itemVariants}
-        className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit overflow-x-auto"
+        className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-full sm:w-fit overflow-x-auto"
       >
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;
@@ -466,7 +466,7 @@ const handleSave = async () => {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap shrink-0 ${
                 activeTab === tab.key
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
@@ -483,10 +483,10 @@ const handleSave = async () => {
       {activeTab === 'general' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <SettingsIcon size={18} className="text-blue-600" />
             </div>
             <div>
@@ -498,15 +498,15 @@ const handleSave = async () => {
 
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Hero Background Image</label>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 {generalSettings.heroImageUrl && (
                   <img
                     src={generalSettings.heroImageUrl}
                     alt="Hero preview"
-                    className="w-24 h-16 object-cover rounded-lg border border-gray-200"
+                    className="w-full sm:w-24 h-32 sm:h-16 object-cover rounded-lg border border-gray-200"
                   />
                 )}
-                <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
+                <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all text-center">
                   {uploading ? 'Uploading...' : 'Change Image'}
                   <input
                     type="file"
@@ -565,11 +565,11 @@ const handleSave = async () => {
       {activeTab === 'services' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+              <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
                 <Package size={18} className="text-blue-600" />
               </div>
               <div>
@@ -581,7 +581,7 @@ const handleSave = async () => {
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleAddService}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
             >
               <Plus size={16} />
               Add Service
@@ -592,7 +592,7 @@ const handleSave = async () => {
             {servicesSettings.map((service) => (
               <div
                 key={service.id}
-                className="border border-gray-200 rounded-xl p-5 relative"
+                className="border border-gray-200 rounded-xl p-4 sm:p-5 relative"
               >
                 {/* Remove service button */}
                 <button
@@ -675,11 +675,11 @@ const handleSave = async () => {
                               handleFeatureChange(service.id, fIndex, e.target.value)
                             }
                             placeholder="e.g. Free delivery"
-                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                            className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
                           />
                           <button
                             onClick={() => handleRemoveFeature(service.id, fIndex)}
-                            className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1 shrink-0"
                             title="Remove feature"
                           >
                             <Trash2 size={14} />
@@ -705,11 +705,11 @@ const handleSave = async () => {
       {activeTab === 'aboutus' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+              <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
                 <Users size={18} className="text-blue-600" />
               </div>
               <div>
@@ -721,7 +721,7 @@ const handleSave = async () => {
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleAddMember}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
             >
               <Plus size={16} />
               Add Member
@@ -732,7 +732,7 @@ const handleSave = async () => {
             {teamMembers.map((member) => (
               <div
                 key={member.id}
-                className="border border-gray-200 rounded-xl p-5 relative"
+                className="border border-gray-200 rounded-xl p-4 sm:p-5 relative"
               >
                 {/* Remove button */}
                 <button
@@ -744,15 +744,15 @@ const handleSave = async () => {
                 </button>
 
                 {/* Photo upload */}
-                <div className="flex items-center gap-4 mb-4">
+                <div className="flex flex-wrap items-center gap-4 mb-4 pr-8">
                   {member.photoUrl ? (
                     <img
                       src={member.photoUrl}
                       alt={member.name || 'Team member'}
-                      className="w-16 h-16 rounded-full object-cover border border-gray-200"
+                      className="w-16 h-16 shrink-0 rounded-full object-cover border border-gray-200"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-lg font-bold">
+                    <div className="w-16 h-16 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-lg font-bold">
                       {member.name
                         ? member.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
                         : '?'}
@@ -827,7 +827,7 @@ const handleSave = async () => {
       {activeTab === 'contactus' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -867,18 +867,6 @@ const handleSave = async () => {
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               />
             </div>
-            {/* <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Language</label>
-              <select
-                value={generalSettings.language}
-                onChange={(e) => setGeneralSettings({ ...generalSettings, language: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="en">English</option>
-                <option value="si">Sinhala</option>
-                <option value="ta">Tamil</option>
-              </select>
-            </div> */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Contact Phone (Hotline)</label>
               <input
@@ -977,10 +965,10 @@ const handleSave = async () => {
       {activeTab === 'notifications' && canManageUsers && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <Bell size={18} className="text-blue-600" />
             </div>
             <div>
@@ -998,8 +986,8 @@ const handleSave = async () => {
               { key: 'paymentReminders', label: 'Payment Reminders', description: 'Receive alerts for pending and overdue payments' },
               { key: 'systemMaintenance', label: 'System Maintenance', description: 'Notifications about scheduled maintenance windows' },
             ].map((item) => (
-              <div key={item.key} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
-                <div>
+              <div key={item.key} className="flex items-center justify-between gap-4 py-3 border-b border-gray-50 last:border-0">
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800">{item.label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.description}</p>
                 </div>
@@ -1020,8 +1008,8 @@ const handleSave = async () => {
               { key: 'smsNotifications', label: 'SMS Notifications', description: 'Receive notifications via SMS' },
               { key: 'pushNotifications', label: 'Push Notifications', description: 'Browser and mobile push notifications' },
             ].map((item) => (
-              <div key={item.key} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
-                <div>
+              <div key={item.key} className="flex items-center justify-between gap-4 py-3 border-b border-gray-50 last:border-0">
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800">{item.label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.description}</p>
                 </div>
@@ -1041,10 +1029,10 @@ const handleSave = async () => {
       {activeTab === 'security' && canManageUsers && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <Shield size={18} className="text-blue-600" />
             </div>
             <div>
@@ -1054,8 +1042,8 @@ const handleSave = async () => {
           </div>
 
           <div className="space-y-1">
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Two-Factor Authentication</p>
                 <p className="text-xs text-gray-400 mt-0.5">Require 2FA for all admin and manager accounts</p>
               </div>
@@ -1066,8 +1054,8 @@ const handleSave = async () => {
                 }
               />
             </div>
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Audit Logging</p>
                 <p className="text-xs text-gray-400 mt-0.5">Log all user actions for security auditing</p>
               </div>
@@ -1138,10 +1126,10 @@ const handleSave = async () => {
       {activeTab === 'system' && canManageUsers && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <Globe size={18} className="text-blue-600" />
             </div>
             <div>
@@ -1151,8 +1139,8 @@ const handleSave = async () => {
           </div>
 
           <div className="space-y-1">
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Auto Backup</p>
                 <p className="text-xs text-gray-400 mt-0.5">Automatically backup data at scheduled intervals</p>
               </div>
@@ -1184,8 +1172,8 @@ const handleSave = async () => {
               }}
             />
             </div>
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Maintenance Mode</p>
                 <p className="text-xs text-gray-400 mt-0.5">Temporarily disable system access for maintenance</p>
               </div>
@@ -1229,7 +1217,7 @@ const handleSave = async () => {
 
             {/* ✅ Aluත් — Advance Notice Scheduler */}
 <div className="py-4 border-b border-gray-50">
-  <div className="flex items-center justify-between mb-3">
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
     <div>
       <p className="text-sm font-medium text-gray-800">Advance Maintenance Notice</p>
       <p className="text-xs text-gray-400 mt-0.5">Notify customers ahead of a planned maintenance window</p>
@@ -1247,7 +1235,7 @@ const handleSave = async () => {
     setShowScheduleModal(true);
   }}
   disabled={upcomingWindows.length > 0}
-  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+  className={`w-full sm:w-auto px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
     upcomingWindows.length > 0
       ? 'text-gray-400 bg-gray-100 cursor-not-allowed'
       : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
@@ -1260,14 +1248,14 @@ const handleSave = async () => {
   {upcomingWindows.length > 0 && (
   <div className="space-y-2 mt-3">
     {upcomingWindows.map((w) => (
-      <div key={w.id} className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
-        <div>
+      <div key={w.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+        <div className="min-w-0">
           <p className="font-medium text-amber-800">{w.message}</p>
           <p className="text-xs text-amber-600 mt-0.5">
             {new Date(w.scheduled_start).toLocaleString()} → {new Date(w.scheduled_end).toLocaleString()}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* ✅ Edit button */}
           <button
   onClick={() => {
@@ -1313,18 +1301,6 @@ const handleSave = async () => {
   </div>
 )}
 </div>
-            {/* <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
-                <p className="text-sm font-medium text-gray-800">Debug Mode</p>
-                <p className="text-xs text-gray-400 mt-0.5">Enable detailed error logging and diagnostic output</p>
-              </div>
-              <Toggle
-                enabled={systemSettings.debugMode}
-                onToggle={() =>
-                  setSystemSettings({ ...systemSettings, debugMode: !systemSettings.debugMode })
-                }
-              />
-            </div> */}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mt-6 pt-4 border-t border-gray-100">
@@ -1340,43 +1316,18 @@ const handleSave = async () => {
                 <option value="weekly">Weekly</option>
               </select>
             </div>
-            <div>
-              {/* <label className="block text-xs font-medium text-gray-600 mb-1.5">Data Retention (days)</label>
-              <select
-                value={systemSettings.dataRetention}
-                onChange={(e) => setSystemSettings({ ...systemSettings, dataRetention: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="90">90 days</option>
-                <option value="180">180 days</option>
-                <option value="365">365 days</option>
-                <option value="730">730 days</option>
-              </select> */}
-            </div>
-            {/* <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">API Rate Limit (req/min)</label>
-              <select
-                value={systemSettings.apiRateLimit}
-                onChange={(e) => setSystemSettings({ ...systemSettings, apiRateLimit: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="100">100</option>
-                <option value="500">500</option>
-                <option value="1000">1000</option>
-                <option value="5000">5000</option>
-              </select>
-            </div> */}
+            <div></div>
           </div>
         </motion.div>
         
       )}
       {/* ===== MAINTENANCE MODE MESSAGE MODAL ===== */}
 {showMaintenanceModal && (
-  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
     <motion.div
       initial={{ scale: 0.95, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+      className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
     >
       <h2 className="text-lg font-semibold text-gray-900 mb-1">Enable Maintenance Mode</h2>
       <p className="text-sm text-gray-500 mb-4">
@@ -1392,7 +1343,7 @@ const handleSave = async () => {
         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
       />
 
-      <div className="flex items-center justify-end gap-3 mt-5">
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 mt-5">
         <button
           onClick={() => setShowMaintenanceModal(false)}
           className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
@@ -1443,11 +1394,11 @@ const handleSave = async () => {
 
 {/* ===== SCHEDULE ADVANCE NOTICE MODAL ===== */}
 {showScheduleModal && (
-  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
     <motion.div
       initial={{ scale: 0.95, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
-      className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+      className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
     >
       <h2 className="text-lg font-semibold text-gray-900 mb-1">
         {editingWindowId ? 'Edit Maintenance Notice' : 'Schedule Maintenance Notice'}
@@ -1487,7 +1438,7 @@ const handleSave = async () => {
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 mt-5">
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 mt-5">
         <button
           onClick={() => {
             setShowScheduleModal(false);
@@ -1499,7 +1450,6 @@ const handleSave = async () => {
         </button>
         <button
           onClick={async () => {
-            console.log('🔍 DEBUG:', { scheduleStart, scheduleEnd, scheduleMessage });
             if (!scheduleStart || !scheduleEnd || !scheduleMessage.trim()) {
               toast.error('Please fill in start time, end time, and message.');
               return;
