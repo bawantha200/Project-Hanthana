@@ -842,6 +842,27 @@ const markRejectedRequestsSeen = async (req, res) => {
   }
 };
 
+
+const markSingleRequestSeen = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+
+    const { error } = await supabase
+      .from('settings_requests')
+      .update({ admin_seen: true })
+      .eq('id', id)
+      .eq('requested_by', userId) // security: only mark your own request as seen
+      .eq('status', 'rejected');
+
+    if (error) throw error;
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    console.error('Mark single request seen error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   getPublicSettings,
   getSettings,
@@ -858,4 +879,5 @@ module.exports = {
   approveSettingsRequest,
   rejectSettingsRequest,
   markRejectedRequestsSeen,
+  markSingleRequestSeen,
 };

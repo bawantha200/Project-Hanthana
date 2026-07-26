@@ -216,19 +216,21 @@ function ManagePermissions() {
         </div>
 
         <select
-          className="w-full sm:max-w-md px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white mb-5"
-          value={selectedRole?.id || ''}
-          onChange={(e) => {
-            const role = roles.find(r => r.id === parseInt(e.target.value));
-            setSelectedRole(role);
-            if (role) fetchRolePermissions(role.id);
-          }}
-        >
-          <option value="">Select Role</option>
-          {roles.map(role => (
-            <option key={role.id} value={role.id}>{role.role_name}</option>
-          ))}
-        </select>
+  className="w-full sm:max-w-md px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white mb-5"
+  value={selectedRole?.id || ''}
+  onChange={(e) => {
+    const role = roles.find(r => r.id === parseInt(e.target.value));
+    setSelectedRole(role);
+    if (role) fetchRolePermissions(role.id);
+  }}
+>
+  <option value="">Select Role</option>
+  {roles
+    .filter((role) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(role.role_name))
+    .map((role) => (
+      <option key={role.id} value={role.id}>{role.role_name}</option>
+    ))}
+</select>
 
         {loading && (
           <div className="flex items-center gap-2 text-sm text-gray-400 py-6">
@@ -243,19 +245,23 @@ function ManagePermissions() {
               {selectedRole.role_name} Permissions
             </h3>
             <div className="space-y-1">
-              {permissions.map(perm => (
-                <div
-                  key={perm.id}
-                  className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0"
-                >
-                  <p className="text-sm font-medium text-gray-800">{perm.permission_name}</p>
-                  <Toggle
-                    enabled={rolePermissions.includes(perm.id)}
-                    onToggle={() => togglePermission(perm.id, !rolePermissions.includes(perm.id))}
-                  />
-                </div>
-              ))}
-            </div>
+  {permissions.map(perm => (
+    <div
+      key={perm.id}
+      className="flex items-center justify-between gap-3 py-3 px-3 rounded-lg border border-gray-200 hover:bg-gray-50/70 transition-colors"
+    >
+      <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 break-words">
+        {perm.permission_name}
+      </p>
+      <div className="flex-shrink-0">
+        <Toggle
+          enabled={rolePermissions.includes(perm.id)}
+          onToggle={() => togglePermission(perm.id, !rolePermissions.includes(perm.id))}
+        />
+      </div>
+    </div>
+  ))}
+</div>
           </div>
         )}
 

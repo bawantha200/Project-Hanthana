@@ -184,31 +184,42 @@ const handleGoogleCallback = async (req, res) => {
     hasPassword = await userHasPassword(authUser.id);
     
     const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select(`
-        id,
-        full_name,
-        phone_number,
-        address,
-        role_id,
-        roles ( role_name )
-      `)
-      .eq('id', authUser.id)
-      .maybeSingle();
+  .from('profiles')
+  .select(`
+    id,
+    full_name,
+    phone_number,
+    address,
+    role_id,
+    status,
+    roles ( role_name )
+  `)
+  .eq('id', authUser.id)
+  .maybeSingle();
 
-    if (!profileError && profileData) {
-      profile = profileData;
-      if (profile.roles && typeof profile.roles === 'object' && profile.roles.role_name) {
-        roleName = profile.roles.role_name;
-      } else if (profile.role_id) {
-        const { data: roleData } = await supabase
-          .from('roles')
-          .select('role_name')
-          .eq('id', profile.role_id)
-          .single();
-        roleName = roleData?.role_name || 'CUSTOMER';
-      }
-    }
+if (!profileError && profileData) {
+  profile = profileData;
+
+  // ✅ block deactivated accounts, same as loginUser does
+  if (profile.status && profile.status !== 'active') {
+    await logAction(profile.id, 'LOGIN_BLOCKED_INACTIVE', { email: authUser.email }, req);
+    return res.status(403).json({
+      success: false,
+      message: 'Your account has been deactivated. Please contact an administrator.',
+    });
+  }
+
+  if (profile.roles && typeof profile.roles === 'object' && profile.roles.role_name) {
+    roleName = profile.roles.role_name;
+  } else if (profile.role_id) {
+    const { data: roleData } = await supabase
+      .from('roles')
+      .select('role_name')
+      .eq('id', profile.role_id)
+      .single();
+    roleName = roleData?.role_name || 'CUSTOMER';
+  }
+}
 
     let isNewUser = false;
     let finalFullName = authUser.user_metadata?.full_name || 

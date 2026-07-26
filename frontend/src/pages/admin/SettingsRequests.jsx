@@ -285,23 +285,36 @@ export default function SettingsRequests() {
     }
   };
 
-
-  useEffect(() => {
-  if (!isCEO) {
-    const markSeen = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        await fetch('http://localhost:5000/api/settings/requests/mark-seen', {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-      } catch (err) {
-        console.error('Failed to mark requests as seen:', err);
-      }
-    };
-    markSeen();
+  
+const markRejectedSeen = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    await fetch('http://localhost:5000/api/settings/requests/mark-seen', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setRequests((prev) =>
+      prev.map((r) => (r.status === 'rejected' ? { ...r, admin_seen: true } : r))
+    );
+  } catch (err) {
+    console.error('Failed to mark requests as seen:', err);
   }
-}, [isCEO]);
+};
+
+  const markSingleRequestSeen = async (requestId) => {
+  try {
+    const token = localStorage.getItem('token');
+    await fetch(`http://localhost:5000/api/settings/requests/${requestId}/mark-seen`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setRequests((prev) =>
+      prev.map((r) => (r.id === requestId ? { ...r, admin_seen: true } : r))
+    );
+  } catch (err) {
+    console.error('Failed to mark request as seen:', err);
+  }
+};
 
   const statusTabs = ['pending', 'approved', 'rejected', 'ALL'];
 
@@ -317,7 +330,8 @@ export default function SettingsRequests() {
       </motion.div>
 
       <motion.div variants={itemVariants} className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit">
-        {statusTabs.map((s) => (
+        
+{statusTabs.map((s) => (
   <button
     key={s}
     onClick={() => setStatusFilter(s)}
@@ -352,9 +366,15 @@ export default function SettingsRequests() {
             return (
               <div key={req.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                 <button
-                  onClick={() => setExpandedId(isExpanded ? null : req.id)}
-                  className="w-full flex items-center justify-between p-5 hover:bg-gray-50/50 transition-colors text-left"
-                >
+  onClick={() => {
+    const willExpand = expandedId !== req.id;
+    setExpandedId(willExpand ? req.id : null);
+    if (!isCEO && req.status === 'rejected' && !req.admin_seen && willExpand) {
+      markSingleRequestSeen(req.id);
+    }
+  }}
+  className="w-full flex items-center justify-between p-5 hover:bg-gray-50/50 transition-colors text-left"
+>
                   <div className="flex items-center gap-3">
                     <StatusBadge status={req.status} />
                     <div>

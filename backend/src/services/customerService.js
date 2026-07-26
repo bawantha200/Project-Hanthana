@@ -139,6 +139,9 @@ const createCustomer = async (customerData) => {
 /**
  * Update an existing customer
  */
+/**
+ * Update an existing customer
+ */
 const updateCustomer = async (id, updates) => {
   const { data, error } = await supabase
     .from('users')
@@ -150,6 +153,19 @@ const updateCustomer = async (id, updates) => {
   if (error) throw error;
   if (!data) return null;
 
+  // ✅ Only sync profiles.status when this update was a status toggle
+  if (typeof updates.isActive === 'boolean' && data.email) {
+    const { error: profileSyncError } = await supabase
+      .from('profiles')
+      .update({ status: updates.isActive ? 'active' : 'inactive' })
+      .eq('email', data.email);
+
+    if (profileSyncError) {
+      console.warn('⚠️ Failed to sync profiles.status:', profileSyncError.message);
+      // don't throw — the customer's own isActive flag already updated successfully
+    }
+  }
+
   return {
     id: data.id,
     name: data.name,
@@ -159,7 +175,6 @@ const updateCustomer = async (id, updates) => {
     status: data.isActive ? 'active' : 'inactive',
   };
 };
-
 /**
  * Soft-delete a customer (set isActive = false)
  */
