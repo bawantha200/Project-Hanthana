@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUpRight, ArrowDownRight, Minus } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { formatCurrency } from '../../utils/helpers';
@@ -57,8 +57,9 @@ function ChangeBadge({ pct }) {
 
 export default function ExpenseComparison() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [dataset, setDataset] = useState('all');
+  const [dataset, setDataset] = useState(searchParams.get('dataset') || 'all');
 
   // --- Comparison state ---
   const [preset, setPreset] = useState('month-vs-month');

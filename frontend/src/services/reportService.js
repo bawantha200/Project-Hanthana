@@ -67,8 +67,6 @@ export function getMonthLabelsInRange(dateFrom, dateTo) {
 
 export const COMPARISON_PRESETS = [
   { value: 'month-vs-month', label: 'This Month vs Last Month' },
-  { value: '3-vs-3', label: 'Last 3 Months vs Previous 3' },
-  { value: '6-vs-6', label: 'Last 6 Months vs Previous 6' },
   { value: 'custom', label: 'Custom Range' },
 ];
 
