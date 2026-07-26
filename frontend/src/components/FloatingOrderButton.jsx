@@ -45,7 +45,6 @@ const mapContainerStyle = {
   minHeight: '320px'
 };
 
-const FloatingOrderButton = ({ onLoginRequired }) => {
 const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
@@ -707,29 +706,58 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   // ============================================
 
   useEffect(() => {
-    if (isOpen && user) {
-      supabase.from("products").select("id, name, type, unit_price, image_url").order("name")
-        .then(({ data }) => setProducts(data || []));
+  const fetchData = async () => {
+    if (!isOpen) return;
+    
+    try {
+      // Fetch products
+      const { data: productsData } = await supabase
+        .from("products")
+        .select("id, name, type, unit_price, image_url")
+        .order("name");
       
-      supabase.from("users").select("address").eq("id", user.id).single()
-        .then(({ data, error }) => {
-          if (error) {
-            console.warn('[FloatingOrderButton] Error fetching user address:', error);
-            return;
-          }
-          
-          if (data && data.address) {
-            console.log('[FloatingOrderButton] Found saved address:', data.address);
-            
-            setSavedAddress({
-              address: data.address
-            });
-            
-            setOrderData(prev => ({ 
-              ...prev, 
-              address: data.address
-            }));
-          }
+      setProducts(productsData || []);
+      
+      // Handle pending product if exists
+      if (pendingProductId) {
+        setOrderData(prev => ({
+          ...prev,
+          items: {
+            ...prev.items,
+            [pendingProductId]: (prev.items[pendingProductId] || 0) + 1,
+          },
+        }));
+        setPendingProductId(null);
+      }
+      
+      // Fetch user address if logged in
+      if (user) {
+        const { data: userData, error } = await supabase
+          .from("users")
+          .select("address")
+          .eq("id", user.id)
+          .single();
+        
+        if (error) {
+          console.warn('[FloatingOrderButton] Error fetching user address:', error);
+          return;
+        }
+        
+        if (userData?.address) {
+          console.log('[FloatingOrderButton] Found saved address:', userData.address);
+          setSavedAddress({ address: userData.address });
+          setOrderData(prev => ({ 
+            ...prev, 
+            address: userData.address 
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  };
+
+  // Event handler for opening modal
   const handler = (e) => {
     if (!user) {
       onLoginRequired();
@@ -742,34 +770,18 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
       setPendingProductId(e.detail.productId);
     }
   };
-  window.addEventListener("open-order-modal", handler);
-  return () => window.removeEventListener("open-order-modal", handler);
-}, [user, onLoginRequired]);
 
-  useEffect(() => {
+  window.addEventListener("open-order-modal", handler);
+  
+  // Fetch data when modal opens
   if (isOpen) {
-    supabase.from("products").select("id, name, type, unit_price, image_url").order("name")
-      .then(({ data }) => {
-        setProducts(data || []);
-        if (pendingProductId) {
-          setOrderData(prev => ({
-            ...prev,
-            items: {
-              ...prev.items,
-              [pendingProductId]: (prev.items[pendingProductId] || 0) + 1,
-            },
-          }));
-          setPendingProductId(null);
-        }
-      });
-    if (user) {
-      supabase.from("users").select("address").eq("id", user.id).single()
-        .then(({ data }) => {
-          if (data?.address) setOrderData(prev => ({ ...prev, address: data.address }));
-        });
-    }
+    fetchData();
   }
-}, [isOpen, user]);
+
+  return () => {
+    window.removeEventListener("open-order-modal", handler);
+  };
+}, [isOpen, user, onLoginRequired, pendingProductId]);
 
   useEffect(() => {
     if (orderData.deliveryType === "HOME_DELIVERY") {
