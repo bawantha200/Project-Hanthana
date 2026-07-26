@@ -167,11 +167,96 @@ const updateSettings = async (req, res) => {
     }
 
     if (updates.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'No settings provided to update'
-      });
-    }
+  return res.status(400).json({
+    success: false,
+    message: 'No settings provided to update'
+  });
+}
+
+// ===== ✅ ADMIN: direct save karanna nathuwa, CEO approval ekata pending request ekak create karanawa =====
+if (userRole === 'ADMIN') {
+  const keys = updates.map((u) => u.key);
+
+  // Wenas karana keys walata current (old) values tika snapshot karagannawa
+  const { data: currentRows, error: currentError } = await supabase
+    .from('settings')
+    .select('key, value')
+    .in('key', keys);
+
+  if (currentError) throw currentError;
+
+  const previousValues = {};
+  currentRows.forEach((row) => {
+    previousValues[row.key] = row.value;
+  });
+
+  const changes = {};
+  updates.forEach((u) => {
+    changes[u.key] = u.value;
+  });
+
+  const { data: request, error: requestError } = await supabase
+        .from('settings_requests')
+        .insert({
+          requested_by: userId,
+          changes,
+          previous_values: previousValues,
+          status: 'pending',
+        })
+        .select()
+        .single();
+
+      if (requestError) throw requestError;
+
+      // ===== ✅ CEO ta notification ekak danawa =====
+      const { data: ceoUsers, error: ceoError } = await supabase
+        .from('profiles')
+        .select('id, roles!inner(role_name)')
+        .eq('roles.role_name', 'CEO');
+
+      if (!ceoError && ceoUsers?.length) {
+        const notifPayload = ceoUsers.map((ceo) => ({
+          user_id: ceo.id,
+          type: 'settings_request',
+          message: `A new settings change request from an admin is awaiting your approval.`,
+          read: false,
+        }));
+        const { error: notifError } = await supabase.from('notifications').insert(notifPayload);
+        if (notifError) console.error('Failed to notify CEO:', notifError);
+      }
+
+      return res.status(200).json({
+        success: true,
+        pendingApproval: true,
+        message: 'Your changes have been submitted for CEO approval.',
+        request,
+    });
+
+  return res.status(200).json({
+    success: true,
+    pendingApproval: true,
+    message: 'Your changes have been submitted for CEO approval.',
+    request,
+  });
+}
+
+// ===== CEO (or other roles allowed here): apply directly as before =====
+for (const item of updates) {
+  const { error } = await supabase
+    .from('settings')
+    .upsert({
+      key: item.key,
+      value: item.value,
+      updated_by: item.updated_by
+    }, {
+      onConflict: 'key'
+    });
+
+  if (error) {
+    console.error('Upsert error for key:', item.key, error);
+    throw new Error(`Failed to update ${item.key}: ${error.message}`);
+  }
+}
 
     // Upsert each setting
     for (const item of updates) {
@@ -572,6 +657,190 @@ const getSystemSettings = async (req, res) => {
 };
 
 
+/**
+ * @desc    Get settings change requests (Admin: own only, CEO: all)
+ * @route   GET /api/settings/requests?status=pending
+ */
+const getSettingsRequests = async (req, res) => {
+  try {
+    const userRole = (req.user?.role?.role_name || req.user?.role || '').toString().trim().toUpperCase();
+    const userId = req.user?.id;
+    const { status } = req.query;
+
+    let query = supabase
+      .from('settings_requests')
+      .select('*, requested_by_user:requested_by(full_name, email), reviewed_by_user:reviewed_by(full_name, email)')
+      .order('created_at', { ascending: false });
+
+    if (status) query = query.eq('status', status);
+
+    // Admin ta pennanne thamange requests witharai; CEO ta okkoma pennanawa
+    if (userRole !== 'CEO') {
+      query = query.eq('requested_by', userId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    return res.status(200).json({ success: true, data: data || [] });
+  } catch (error) {
+    console.error('Get settings requests error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Pending requests count (sidebar badge ekata)
+ * @route   GET /api/settings/requests/pending-count
+ */
+const getPendingRequestsCount = async (req, res) => {
+  try {
+    const userRole = (req.user?.role?.role_name || req.user?.role || '').toString().trim().toUpperCase();
+    const userId = req.user?.id;
+
+    if (userRole === 'CEO') {
+      // CEO ta — review karanna one pending requests count eka
+      const { count, error } = await supabase
+        .from('settings_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending');
+
+      if (error) throw error;
+      return res.status(200).json({ success: true, count: count || 0 });
+    } else {
+      // Admin ta — reject unath, unseen (read wela nathi) rejected requests count eka
+      const { count, error } = await supabase
+        .from('settings_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('requested_by', userId)
+        .eq('status', 'rejected')
+        .eq('admin_seen', false);
+
+      if (error) throw error;
+      return res.status(200).json({ success: true, count: count || 0 });
+    }
+  } catch (error) {
+    console.error('Get pending requests count error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Approve a settings request (CEO only, enforced via middleware/route)
+ * @route   PUT /api/settings/requests/:id/approve
+ */
+const approveSettingsRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const reviewerId = req.user?.id;
+
+    const { data: request, error: fetchError } = await supabase
+      .from('settings_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!request) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (request.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'This request has already been reviewed.' });
+    }
+
+    // Actual settings table eka update karanawa
+    const updates = Object.entries(request.changes).map(([key, value]) => ({
+      key,
+      value,
+      updated_by: request.requested_by,
+    }));
+
+    for (const item of updates) {
+      const { error } = await supabase
+        .from('settings')
+        .upsert({ key: item.key, value: item.value, updated_by: item.updated_by }, { onConflict: 'key' });
+      if (error) throw new Error(`Failed to apply ${item.key}: ${error.message}`);
+    }
+
+    const { data: updatedRequest, error: updateError } = await supabase
+      .from('settings_requests')
+      .update({ status: 'approved', reviewed_by: reviewerId, reviewed_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    return res.status(200).json({ success: true, message: 'Request approved and settings updated.', data: updatedRequest });
+  } catch (error) {
+    console.error('Approve settings request error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Reject a settings request (CEO only)
+ * @route   PUT /api/settings/requests/:id/reject
+ */
+const rejectSettingsRequest = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const reviewerId = req.user?.id;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({ success: false, message: 'Rejection reason is required.' });
+    }
+
+    const { data: request, error: fetchError } = await supabase
+      .from('settings_requests')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!request) return res.status(404).json({ success: false, message: 'Request not found' });
+    if (request.status !== 'pending') {
+      return res.status(400).json({ success: false, message: 'This request has already been reviewed.' });
+    }
+
+    const { data: updatedRequest, error: updateError } = await supabase
+      .from('settings_requests')
+      .update({
+        status: 'rejected',
+        reject_reason: reason.trim(),
+        reviewed_by: reviewerId,
+        reviewed_at: new Date().toISOString(),
+        admin_seen: false,
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+
+    return res.status(200).json({ success: true, message: 'Request rejected.', data: updatedRequest });
+  } catch (error) {
+    console.error('Reject settings request error:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+const markRejectedRequestsSeen = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { error } = await supabase
+      .from('settings_requests')
+      .update({ admin_seen: true })
+      .eq('requested_by', userId)
+      .eq('status', 'rejected')
+      .eq('admin_seen', false);
+
+    if (error) throw error;
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 module.exports = {
   getPublicSettings,
@@ -583,5 +852,10 @@ module.exports = {
   getSecuritySettings, 
   updateSecuritySettings, 
   updateSystemSettings, 
-  getSystemSettings
+  getSystemSettings,
+  getSettingsRequests,
+  getPendingRequestsCount,
+  approveSettingsRequest,
+  rejectSettingsRequest,
+  markRejectedRequestsSeen,
 };

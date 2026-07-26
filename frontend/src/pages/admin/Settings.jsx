@@ -14,6 +14,16 @@ const containerVariants = {
   },
 };
 
+
+// UTC ISO string eka, datetime-local input ekata one format ekata (local timezone eken) convert karanawa
+const toDatetimeLocalValue = (isoString) => {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  const offsetMs = date.getTimezoneOffset() * 60000; // local timezone offset eka minutes → ms
+  const localDate = new Date(date.getTime() - offsetMs);
+  return localDate.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:mm"
+};
+
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
@@ -88,6 +98,16 @@ export default function Settings() {
   ]);
 
   const [uploadingMemberId, setUploadingMemberId] = useState(null);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [editingWindowId, setEditingWindowId] = useState(null); // null = create mode, id = edit mode
+  const [scheduleStart, setScheduleStart] = useState('');
+  const [scheduleEnd, setScheduleEnd] = useState('');
+  const [scheduleMessage, setScheduleMessage] = useState('');
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [upcomingWindows, setUpcomingWindows] = useState([]);
 
   const [notificationSettings, setNotificationSettings] = useState({
     orderAlerts: true,
@@ -157,6 +177,23 @@ export default function Settings() {
     }
   };
 
+  const fetchUpcomingWindows = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch('http://localhost:5000/api/maintenance', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (data.success) setUpcomingWindows(data.windows || []);
+  } catch (err) {
+    console.error('Failed to fetch maintenance windows:', err);
+  }
+};
+
+useEffect(() => {
+  if (activeTab === 'system') fetchUpcomingWindows();
+}, [activeTab]);
+
   useEffect(() => {
     if (!user) return;
     const currentRole = user?.role?.toString().trim().toUpperCase();
@@ -172,49 +209,53 @@ export default function Settings() {
   }, []);
 
   // ===== SAVE SETTINGS =====
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const token = localStorage.getItem('token');
+const handleSave = async () => {
+  setSaving(true);
+  try {
+    const token = localStorage.getItem('token');
 
-      const payload = {};
-      if (role === 'CEO') {
-        payload.general = generalSettings;
-        payload.services = servicesSettings;
-        payload.team = teamMembers;
-      } else if (canManageUsers) {
-        // 🆕 Admin ta CEO ge sections ත් save karanna one nisa
-        payload.general = generalSettings;
-        payload.services = servicesSettings;
-        payload.team = teamMembers;
-        payload.notifications = notificationSettings;
-        payload.security = securitySettings;
-        payload.system = systemSettings;
-      }
-
-      const response = await fetch('http://localhost:5000/api/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success('Settings saved successfully!');
-      } else {
-        throw new Error(data.message || 'Failed to save');
-      }
-    } catch (error) {
-      console.error('Save settings error:', error);
-      toast.error(error.message || 'Failed to save settings');
-    } finally {
-      setSaving(false);
+    const payload = {};
+    if (role === 'CEO') {
+      payload.general = generalSettings;
+      payload.services = servicesSettings;
+      payload.team = teamMembers;
+    } else if (canManageUsers) {
+      payload.general = generalSettings;
+      payload.services = servicesSettings;
+      payload.team = teamMembers;
+      payload.notifications = notificationSettings;
+      payload.security = securitySettings;
+      payload.system = systemSettings;
     }
-  };
+
+    const response = await fetch('http://localhost:5000/api/settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // ✅ Admin nam CEO approval ekata giya kiyala pennanawa
+      if (data.pendingApproval) {
+        toast.success('Changes submitted! Waiting for CEO approval.', { duration: 4000 });
+      } else {
+        toast.success('Settings saved successfully!');
+      }
+    } else {
+      throw new Error(data.message || 'Failed to save');
+    }
+  } catch (error) {
+    console.error('Save settings error:', error);
+    toast.error(error.message || 'Failed to save settings');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const Toggle = ({ enabled, onToggle }) => (
     <button
@@ -1149,38 +1190,129 @@ export default function Settings() {
                 <p className="text-xs text-gray-400 mt-0.5">Temporarily disable system access for maintenance</p>
               </div>
               <Toggle
-              enabled={systemSettings.maintenanceMode}
-              onToggle={async () => {
-                const newValue = !systemSettings.maintenanceMode;
-                setSystemSettings({ ...systemSettings, maintenanceMode: newValue });
-
-                try {
-                  const token = localStorage.getItem('token');
-                  const response = await fetch('http://localhost:5000/api/maintenance/mode', {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      enabled: newValue,
-                      message: newValue ? 'Scheduled maintenance in progress. We will be back shortly.' : '',
-                    }),
-                  });
-
-                  const result = await response.json();
-
-                  if (!result.success) {
-                    setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
-                    alert('Failed to update maintenance mode: ' + (result.message || 'Unknown error'));
+                enabled={systemSettings.maintenanceMode}
+                onToggle={async () => {
+                  // ✅ ON karanna hadanawa nam — message eka one, modal eka open karanna
+                  if (!systemSettings.maintenanceMode) {
+                    setMaintenanceMessage('Scheduled maintenance in progress. We will be back shortly.');
+                    setShowMaintenanceModal(true);
+                    return;
                   }
-                } catch (err) {
-                  setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
-                  console.error('Maintenance mode toggle failed:', err);
-                }
-              }}
+
+                  // OFF karanna hadanawa nam — direct turn off karanna
+                  setSystemSettings({ ...systemSettings, maintenanceMode: false });
+                  try {
+                    const token = localStorage.getItem('token');
+                    const response = await fetch('http://localhost:5000/api/maintenance/mode', {
+                      method: 'PUT',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ enabled: false, message: '' }),
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                      setSystemSettings({ ...systemSettings, maintenanceMode: true });
+                      toast.error('Failed to disable maintenance mode: ' + (result.message || 'Unknown error'));
+                    } else {
+                      toast.success('Maintenance mode turned off');
+                    }
+                  } catch (err) {
+                    setSystemSettings({ ...systemSettings, maintenanceMode: true });
+                    console.error('Maintenance mode toggle failed:', err);
+                    toast.error('Failed to disable maintenance mode');
+                  }
+                }}
               />
             </div>
+
+            {/* ✅ Aluත් — Advance Notice Scheduler */}
+<div className="py-4 border-b border-gray-50">
+  <div className="flex items-center justify-between mb-3">
+    <div>
+      <p className="text-sm font-medium text-gray-800">Advance Maintenance Notice</p>
+      <p className="text-xs text-gray-400 mt-0.5">Notify customers ahead of a planned maintenance window</p>
+    </div>
+    <button
+  onClick={() => {
+    if (upcomingWindows.length > 0) {
+      toast.error('An active notice already exists. Please cancel or edit it before adding a new one.');
+      return;
+    }
+    setEditingWindowId(null);
+    setScheduleStart('');
+    setScheduleEnd('');
+    setScheduleMessage('');
+    setShowScheduleModal(true);
+  }}
+  disabled={upcomingWindows.length > 0}
+  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+    upcomingWindows.length > 0
+      ? 'text-gray-400 bg-gray-100 cursor-not-allowed'
+      : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+  }`}
+>
+  Schedule Notice
+</button>
+  </div>
+
+  {upcomingWindows.length > 0 && (
+  <div className="space-y-2 mt-3">
+    {upcomingWindows.map((w) => (
+      <div key={w.id} className="flex items-center justify-between p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+        <div>
+          <p className="font-medium text-amber-800">{w.message}</p>
+          <p className="text-xs text-amber-600 mt-0.5">
+            {new Date(w.scheduled_start).toLocaleString()} → {new Date(w.scheduled_end).toLocaleString()}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* ✅ Edit button */}
+          <button
+  onClick={() => {
+    setEditingWindowId(w.id);
+    setScheduleStart(toDatetimeLocalValue(w.scheduled_start)); // ✅ wenas karanna
+    setScheduleEnd(toDatetimeLocalValue(w.scheduled_end));     // ✅ wenas karanna
+    setScheduleMessage(w.message);
+    setShowScheduleModal(true);
+  }}
+  className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+>
+  Edit
+</button>
+          {/* Cancel button (dan thiyena eka) */}
+          <button
+            onClick={async () => {
+              if (!window.confirm('Cancel this maintenance notice?')) return;
+              try {
+                const token = localStorage.getItem('token');
+                const response = await fetch(`http://localhost:5000/api/maintenance/${w.id}`, {
+                  method: 'DELETE',
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                const result = await response.json();
+                if (result.success) {
+                  toast.success('Notice cancelled');
+                  fetchUpcomingWindows();
+                } else {
+                  toast.error(result.message || 'Failed to cancel notice');
+                }
+              } catch (err) {
+                console.error('Cancel notice error:', err);
+                toast.error('Failed to cancel notice');
+              }
+            }}
+            className="px-3 py-1.5 text-xs font-medium text-rose-600 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+)}
+</div>
             {/* <div className="flex items-center justify-between py-3 border-b border-gray-50">
               <div>
                 <p className="text-sm font-medium text-gray-800">Debug Mode</p>
@@ -1236,7 +1368,191 @@ export default function Settings() {
             </div> */}
           </div>
         </motion.div>
+        
       )}
+      {/* ===== MAINTENANCE MODE MESSAGE MODAL ===== */}
+{showMaintenanceModal && (
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <motion.div
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+    >
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">Enable Maintenance Mode</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Write a message that will be shown to users while the system is under maintenance.
+      </p>
+
+      <label className="block text-xs font-medium text-gray-600 mb-1.5">Maintenance Message</label>
+      <textarea
+        value={maintenanceMessage}
+        onChange={(e) => setMaintenanceMessage(e.target.value)}
+        rows={3}
+        placeholder="e.g. We're upgrading our systems. Back online by 5 PM."
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
+      />
+
+      <div className="flex items-center justify-end gap-3 mt-5">
+        <button
+          onClick={() => setShowMaintenanceModal(false)}
+          className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            if (!maintenanceMessage.trim()) {
+              toast.error('Please enter a maintenance message');
+              return;
+            }
+            setMaintenanceLoading(true);
+            try {
+              const token = localStorage.getItem('token');
+              const response = await fetch('http://localhost:5000/api/maintenance/mode', {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ enabled: true, message: maintenanceMessage.trim() }),
+              });
+              const result = await response.json();
+              if (result.success) {
+                setSystemSettings({ ...systemSettings, maintenanceMode: true });
+                toast.success('Maintenance mode enabled');
+                setShowMaintenanceModal(false);
+              } else {
+                toast.error('Failed to enable maintenance mode: ' + (result.message || 'Unknown error'));
+              }
+            } catch (err) {
+              console.error('Maintenance mode enable failed:', err);
+              toast.error('Failed to enable maintenance mode');
+            } finally {
+              setMaintenanceLoading(false);
+            }
+          }}
+          disabled={maintenanceLoading}
+          className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {maintenanceLoading ? 'Enabling...' : 'Enable Maintenance Mode'}
+        </button>
+      </div>
+    </motion.div>
+  </div>
+)}
+
+{/* ===== SCHEDULE ADVANCE NOTICE MODAL ===== */}
+{showScheduleModal && (
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <motion.div
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+    >
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">
+        {editingWindowId ? 'Edit Maintenance Notice' : 'Schedule Maintenance Notice'}
+      </h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Customers will see this notice in advance, before maintenance actually starts.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">Start Date &amp; Time</label>
+          <input
+            type="datetime-local"
+            value={scheduleStart}
+            onChange={(e) => setScheduleStart(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">End Date &amp; Time</label>
+          <input
+            type="datetime-local"
+            value={scheduleEnd}
+            onChange={(e) => setScheduleEnd(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">Notice Message</label>
+          <textarea
+            value={scheduleMessage}
+            onChange={(e) => setScheduleMessage(e.target.value)}
+            rows={3}
+            placeholder="e.g. We'll be performing scheduled maintenance on Sunday, 2AM - 4AM."
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-3 mt-5">
+        <button
+          onClick={() => {
+            setShowScheduleModal(false);
+            setEditingWindowId(null);
+          }}
+          className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            if (!scheduleStart || !scheduleEnd || !scheduleMessage.trim()) {
+              toast.error('Please fill in start time, end time, and message.');
+              return;
+            }
+            if (new Date(scheduleEnd) <= new Date(scheduleStart)) {
+              toast.error('End time must be after start time.');
+              return;
+            }
+            setScheduleLoading(true);
+            try {
+              const token = localStorage.getItem('token');
+              const isEdit = !!editingWindowId;
+              const url = isEdit
+                ? `http://localhost:5000/api/maintenance/${editingWindowId}`
+                : 'http://localhost:5000/api/maintenance';
+              const method = isEdit ? 'PUT' : 'POST';
+
+              const response = await fetch(url, {
+                method,
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  scheduledStart: new Date(scheduleStart).toISOString(),
+                  scheduledEnd: new Date(scheduleEnd).toISOString(),
+                  message: scheduleMessage.trim(),
+                }),
+              });
+              const result = await response.json();
+              if (result.success) {
+                toast.success(isEdit ? 'Notice updated successfully' : 'Maintenance notice scheduled successfully');
+                setShowScheduleModal(false);
+                setEditingWindowId(null);
+                fetchUpcomingWindows();
+              } else {
+                toast.error(result.message || 'Failed to save notice');
+              }
+            } catch (err) {
+              console.error('Save maintenance notice error:', err);
+              toast.error('Failed to save notice');
+            } finally {
+              setScheduleLoading(false);
+            }
+          }}
+          disabled={scheduleLoading}
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {scheduleLoading ? 'Saving...' : editingWindowId ? 'Update Notice' : 'Schedule Notice'}
+        </button>
+      </div>
+    </motion.div>
+  </div>
+)}
 
     </motion.div>
   );

@@ -1,0 +1,31 @@
+/* frontend/src/components/FloatingOrderButton/styles/FloatingOrderButton.css */
+.order-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.order-scroll::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 10px;
+}
+.order-scroll::-webkit-scrollbar-thumb {
+  background: #2563eb;
+  border-radius: 10px;
+}
+.order-scroll::-webkit-scrollbar-thumb:hover {
+  background: #1e3a8a;
+}
+
+/* Loading shimmer effect */
+.shimmer {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
