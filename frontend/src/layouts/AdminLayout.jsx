@@ -39,7 +39,8 @@ import {
   Unlock,
   Key, 
   Sliders,
-  FileCheck
+  FileCheck,
+  Factory
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -50,7 +51,10 @@ const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
   { id: 'sales-dashboard', label: 'Sales Dashboard', icon: BarChart3, path: '/admin/sales-dashboard' },
   { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/admin/sales-analytics' },
+  { id: 'inventory-dashboard', label: 'Inventory Dashboard', icon: LayoutDashboard, path: '/admin/demandforecast-dashboard' },
+  { id: 'jit-dashboard', label: 'JIT Dashboard', icon: Factory, path: '/admin/jit-dashboard' },
   { id: 'products', label: 'Products', icon: Package, path: '/admin/products' },
+
 
   { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/admin/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/admin/orders' },

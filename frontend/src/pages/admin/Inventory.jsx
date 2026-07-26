@@ -23,14 +23,13 @@ const itemVariants = {
 };
 
 const tabs = [
-  { key: 'production', label: 'Production', icon: Factory },
   { key: 'stock', label: 'Stock Levels', icon: Package },
   { key: 'empty', label: 'Empty Bottles', icon: FlaskConical },
   { key: 'orders', label: 'Vendor Orders', icon: ShoppingCart },
 ];
 
 export default function Inventory() {
-  const [activeTab, setActiveTab] = useState('production');
+  const [activeTab, setActiveTab] = useState('stock');
   const [products, setProducts] = useState([]);
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -165,15 +164,12 @@ export default function Inventory() {
         })}
       </motion.div>
 
-      {activeTab === 'production' && (
-        <JITDashboard products={products} onRefresh={handleRefresh} />
-      )}
+      
 
       {activeTab === 'stock' && (
         <StockLevels 
           products={products} 
           onRefresh={handleRefresh}
-          loading={loading || refreshing}
         />
       )}
 

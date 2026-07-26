@@ -34,6 +34,9 @@ import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 import InvoicingReports from "../pages/admin/InvoicingReports";
+import InventoryDashboard from "../pages/admin/InventoryDashboard";
+import JITDashboard from "../pages/admin/JITDashboard";
+import DemandForecastDashboard from "../pages/admin/DemandForecasting";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -103,6 +106,9 @@ function AdminRoutes() {
         /> 
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="sales-dashboard" element={<SalesDashboard />} />
+        <Route path="inventory-dashboard" element={<InventoryDashboard />} />
+        <Route path="demandforecast-dashboard" element={<DemandForecastDashboard />} />
+        <Route path="jit-dashboard" element={<JITDashboard />} />
         <Route path="hrm-dashboard" element={<HrmDashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
