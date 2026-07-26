@@ -168,7 +168,13 @@ function ManagePermissions() {
             type="text"
             placeholder="e.g. Warehouse Manager"
             value={newRoleName}
-            onChange={(e) => setNewRoleName(e.target.value)}
+            onChange={(e) => {
+              const formatted = e.target.value
+                .toUpperCase()
+                .replace(/\s+/g, '_')       // spaces -> underscore
+                .replace(/[^A-Z0-9_]/g, ''); // allow only A-Z, 0-9, underscore
+              setNewRoleName(formatted);
+            }}
             onKeyDown={(e) => e.key === 'Enter' && handleAddRole()}
             className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
           />

@@ -65,6 +65,10 @@ export default function UserManagement() {
 
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const usersPerPage = 10;
+  const [employeeCurrentPage, setEmployeeCurrentPage] = useState(1);
+  const employeesPerPage = 5;
 
   // ===== MODAL STATES =====
   const [showModal, setShowModal] = useState(false);
@@ -534,6 +538,27 @@ const handleSubmit = async (e) => {
     return matchesSearch && matchesStatus;
   });
 
+  const totalEmployeePages = Math.ceil(filteredEmployees.length / employeesPerPage);
+  const paginatedEmployees = filteredEmployees.slice(
+    (employeeCurrentPage - 1) * employeesPerPage,
+    employeeCurrentPage * employeesPerPage
+  );
+
+
+  useEffect(() => {
+    setEmployeeCurrentPage(1);
+  }, [employeeSearch, statusFilter]);
+
+  const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * usersPerPage,
+    currentPage * usersPerPage
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [userSearch, roleFilter]);
+
   // ===== COUNTS =====
   const userCounts = {
     total: users.length,
@@ -672,16 +697,16 @@ const handleSubmit = async (e) => {
           </div>
           <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
             <select
-  value={roleFilter}
-  onChange={(e) => setRoleFilter(e.target.value)}
-  className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
->
-  {roleFilters.map((role) => (
-    <option key={role} value={role}>
-      {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
-    </option>
-  ))}
-</select>
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
+            >
+              {roleFilters.map((role) => (
+                <option key={role} value={role}>
+                  {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -711,7 +736,7 @@ const handleSubmit = async (e) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((user) => (
+                  {paginatedUsers.map((user) => (
                     <tr
                       key={user.id}
                       onClick={() => openProfileModal(user)}
@@ -781,6 +806,34 @@ const handleSubmit = async (e) => {
               </table>
             )}
           </div>
+          {/* Pagination Controls */}
+          {!usersLoading && filteredUsers.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
+              <span className="text-xs text-gray-500">
+                Showing {(currentPage - 1) * usersPerPage + 1}–
+                {Math.min(currentPage * usersPerPage, filteredUsers.length)} of {filteredUsers.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -856,7 +909,7 @@ const handleSubmit = async (e) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEmployees.map((emp) => {
+                  {paginatedEmployees.map((emp) => {
                     const isPending = emp.status === 'pending';
                     return (
                       <tr
@@ -897,6 +950,37 @@ const handleSubmit = async (e) => {
               </table>
             )}
           </div>
+          
+
+          {/* Pagination Controls */}
+          {!employeesLoading && filteredEmployees.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
+              <span className="text-xs text-gray-500">
+                Showing {(employeeCurrentPage - 1) * employeesPerPage + 1}–
+                {Math.min(employeeCurrentPage * employeesPerPage, filteredEmployees.length)} of {filteredEmployees.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setEmployeeCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={employeeCurrentPage === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 px-2">
+                  Page {employeeCurrentPage} of {totalEmployeePages}
+                </span>
+                <button
+                  onClick={() => setEmployeeCurrentPage((p) => Math.min(totalEmployeePages, p + 1))}
+                  disabled={employeeCurrentPage === totalEmployeePages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+       
         </div>
       </motion.div>
 
