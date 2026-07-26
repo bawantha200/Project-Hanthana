@@ -119,6 +119,7 @@ async function getFinancialReport({ dateFrom, dateTo }) {
   if (error) throw error;
 
   let revenue = 0;
+  let pendingPayments = 0;
   const byPaymentType = { ONLINE: 0, CASH: 0 };
   data.forEach((inv) => {
     const status = (inv.orders?.payment_status || "").toUpperCase();
@@ -126,6 +127,8 @@ async function getFinancialReport({ dateFrom, dateTo }) {
       revenue += Number(inv.total_amount);
       const method = inv.orders.payment_method;
       byPaymentType[method] = (byPaymentType[method] || 0) + Number(inv.total_amount);
+    } else {
+      pendingPayments += Number(inv.total_amount);
     }
   });
 
@@ -141,9 +144,73 @@ async function getFinancialReport({ dateFrom, dateTo }) {
     revenue,
     expenses,
     netProfit: revenue - expenses,
+    pendingPayments,
     byPaymentType,
     invoiceCount: data.length,
   };
 }
 
-module.exports = { getInvoices, getInvoiceDetail, generateInvoiceForOrder, getFinancialReport };
+// GET total outstanding dues across ALL invoices, regardless of date —
+// this is what "Pending Payments" on the dashboard should mean: every
+// delivered-but-unpaid order, not just ones from the current month.
+async function getPendingPaymentsTotal() {
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(`total_amount, orders ( payment_status )`);
+  if (error) throw error;
+
+  return data.reduce((sum, inv) => {
+    const status = (inv.orders?.payment_status || "").toUpperCase();
+    const isPaid = status === "PAID" || status === "COMPLETED";
+    return isPaid ? sum : sum + Number(inv.total_amount);
+  }, 0);
+}
+
+// GET revenue grouped by month, for the last N months (default 6) —
+// used for the Revenue Growth chart.
+// Your system went live in May 2026 — no point showing empty months before that.
+const SYSTEM_START_YEAR = 2026;
+const SYSTEM_START_MONTH = 5; // May, 1-indexed
+
+async function getMonthlyRevenueHistory() {
+  const { data, error } = await supabase
+    .from("invoices")
+    .select(`total_amount, issued_at, orders ( payment_status )`);
+  if (error) throw error;
+
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const now = new Date();
+
+  // Count months from system start up to and including the current month
+  const monthsSinceStart =
+    (now.getFullYear() - SYSTEM_START_YEAR) * 12 + (now.getMonth() + 1 - SYSTEM_START_MONTH) + 1;
+
+  const months = [];
+  for (let i = monthsSinceStart - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      month: monthNames[d.getMonth()],
+      income: 0,
+    });
+  }
+  const monthMap = Object.fromEntries(months.map((m) => [m.key, m]));
+
+  data.forEach((inv) => {
+    const status = (inv.orders?.payment_status || "").toUpperCase();
+    if (status !== "PAID" && status !== "COMPLETED") return;
+    const key = inv.issued_at.slice(0, 7); // "2026-07"
+    if (monthMap[key]) monthMap[key].income += Number(inv.total_amount);
+  });
+
+  return months.map(({ month, income }) => ({ month, income }));
+}
+
+module.exports = {
+  getInvoices,
+  getInvoiceDetail,
+  generateInvoiceForOrder,
+  getFinancialReport,
+  getPendingPaymentsTotal,
+  getMonthlyRevenueHistory,
+};

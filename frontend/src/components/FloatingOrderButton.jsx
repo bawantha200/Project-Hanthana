@@ -46,6 +46,7 @@ const mapContainerStyle = {
 };
 
 const FloatingOrderButton = ({ onLoginRequired }) => {
+const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   const { user } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [products, setProducts] = useState([]);
@@ -98,6 +99,7 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
   const map = useRef(null);
   const marker = useRef(null);
   const geocoderInputRef = useRef(null);
+  const [pendingProductId, setPendingProductId] = useState(null);
 
   const addressDebounceTimer = useRef(null);
   const geolocationTimeoutRef = useRef(null);
@@ -728,9 +730,46 @@ const FloatingOrderButton = ({ onLoginRequired }) => {
               address: data.address
             }));
           }
+  const handler = (e) => {
+    if (!user) {
+      onLoginRequired();
+      return;
+    }
+    setIsOpen(true);
+    setStep(1);
+    setSelectedPaymentMethod("CASH");
+    if (e.detail?.productId) {
+      setPendingProductId(e.detail.productId);
+    }
+  };
+  window.addEventListener("open-order-modal", handler);
+  return () => window.removeEventListener("open-order-modal", handler);
+}, [user, onLoginRequired]);
+
+  useEffect(() => {
+  if (isOpen) {
+    supabase.from("products").select("id, name, type, unit_price, image_url").order("name")
+      .then(({ data }) => {
+        setProducts(data || []);
+        if (pendingProductId) {
+          setOrderData(prev => ({
+            ...prev,
+            items: {
+              ...prev.items,
+              [pendingProductId]: (prev.items[pendingProductId] || 0) + 1,
+            },
+          }));
+          setPendingProductId(null);
+        }
+      });
+    if (user) {
+      supabase.from("users").select("address").eq("id", user.id).single()
+        .then(({ data }) => {
+          if (data?.address) setOrderData(prev => ({ ...prev, address: data.address }));
         });
     }
-  }, [isOpen, user]);
+  }
+}, [isOpen, user]);
 
   useEffect(() => {
     if (orderData.deliveryType === "HOME_DELIVERY") {
@@ -1027,14 +1066,16 @@ const handleConfirm = async () => {
     <>
       {/* Trigger Button */}
       <motion.button
-        onClick={() => {
-          if (!user) onLoginRequired();
-          else { setIsOpen(true); setStep(1); setSelectedPaymentMethod("CASH"); }
-        }}
-        className="fixed top-20 right-6 z-50 flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full shadow-2xl shadow-blue-500/40 hover:scale-105 transition-all duration-300"
-        animate={{ scale: [1, 1.05, 1] }}
-        transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-      >
+  onClick={() => {
+    if (!user) onLoginRequired();
+    else { setIsOpen(true); setStep(1); setSelectedPaymentMethod("CASH"); }
+  }}
+  className={`fixed right-6 z-50 flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full shadow-2xl shadow-blue-500/40 hover:scale-105 transition-all duration-300 ${
+    hasMaintenanceBanner ? 'top-32 lg:top-36' : 'top-20'
+  }`}
+  animate={{ scale: [1, 1.05, 1] }}
+  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+>
         <div className="relative">
           <Droplet className="w-6 h-6 fill-white/30" />
           {itemCount > 0 && (

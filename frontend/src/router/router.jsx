@@ -15,6 +15,7 @@ import Deliveries from '../pages/admin/Deliveries';
 import Reports from '../pages/admin/Reports';
 import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
+import SettingsRequests from '../pages/admin/SettingsRequests';
 import Employees from '../pages/admin/Employees';
 import HrmDashboard from '../pages/admin/HrmDashboard';
 import HRM from '../pages/admin/HRM';
@@ -27,6 +28,7 @@ import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
 import ExpenseManagement from '../pages/admin/ExpenseManagement';
+import ExpenseComparison from '../pages/admin/ExpenseComparison';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
@@ -109,6 +111,7 @@ function AdminRoutes() {
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="settings-requests" element={<SettingsRequests />} />
         <Route path="employees" element={<Employees />} />
         <Route path="hrm" element={<HRM />} />
         <Route path="vendors" element={<Vendors />} />
@@ -116,6 +119,7 @@ function AdminRoutes() {
         <Route path="finance" element={<Finance />} />
         <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
+        <Route path="finance/expenses/compare" element={<ExpenseComparison />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />

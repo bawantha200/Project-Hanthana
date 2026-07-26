@@ -8,6 +8,13 @@ export async function getExpenseSummary(dateFrom, dateTo) {
   return response.data;
 }
 
+export async function getMonthlyTrend(months, dataset) {
+  const response = await api.get('/reports/monthly-trend', {
+    params: { months, dataset },
+  });
+  return response.data;
+}
+
 export const PERIOD_OPTIONS = [
   { value: 'this-month', label: 'This Month' },
   { value: 'last-month', label: 'Last Month' },
@@ -16,14 +23,12 @@ export const PERIOD_OPTIONS = [
   { value: 'custom', label: 'Custom Range' },
 ];
 
-// Computes a { dateFrom, dateTo } range for a preset period key.
-// 'custom' is not handled here — the caller supplies explicit dates for that case.
 export function getPeriodRange(period) {
   const now = new Date();
 
   if (period === 'last-month') {
     const from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const to = new Date(now.getFullYear(), now.getMonth(), 0); // last day of previous month
+    const to = new Date(now.getFullYear(), now.getMonth(), 0);
     return {
       dateFrom: from.toISOString().slice(0, 10),
       dateTo: to.toISOString().slice(0, 10),
@@ -46,8 +51,6 @@ export function getPeriodRange(period) {
   return { dateFrom: from.toISOString().slice(0, 10), dateTo };
 }
 
-// Converts a date range into "July 2026" style labels, matching the
-// free-text `month` column in the salaries table.
 export function getMonthLabelsInRange(dateFrom, dateTo) {
   const labels = [];
   const cursor = new Date(dateFrom);
@@ -60,4 +63,44 @@ export function getMonthLabelsInRange(dateFrom, dateTo) {
     cursor.setMonth(cursor.getMonth() + 1);
   }
   return labels;
+}
+
+export const COMPARISON_PRESETS = [
+  { value: 'month-vs-month', label: 'This Month vs Last Month' },
+  { value: '3-vs-3', label: 'Last 3 Months vs Previous 3' },
+  { value: '6-vs-6', label: 'Last 6 Months vs Previous 6' },
+  { value: 'custom', label: 'Custom Range' },
+];
+
+// Returns { periodA, periodB } each as { dateFrom, dateTo }, for a given preset.
+// Returns null for 'custom' — the caller supplies explicit dates in that case.
+export function getComparisonRanges(preset) {
+  const now = new Date();
+
+  if (preset === 'month-vs-month') {
+    return {
+      periodA: getPeriodRange('this-month'),
+      periodB: getPeriodRange('last-month'),
+    };
+  }
+
+  if (preset === '3-vs-3' || preset === '6-vs-6') {
+    const n = preset === '3-vs-3' ? 3 : 6;
+
+    const aStartDate = new Date(now.getFullYear(), now.getMonth() - (n - 1), 1);
+    const aStart = aStartDate.toISOString().slice(0, 10);
+    const aEnd = now.toISOString().slice(0, 10);
+
+    const bEndDate = new Date(aStartDate.getFullYear(), aStartDate.getMonth(), 0);
+    const bStartDate = new Date(bEndDate.getFullYear(), bEndDate.getMonth() - (n - 1), 1);
+    const bStart = bStartDate.toISOString().slice(0, 10);
+    const bEnd = bEndDate.toISOString().slice(0, 10);
+
+    return {
+      periodA: { dateFrom: aStart, dateTo: aEnd },
+      periodB: { dateFrom: bStart, dateTo: bEnd },
+    };
+  }
+
+  return null;
 }

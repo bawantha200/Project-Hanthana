@@ -39,6 +39,7 @@ import {
   Unlock,
   Key, 
   Sliders,
+  FileCheck
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -73,10 +74,13 @@ const NAV_ITEMS = [
 
   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/admin/reports' },
   { id: 'user-management', label: 'User Management', icon: Shield, path: '/admin/user-management' },
+  { id: 'settings-request', label: 'Settings Requests', icon: FileCheck, path: '/admin/settings-requests' },
   { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/admin/manage-permission' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/admin/settings' },
 
 ];
+
+
 
 // Helper: get initials
 const getInitials = (name, email) => {
@@ -157,6 +161,7 @@ const NOTIFICATION_ICONS = {
   payment: DollarSign,
   system: Settings,
   maintenance: Settings,
+  settings_request: Settings,
 };
 
 // Relative time helper - "2 min ago", "1 hour ago" ආදිය
@@ -826,8 +831,11 @@ export default function AdminLayout() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false); 
+  const [hasPendingSettingsRequest, setHasPendingSettingsRequest] = useState(false);
   const [settings, setSettings] = useState(defaultSettings);
   const [settingsLoading, setSettingsLoading] = useState(true);
+  const [pendingSettingsCount, setPendingSettingsCount] = useState(0);
+  const [maintenanceBanner, setMaintenanceBanner] = useState(null);
 
   // Permissions & roles
   const [permissions, setPermissions] = useState([]);
@@ -890,6 +898,39 @@ export default function AdminLayout() {
     }
   }, []);
 
+  const fetchPendingSettingsCount = useCallback(async () => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch('http://localhost:5000/api/settings/requests/pending-count', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (data.success) setPendingSettingsCount(data.count);
+  } catch (err) {
+    console.error('Failed to fetch pending settings count:', err);
+  }
+}, []);
+
+
+const fetchMaintenanceStatus = useCallback(async () => {
+  try {
+    const response = await fetch('http://localhost:5000/api/maintenance/mode');
+    const data = await response.json();
+    if (data.success && data.enabled) {
+      setMaintenanceBanner({ message: data.message || 'System is under maintenance.' });
+    } else {
+      setMaintenanceBanner(null);
+    }
+  } catch (err) {
+    console.error('Failed to fetch maintenance status:', err);
+  }
+}, []);
+
+useEffect(() => {
+  fetchMaintenanceStatus();
+  const interval = setInterval(fetchMaintenanceStatus, 60000);
+  return () => clearInterval(interval);
+}, [fetchMaintenanceStatus]);
 
   const fetchUnreadCount = useCallback(async () => {
     try {
@@ -903,6 +944,28 @@ export default function AdminLayout() {
       console.error('Failed to fetch unread count:', err);
     }
   }, []);
+
+  const fetchPendingSettingsRequest = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/settings/requests/pending-count', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+      if (data.success) setHasPendingSettingsRequest((data.count || 0) > 0);
+    } catch (err) {
+      console.error('Failed to fetch pending settings request:', err);
+    }
+  }, []);
+
+
+  useEffect(() => {
+  if (!user) return;
+  // CEO ta pending count, Admin ta rejected(unseen) count — dekама methanin fetch karanawa
+  fetchPendingSettingsRequest();
+  const interval = setInterval(fetchPendingSettingsRequest, 30000);
+  return () => clearInterval(interval);
+}, [user, fetchPendingSettingsRequest]);
 
   // Fetch all roles (for admin switcher)
   const fetchAllRoles = useCallback(async () => {
@@ -953,6 +1016,13 @@ export default function AdminLayout() {
 
 
   useEffect(() => {
+  if (!user || user.role?.toUpperCase() !== 'CEO') return;
+  fetchPendingSettingsCount();
+  const interval = setInterval(fetchPendingSettingsCount, 30000);
+  return () => clearInterval(interval);
+  }, [user, fetchPendingSettingsCount]);
+
+  useEffect(() => {
     if (!user) return;
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
@@ -1001,6 +1071,15 @@ export default function AdminLayout() {
   }
 
   return (
+    <div className="flex flex-col h-screen bg-[#F8FAFC] overflow-hidden">
+
+
+    {/* ✅ Maintenance Banner — full width, okkomatama uda */}
+    {maintenanceBanner && (
+      <div className="flex-shrink-0 bg-amber-500 text-white text-sm font-medium px-4 py-2 text-center">
+        🛠️ {maintenanceBanner.message}
+      </div>
+    )}
     <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
       {/* Mobile overlay */}
       <AnimatePresence>
@@ -1034,7 +1113,12 @@ export default function AdminLayout() {
 
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
           {filteredNavItems.map((item) => (
-            <SidebarItem key={item.id} item={item} isActive={isActive(item)} onClick={() => handleNavClick(item)} />
+            <div key={item.id} className="relative">
+              <SidebarItem item={item} isActive={isActive(item)} onClick={() => handleNavClick(item)} />
+              {item.id === 'settings-request' && hasPendingSettingsRequest && (
+                <span className="absolute top-1 right-2 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white animate-pulse" />
+              )}
+            </div>
           ))}
         </nav>
 
@@ -1052,6 +1136,8 @@ export default function AdminLayout() {
           </div>
         </div>
       </aside>
+
+    
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -1155,6 +1241,8 @@ export default function AdminLayout() {
         user={user}
         onUpdate={handleUpdateUser}
       />
+    </div>
+
     </div>
   );
 }

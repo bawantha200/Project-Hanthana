@@ -6,4 +6,6 @@ const router = express.Router();
 
 router.get('/expense-summary', reportController.getExpenseSummary);
 
+router.get('/monthly-trend', reportController.getMonthlyTrend);
+
 module.exports = router;
