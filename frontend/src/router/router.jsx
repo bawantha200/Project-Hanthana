@@ -34,6 +34,7 @@ import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 import InvoicingReports from "../pages/admin/InvoicingReports";
+import InventoryDashboard from "../pages/admin/InventoryDashboard";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -102,6 +103,7 @@ function AdminRoutes() {
         /> 
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="sales-dashboard" element={<SalesDashboard />} />
+        <Route path="inventory-dashboard" element={<InventoryDashboard />} />
         <Route path="hrm-dashboard" element={<HrmDashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
