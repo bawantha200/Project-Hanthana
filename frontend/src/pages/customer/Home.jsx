@@ -328,13 +328,17 @@ export default function Home() {
                       <span className="text-2xl font-bold text-blue-600">
                         LKR {Number(product.unit_price).toFixed(2)}
                       </span>
-                      <Link
-                        to="/customer/order"
-                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
-                      >
-                        Add to Order
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </Link>
+                      <button
+  onClick={() =>
+    window.dispatchEvent(
+      new CustomEvent("open-order-modal", { detail: { productId: product.id } })
+    )
+  }
+  className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+>
+  Add to Order
+  <ArrowRight className="w-3.5 h-3.5" />
+</button>
                     </div>
                   </div>
                 </motion.div>

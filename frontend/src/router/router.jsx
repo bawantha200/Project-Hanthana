@@ -15,6 +15,7 @@ import Deliveries from '../pages/admin/Deliveries';
 import Reports from '../pages/admin/Reports';
 import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
+import SettingsRequests from '../pages/admin/SettingsRequests';
 import Employees from '../pages/admin/Employees';
 import HrmDashboard from '../pages/admin/HrmDashboard';
 import HRM from '../pages/admin/HRM';
@@ -84,6 +85,7 @@ function AdminRoutes() {
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="settings-requests" element={<SettingsRequests />} />
         <Route path="employees" element={<Employees />} />
         <Route path="hrm" element={<HRM />} />
         <Route path="vendors" element={<Vendors />} />

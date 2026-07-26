@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"; 
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -220,7 +220,7 @@ const quickLinks = [
 ];
 
 // ─── Navbar Component ──────────────────────────────────────────
-function Navbar({ showLoginModal, setShowLoginModal }) {
+function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
@@ -453,12 +453,12 @@ function Navbar({ showLoginModal, setShowLoginModal }) {
   return (
     <>
       <nav
-        className={`fixed top-0 left-0 right-0 z-[60] transition-all duration-300 ${
-          isScrolled
-            ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
-            : "bg-white shadow-sm"
-        }`}
-      >
+  className={`relative left-0 right-0 z-[60] transition-all duration-300 ${
+    isScrolled
+      ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
+      : "bg-white shadow-sm"
+  }`}
+>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-18">
             {/* Logo */}
@@ -1057,8 +1057,68 @@ function Footer() {
 export default function CustomerLayout() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [showAuthPrompt, setShowAuthPrompt] = useState(false);
+  const [maintenanceBanner, setMaintenanceBanner] = useState(null);
+  const [upcomingNotice, setUpcomingNotice] = useState(null);
+  const [headerHeight, setHeaderHeight] = useState(64);
+  const headerRef = useRef(null);
   const { user } = useAuth();
   const navigate = useNavigate();
+
+ useEffect(() => {
+  const fetchUpcomingWindows = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/api/maintenance');
+      const data = await response.json();
+      console.log('🔍 Maintenance windows response:', data); // ✅ temporary debug line
+      if (data.success && data.windows?.length > 0) {
+        setUpcomingNotice(data.windows[0]);
+      } else {
+        setUpcomingNotice(null);
+      }
+    } catch (err) {
+      console.error('Failed to fetch upcoming maintenance:', err);
+    }
+  };
+  fetchUpcomingWindows();
+  const interval = setInterval(fetchUpcomingWindows, 60000);
+  return () => clearInterval(interval);
+}, []);
+
+  useEffect(() => {
+    const fetchMaintenanceStatus = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/maintenance/mode');
+        const data = await response.json();
+        if (data.success && data.enabled) {
+          setMaintenanceBanner({ message: data.message || 'System is under maintenance.' });
+        } else {
+          setMaintenanceBanner(null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch maintenance status:', err);
+      }
+    };
+    fetchMaintenanceStatus();
+    const interval = setInterval(fetchMaintenanceStatus, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+
+  // ✅ Navbar + Banner ekema actual height eka measure karanawa (guess pixel values nemei)
+  useLayoutEffect(() => {
+    if (!headerRef.current) return;
+
+    const updateHeight = () => {
+      setHeaderHeight(headerRef.current.offsetHeight);
+    };
+
+    updateHeight();
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(headerRef.current);
+
+    return () => resizeObserver.disconnect();
+  }, [maintenanceBanner]);
 
   const handleOrderClick = useCallback(() => {
     if (user) {
@@ -1069,16 +1129,38 @@ export default function CustomerLayout() {
   }, [user, navigate]);
 
   return (
+    
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+
+    {/* ✅ Navbar + Banner dekama height measure karanna ref ekaka athule */}
+    <div ref={headerRef} className="fixed top-0 left-0 right-0 z-[60]">
+      {maintenanceBanner ? (
+    <div className="bg-amber-500 text-white text-sm font-medium px-4 py-2 text-center">
+      🛠️ {maintenanceBanner.message}
+    </div>
+  ) : upcomingNotice ? (
+    <div className="bg-blue-600 text-white text-sm font-medium px-4 py-2 text-center">
+      📅 {upcomingNotice.message} — Starting {new Date(upcomingNotice.scheduled_start).toLocaleString()}
+    </div>
+  ) : null}
       <Navbar
         showLoginModal={showLoginModal}
         setShowLoginModal={setShowLoginModal}
       />
-      <main className="flex-1 pt-16 lg:pt-18">
-        <Outlet />
+    </div>
+
+    {/* ✅ main eke padding eka, actual measured height eka use karanawa */}
+    <main
+  className="flex-1"
+  style={{ paddingTop: `${headerHeight}px`, marginTop: '-1px' }}
+>
+      <Outlet />
       </main>
       <Footer />
-      <FloatingOrderButton onLoginRequired={handleOrderClick} />
+      <FloatingOrderButton
+  onLoginRequired={handleOrderClick}
+  hasMaintenanceBanner={!!maintenanceBanner || !!upcomingNotice}
+/>
 
       {/* Auth Prompt Modal */}
       <AnimatePresence>
