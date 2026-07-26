@@ -1,7 +1,3 @@
-// ============ FILE: controllers/authController.js ============
-// ============ COMPLETE WORKING VERSION ============
-
-// ✅ FIXED: Import supabase and supabaseAdmin correctly
 const supabase = require('../config/db');
 const supabaseAdmin = supabase.supabaseAdmin;
 
@@ -13,7 +9,7 @@ const { logAction } = require('../utils/auditLogger');
 
 // ============================================================
 // ==================== HELPER FUNCTIONS ======================
-// ============================================================
+
 
 /**
  * Helper function to check if a user has a password
@@ -42,9 +38,6 @@ const userHasPassword = async (userId) => {
   }
 };
 
-// ============================================================
-// ==================== AUTH ROUTES ===========================
-// ============================================================
 
 /**
  * @desc    Register a new user, create auth credentials, and provision a database profile
@@ -58,6 +51,7 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'All fields are required.' });
     }
 
+    // 1️⃣ Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -73,23 +67,60 @@ const registerUser = async (req, res) => {
     const authUser = authData.user;
     if (!authUser) return res.status(400).json({ success: false, message: 'User provisioning failed.' });
 
+    // 2️⃣ Get default role
     const { data: roleData } = await supabase.from('roles').select('id').eq('role_name', 'CUSTOMER').maybeSingle();
     const defaultRoleId = roleData ? roleData.id : null;
 
-    const { error: profileError } = await supabase
+    // 3️⃣ Check if profile already exists (due to auto-creation trigger)
+    const { data: existingProfile, error: checkError } = await supabase
       .from('profiles')
-      .insert([{
-        id: authUser.id,
-        full_name: fullName,
-        phone_number: phone,
-        address: address || '',
-        role_id: defaultRoleId,
-        email: email
-      }]);
+      .select('id')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    let profileError = null;
+
+    if (existingProfile) {
+      // ✅ Profile already exists - UPDATE it instead of INSERT
+      console.log('[REGISTER] Profile already exists, updating...');
+      
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName,
+          phone_number: phone,
+          address: address || '',
+          role_id: defaultRoleId,
+          email: email
+        })
+        .eq('id', authUser.id);
+      
+      profileError = updateError;
+    } else {
+      // ✅ Profile doesn't exist - INSERT new profile
+      console.log('[REGISTER] Creating new profile...');
+      
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert([{
+          id: authUser.id,
+          full_name: fullName,
+          phone_number: phone,
+          address: address || '',
+          role_id: defaultRoleId,
+          email: email
+        }]);
+      
+      profileError = insertError;
+    }
 
     if (profileError) {
-      console.error('[REGISTER ERROR]', profileError);
-      return res.status(500).json({ success: false, message: 'Account created but profile linking failed.' });
+      console.error('[REGISTER PROFILE ERROR]', profileError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Account created but profile linking failed.',
+        details: profileError.message 
+      });
     }
 
     return res.status(201).json({
@@ -321,12 +352,12 @@ const loginUser = async (req, res) => {
       
       // If user exists BUT has NO password (Google user who hasn't set password yet)
       if (!hasPassword) {
-        // Check if they're a Google-only user
-        const client = supabaseAdmin || supabase;
-        const { data: userData } = await client.auth.admin.getUserById(profile.id);
+        // Check if they're a Google-only user (only google identity, no email identity)
+        const { data: userData } = await supabase.auth.admin.getUserById(profile.id);
         const identities = userData?.user?.identities || [];
-        const isGoogleOnly = identities.some(id => id.provider === 'google') && 
-                            !identities.some(id => id.provider === 'email');
+        const hasGoogleIdentity = identities.some(id => id.provider === 'google');
+        const hasEmailIdentity = identities.some(id => id.provider === 'email');
+        const isGoogleOnly = hasGoogleIdentity && !hasEmailIdentity;
         
         if (isGoogleOnly) {
           return res.status(400).json({
@@ -473,11 +504,6 @@ const loginUser = async (req, res) => {
   }
 };
 
-// ... (rest of your functions remain the same) ...
-
-// ============================================================
-// ==================== PROFILE ROUTES ========================
-// ============================================================
 
 /**
  * @desc    Update user dynamic profile (Name, Phone, Address)
@@ -614,9 +640,6 @@ const getProfile = async (req, res) => {
   }
 };
 
-// ============================================================
-// ==================== PASSWORD ROUTES =======================
-// ============================================================
 
 /**
  * @desc    Update/Reset User Password
@@ -781,19 +804,12 @@ const setPasswordForGoogleUser = async (req, res) => {
   }
 };
 
-// ============================================================
-// ==================== ACCOUNT ROUTES ========================
-// ============================================================
 
 /**
  * @desc    Delete user account entirely from Auth and Profiles
  * @route   DELETE /api/auth/account
  */
-/**
-/**
- * @desc    Delete user account - Keep audit logs
- * @route   DELETE /api/auth/account
- */
+
 const deleteAccount = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -953,9 +969,6 @@ const deleteUserAlternative = async (userId, res) => {
   }
 };
 
-// ============================================================
-// ==================== PERMISSION ROUTES =====================
-// ============================================================
 
 /**
  * @desc    Get permissions for a role (by role name from URL)
@@ -1077,9 +1090,7 @@ const getAllRoles = async (req, res) => {
   }
 };
 
-// ============================================================
-// ==================== 2FA ROUTES ============================
-// ============================================================
+
 
 /**
  * @desc    Login-time 2FA code verification
@@ -1249,9 +1260,6 @@ const verifySetup2FA = async (req, res) => {
   }
 };
 
-// ============================================================
-// ==================== EXPORTS ===============================
-// ============================================================
 
 module.exports = {
   // Auth Routes
