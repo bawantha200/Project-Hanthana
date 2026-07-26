@@ -56,6 +56,9 @@ export default function AuthCallback() {
       } catch (err) {
         console.error('OAuth callback error:', err);
         setError(err.message);
+
+        await supabase.auth.signOut()
+
         setTimeout(() => navigate('/login?error=oauth_failed'), 2000);
       }
     };

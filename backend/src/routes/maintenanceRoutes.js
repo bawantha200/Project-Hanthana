@@ -10,15 +10,15 @@ const {
 } = require('../controllers/maintenanceController');
 const { protect } = require('../middlewares/authMiddleware');
 
-// ✅ Public routes — MEKA router.use(protect) ekata ISSELLĀ thiyanna one
+
 router.get('/mode', getMaintenanceStatus);
 router.get('/', getMaintenanceWindows);
 
-router.use(protect); // ✅ Meken PASSE thiyena okkoma routes protected
+router.use(protect); 
 
 router.post('/', postMaintenanceWindow);
-router.put('/:id', updateMaintenanceWindow);
-router.put('/mode', toggleMaintenanceMode);
+router.put('/mode', toggleMaintenanceMode);   
+router.put('/:id', updateMaintenanceWindow);  
 router.delete('/:id', deleteMaintenanceWindow);
 
 module.exports = router;

@@ -1499,6 +1499,7 @@ const handleSave = async () => {
         </button>
         <button
           onClick={async () => {
+            console.log('🔍 DEBUG:', { scheduleStart, scheduleEnd, scheduleMessage });
             if (!scheduleStart || !scheduleEnd || !scheduleMessage.trim()) {
               toast.error('Please fill in start time, end time, and message.');
               return;

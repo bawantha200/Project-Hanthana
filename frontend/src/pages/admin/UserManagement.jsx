@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Search, Plus, Shield, UserPlus, Filter, ToggleLeft, ToggleRight,
   Edit, Trash2, X, AlertTriangle, Mail, Phone, MapPin, Briefcase, Calendar,
-  User, CreditCard, Heart, Camera, Image, Home, Smartphone, FileText, Circle, Clock, Lock
+  User, CreditCard, Heart, Camera, Image, Home, Smartphone, FileText, Circle, Clock, Lock,ArrowUpRight
 } from 'lucide-react';
 import RoleBadge from '../../components/RoleBadge';
 import StatusBadge from '../../components/StatusBadge';
@@ -27,22 +28,9 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-const roleFilters = [
-  'ALL',
-  'ADMIN',
-  'MANAGER',
-  'CUSTOMER',
-  'EMPLOYEE',
-  'HR_MANAGER',
-  'SALES_MANAGER',
-  'INVENTORY_MANAGER',
-  'ACCOUNTANT',
-  'CASHIER',
-  'DELIVERY_PERSON',
-  'RIDER',
-  'CUSTOMER_SERVICES',
-  'CEO',
-];
+// Delete the static roleFilters const entirely, and replace its usage with this computed value inside the component:
+
+
 
 const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE'];
 
@@ -62,6 +50,7 @@ export default function UserManagement() {
   const [employeesLoading, setEmployeesLoading] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [userStatusFilter, setUserStatusFilter] = useState("ALL");
 
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
@@ -107,6 +96,8 @@ export default function UserManagement() {
   });
 
 
+  const navigate = useNavigate();
+
   const employeeRecordsRef = useRef(null);
 
   const hasAccess = ['ADMIN', 'CEO'].includes(
@@ -115,6 +106,13 @@ export default function UserManagement() {
 
   const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
 
+
+  const dynamicRoleFilters = [
+  'ALL',
+  ...roles
+    .filter((r) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(r.role_name))
+    .map((r) => r.role_name),
+];
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -470,7 +468,13 @@ const handleSubmit = async (e) => {
     profileImage: formData.profileImage || null,
   };
 
-  if (!editingUser) payload.password = formData.password;
+  if (!editingUser) {
+  // Creating new user — password always required
+  payload.password = formData.password;
+} else if (formData.password) {
+  // ✅ Editing existing user — only include password if admin actually typed a new one
+  payload.password = formData.password;
+}
 
   try {
     if (editingUser) {
@@ -517,14 +521,19 @@ const handleSubmit = async (e) => {
 
   // ===== FILTERS =====
   const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
-      user.email?.toLowerCase().includes(userSearch.toLowerCase());
-    const matchesRole =
-      roleFilter === "ALL" ||
-      user.roles?.role_name?.toUpperCase() === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const matchesSearch =
+    user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+    user.email?.toLowerCase().includes(userSearch.toLowerCase());
+  const matchesRole =
+    roleFilter === "ALL" ||
+    user.roles?.role_name?.toUpperCase() === roleFilter;
+  const matchesStatus =
+    userStatusFilter === "ALL" ||
+    (userStatusFilter === "ACTIVE" && user.status === "active") ||
+    (userStatusFilter === "INACTIVE" && user.status === "inactive");
+  const isNotCustomer = user.roles?.role_name?.toUpperCase() !== 'CUSTOMER'; // ✅ new
+  return matchesSearch && matchesRole && matchesStatus && isNotCustomer;
+});
 
   const filteredEmployees = employees.filter((emp) => {
     const matchesSearch =
@@ -557,7 +566,7 @@ const handleSubmit = async (e) => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [userSearch, roleFilter]);
+  }, [userSearch, roleFilter,userStatusFilter]);
 
   // ===== COUNTS =====
   const userCounts = {
@@ -634,12 +643,24 @@ const handleSubmit = async (e) => {
             <div><p className="text-xs text-gray-400 font-medium">Admins</p><p className="text-lg font-bold text-gray-900">{userCounts.admins}</p></div>
           </div>
         </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center"><Users size={16} className="text-blue-600" /></div>
-            <div><p className="text-xs text-gray-400 font-medium">Customers</p><p className="text-lg font-bold text-gray-900">{userCounts.customers}</p></div>
-          </div>
-        </div>
+        <div
+  onClick={() => navigate('/admin/customers')}
+  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+>
+  <ArrowUpRight
+    size={14}
+    className="absolute top-3 right-3 text-emerald-500"
+  />
+  <div className="flex items-center gap-3">
+    <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+      <Users size={16} className="text-blue-600" />
+    </div>
+    <div>
+      <p className="text-xs text-gray-400 font-medium">Customers</p>
+      <p className="text-lg font-bold text-gray-900">{userCounts.customers}</p>
+    </div>
+  </div>
+</div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-50 flex items-center justify-center"><Users size={16} className="text-cyan-600" /></div>
@@ -681,6 +702,7 @@ const handleSubmit = async (e) => {
         </div>
 
         <div className="flex items-center gap-4 flex-wrap">
+          
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -701,13 +723,37 @@ const handleSubmit = async (e) => {
               onChange={(e) => setRoleFilter(e.target.value)}
               className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
             >
-              {roleFilters.map((role) => (
-                <option key={role} value={role}>
-                  {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
-                </option>
-              ))}
+              {dynamicRoleFilters.map((role) => (
+  <option key={role} value={role}>
+    {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
+  </option>
+))}
             </select>
           </div>
+
+          <div className="flex items-center gap-1.5">
+  <Filter size={14} className="text-gray-400" />
+  <span className="text-xs text-gray-400 font-medium">Status:</span>
+</div>
+<div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
+  {['ALL', 'ACTIVE', 'INACTIVE'].map((status) => (
+    <button
+      key={status}
+      onClick={() => setUserStatusFilter(status)}
+      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+        userStatusFilter === status
+          ? status === 'ACTIVE'
+            ? 'bg-emerald-500 text-white shadow-sm'
+            : status === 'INACTIVE'
+            ? 'bg-red-500 text-white shadow-sm'
+            : 'bg-blue-600 text-white shadow-sm'
+          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+      }`}
+    >
+      {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
+    </button>
+  ))}
+</div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200">
@@ -1273,8 +1319,8 @@ const handleSubmit = async (e) => {
                       <option disabled>Loading roles...</option>
                     ) : (
                       roles
-                        .filter((role) => !['CUSTOMER', 'MANAGER'].includes(role.role_name))
-                        .map((role) => <option key={role.id} value={role.id}>{role.role_name}</option>)
+  .filter((role) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(role.role_name))
+  .map((role) => <option key={role.id} value={role.id}>{role.role_name}</option>)
                     )}
                   </select>
                   {errors.roleId && <p className="text-xs text-rose-500 mt-1">{errors.roleId}</p>}
