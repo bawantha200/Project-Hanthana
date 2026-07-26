@@ -8,6 +8,23 @@ export async function getExpenseSummary(dateFrom, dateTo) {
   return response.data;
 }
 
+export async function getInvoiceReport(dateFrom, dateTo) {
+  const response = await api.get('/invoices/report', {
+    params: { dateFrom, dateTo },
+  });
+  return response.data;
+}
+
+export async function getPendingPayments() {
+  const response = await api.get('/invoices/pending-payments');
+  return response.data;
+}
+
+export async function getMonthlyRevenueHistory() {
+  const response = await api.get('/invoices/monthly-revenue');
+  return response.data;
+}
+
 export async function getMonthlyTrend(months, dataset) {
   const response = await api.get('/reports/monthly-trend', {
     params: { months, dataset },
