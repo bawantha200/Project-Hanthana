@@ -19,6 +19,7 @@ const {
 
 const { notifyOrderEvent } = require('../utils/notifications');
 const supabase = require('../config/db');
+const { isAdminLevel } = require('../config/roles');
 
 // ========== CREATE ORDER ==========
 const postOrder = async (req, res) => {
@@ -149,7 +150,7 @@ const completeOrderPayment = async (req, res) => {
         .select('role_name')
         .eq('id', profile.role_id)
         .single();
-      isAdmin = role?.role_name === 'ADMIN';
+      isAdmin = isAdminLevel(role?.role_name);
     }
 
     if (order.customer_id !== userId && !isAdmin) {
@@ -227,7 +228,7 @@ const failOrderPayment = async (req, res) => {
         .select('role_name')
         .eq('id', profile.role_id)
         .single();
-      isAdmin = role?.role_name === 'ADMIN';
+      isAdmin = isAdminLevel(role?.role_name);
     }
 
     if (order.customer_id !== userId && !isAdmin) {
@@ -301,7 +302,7 @@ const getOrders = async (req, res) => {
       return res.json({ success: true, orders });
     }
 
-    const isAdmin = role?.role_name === 'ADMIN';
+    const isAdmin = isAdminLevel(role?.role_name);
 
     let orders;
     if (isAdmin) {
@@ -346,7 +347,7 @@ const getOrder = async (req, res) => {
         .select('role_name')
         .eq('id', profile.role_id)
         .single();
-      isAdmin = role?.role_name === 'ADMIN';
+      isAdmin = isAdminLevel(role?.role_name);
     }
 
     const order = await getOrderById(orderId, userId, isAdmin);
