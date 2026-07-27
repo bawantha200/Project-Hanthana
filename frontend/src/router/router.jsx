@@ -33,6 +33,9 @@ import ExpenseComparison from '../pages/admin/ExpenseComparison';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
+import Attendance from "../pages/admin/Attendance";
+import SalariesOT from "../pages/admin/SalariesOT";
+import Leave from "../pages/admin/Leave";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 import InvoicingReports from "../pages/admin/InvoicingReports";
 import InventoryDashboard from "../pages/admin/InventoryDashboard";
@@ -149,6 +152,12 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        
+        {/* ✅ New HRM Routes */}
+        <Route path="attendance" element={<Attendance />} />
+        <Route path="leave" element={<Leave />} />
+        <Route path="salaries-ot" element={<SalariesOT />} />
+        
         <Route path="delivery/config" element={<DeliveryConfiguration />} />
         <Route path="sales-analytics" element={<SalesAnalytics />} />
         <Route path="*" element={<Navigate to={defaultRouteForRole()} replace />} />

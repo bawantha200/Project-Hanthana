@@ -38,7 +38,10 @@ import {
   Warehouse,
   Unlock,
   Key, 
+  UserCheck,
+  ClipboardCheck,
   Sliders,
+  CalendarDays,
   FileCheck,
   Factory,
   UsersRound
@@ -69,6 +72,11 @@ const NAV_ITEMS = [
 
   { id: 'customers', label: 'Customers', icon: Users, path: '/app/customers' },
  
+
+  { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, path: '/app/attendance' },
+  { id: 'leave', label: 'Leave', icon: CalendarDays, path: '/app/leave' },
+  { id: 'salaries-ot', label: 'Salaries & OT', icon: DollarSign, path: '/app/salaries-ot' },
+
   { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/app/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/app/hrm' },
@@ -171,7 +179,7 @@ const NOTIFICATION_ICONS = {
   settings_request: Settings,
 };
 
-// Relative time helper - "2 min ago", "1 hour ago" ආදිය
+// Relative time helper - "2 min ago", "1 hour ago"
 const timeAgo = (dateString) => {
   const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
   if (seconds < 60) return 'Just now';
