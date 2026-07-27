@@ -83,10 +83,10 @@ function GuestRoute() {
   if (user) {
     const role = user.role?.toUpperCase();
     if (role === 'ADMIN') {
-      return <Navigate to="/admin/dashboard" replace />;
+      return <Navigate to="/app/dashboard" replace />;
     }
     else if(role === 'RIDER'){
-      return <Navigate to="/admin/rider-dashboard" replace />;
+      return <Navigate to="/app/rider-dashboard" replace />;
     }
     return <Navigate to="/" replace />;
   }
@@ -106,9 +106,9 @@ function AdminRoutes() {
   // Default landing page per role, used both for the index redirect
   // and the catch-all fallback below.
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/admin/user-management';
-    if (role === 'SALES_MANAGER') return '/admin/sales-dashboard';
-    return '/admin/dashboard';
+    if (role === 'ADMIN') return '/app/user-management';
+    if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
+    return '/app/dashboard';
   };
 
   return (
@@ -121,7 +121,7 @@ function AdminRoutes() {
           path="dashboard"
           element={
             role === 'ADMIN'
-              ? <Navigate to="/admin/user-management" replace />
+              ? <Navigate to="/app/user-management" replace />
               : <Dashboard />
           }
         />
