@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
+import { NAV_ITEMS } from '../config/navItems';
 
 
 // ---------- Navigation Items (each has a permission id) ----------

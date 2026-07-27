@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState,useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell,
@@ -160,92 +160,123 @@ export default function Dashboard() {
   const [recentOrders, setRecentOrders] = useState([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState([]);
   const [orderGrowth, setOrderGrowth] = useState([]);
+  const TOTAL_FETCHES = 6; // matches the 6 promises in Promise.all below
+  const [loadProgress, setLoadProgress] = useState(0);
+  const loadRunIdRef = useRef(0);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   useEffect(() => {
-    const loadDashboardData = async () => {
-      // Custom range needs both dates before we fetch anything.
-      if (selectedRange === 'custom' && (!customFrom || !customTo)) {
+  const loadDashboardData = async () => {
+    // Custom range needs both dates before we fetch anything.
+    if (selectedRange === 'custom' && (!customFrom || !customTo)) {
+      return;
+    }
+
+    // Mark this as a new run — any trackProgress() calls from a previous,
+    // still-in-flight run will check this and bail out instead of
+    // incrementing/overwriting state for THIS run.
+    const runId = ++loadRunIdRef.current;
+
+    setLoading(true);
+    setLoadProgress(0);
+    const range = getDashboardRange(selectedRange, customFrom, customTo);
+
+    // Wraps a promise so we bump the progress counter the moment IT
+    // resolves — not when the whole Promise.all resolves. This gives a
+    // real (not fake/simulated) progress bar.
+    const trackProgress = (promise) =>
+      promise.then((result) => {
+        if (loadRunIdRef.current === runId) {
+          setLoadProgress((p) => p + 1);
+        }
+        return result;
+      });
+
+    try {
+      const [reportRes, pendingRes, stockRes, orders, deliveriesRes, monthlyRevenueRes] = await Promise.all([
+        trackProgress(getInvoiceReport(range.dateFrom, range.dateTo)),
+        trackProgress(getPendingPayments()),
+        trackProgress(inventoryAPI.getStockSummary()),
+        trackProgress(fetchOrders()),
+        trackProgress(api.get('/deliveries', { params: {} })),
+        trackProgress(getMonthlyRevenueHistory()),
+      ]);
+
+      // A newer run already started while this one was still in flight —
+      // discard these stale results entirely, don't let them overwrite
+      // newer state.
+      if (loadRunIdRef.current !== runId) {
         return;
       }
 
-      setLoading(true);
-      const range = getDashboardRange(selectedRange, customFrom, customTo);
+      const deliveries = deliveriesRes?.data?.deliveries || [];
+      const activeDeliveryCount = deliveries.filter(
+        (delivery) => !['DELIVERED', 'CANCELLED'].includes(String(delivery.status || '').toUpperCase())
+      ).length;
 
-      try {
-        const [reportRes, pendingRes, stockRes, orders, deliveriesRes, monthlyRevenueRes] = await Promise.all([
-          getInvoiceReport(range.dateFrom, range.dateTo),
-          getPendingPayments(),
-          inventoryAPI.getStockSummary(),
-          fetchOrders(),
-          api.get('/deliveries', { params: {} }),
-          getMonthlyRevenueHistory(),
-        ]);
+      const rawOrders = Array.isArray(orders) ? orders : [];
+      const normalizedOrders = rawOrders.map((order) => ({
+        id: order.id,
+        customer:
+          order.customer_name ||
+          order.customer ||
+          order.users?.name ||
+          order.customerName ||
+          '',
+        amount: Number(order.total_amount || order.amount || 0),
+        status: order.order_status || order.status || '',
+        created_at: order.created_at || order.createdAt || order.date || '',
+      }));
 
-        const deliveries = deliveriesRes?.data?.deliveries || [];
-        const activeDeliveryCount = deliveries.filter(
-          (delivery) => !['DELIVERED', 'CANCELLED'].includes(String(delivery.status || '').toUpperCase())
-        ).length;
+      const growthMap = {};
+      normalizedOrders.forEach((order) => {
+        const createdAt = order.created_at;
+        if (!createdAt) return;
+        const date = new Date(createdAt);
+        if (Number.isNaN(date.getTime())) return;
+        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        const month = date.toLocaleString('en-US', { month: 'short' });
+        if (!growthMap[monthKey]) {
+          growthMap[monthKey] = {
+            month,
+            orders: 0,
+            delivered: 0,
+            dateObj: new Date(date.getFullYear(), date.getMonth(), 1),
+          };
+        }
+        growthMap[monthKey].orders += 1;
+        const orderStatus = String(order.status || '').toUpperCase();
+        if (orderStatus === 'DELIVERED' || orderStatus === 'COMPLETED') {
+          growthMap[monthKey].delivered += 1;
+        }
+      });
 
-        const rawOrders = Array.isArray(orders) ? orders : [];
-        const normalizedOrders = rawOrders.map((order) => ({
-          id: order.id,
-          customer:
-            order.customer_name ||
-            order.customer ||
-            order.users?.name ||
-            order.customerName ||
-            '',
-          amount: Number(order.total_amount || order.amount || 0),
-          status: order.order_status || order.status || '',
-          created_at: order.created_at || order.createdAt || order.date || '',
-        }));
-
-        const growthMap = {};
-        normalizedOrders.forEach((order) => {
-          const createdAt = order.created_at;
-          if (!createdAt) return;
-          const date = new Date(createdAt);
-          if (Number.isNaN(date.getTime())) return;
-          const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          const month = date.toLocaleString('en-US', { month: 'short' });
-          if (!growthMap[monthKey]) {
-            growthMap[monthKey] = {
-              month,
-              orders: 0,
-              delivered: 0,
-              dateObj: new Date(date.getFullYear(), date.getMonth(), 1),
-            };
-          }
-          growthMap[monthKey].orders += 1;
-          const orderStatus = String(order.status || '').toUpperCase();
-          if (orderStatus === 'DELIVERED' || orderStatus === 'COMPLETED') {
-            growthMap[monthKey].delivered += 1;
-          }
-        });
-
-        setMetrics({
-          revenue: reportRes.revenue || 0,
-          expenses: reportRes.expenses || 0,
-          netProfit: reportRes.netProfit || 0,
-          invoiceCount: reportRes.invoiceCount || 0,
-        });
-        setPendingPayments(pendingRes.pendingPayments || 0);
-        setStockSummary(stockRes.data?.summary || { sealed_bottles: 0, empty_bottles: 0, total: 0 });
-        setActiveDeliveries(activeDeliveryCount);
-        setRecentOrders(normalizedOrders.slice(0, 10));
-        setMonthlyRevenue(Array.isArray(monthlyRevenueRes) ? monthlyRevenueRes : monthlyRevenueRes?.data || []);
-        setOrderGrowth(
-          Object.values(growthMap).sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
-        );
-      } catch (error) {
-        console.error('Failed to load dashboard data:', error);
-      } finally {
+      setMetrics({
+        revenue: reportRes.revenue || 0,
+        expenses: reportRes.expenses || 0,
+        netProfit: reportRes.netProfit || 0,
+        invoiceCount: reportRes.invoiceCount || 0,
+      });
+      setPendingPayments(pendingRes.pendingPayments || 0);
+      setStockSummary(stockRes.data?.summary || { sealed_bottles: 0, empty_bottles: 0, total: 0 });
+      setActiveDeliveries(activeDeliveryCount);
+      setRecentOrders(normalizedOrders.slice(0, 10));
+      setMonthlyRevenue(Array.isArray(monthlyRevenueRes) ? monthlyRevenueRes : monthlyRevenueRes?.data || []);
+      setOrderGrowth(
+        Object.values(growthMap).sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
+      );
+    } catch (error) {
+      console.error('Failed to load dashboard data:', error);
+    } finally {
+      if (loadRunIdRef.current === runId) {
         setLoading(false);
+        setHasLoadedOnce(true);
       }
-    };
+    }
+  };
 
-    loadDashboardData();
-  }, [selectedRange, customFrom, customTo, refreshKey]);
+  loadDashboardData();
+}, [selectedRange, customFrom, customTo, refreshKey]);
 
   const activeRangeLabel = PERIOD_OPTIONS.find((option) => option.value === selectedRange)?.label || 'This Month';
   const displayRevenue = loading ? '...' : formatCurrency(metrics.revenue);
@@ -282,6 +313,25 @@ export default function Dashboard() {
     );
   }, [recentOrders, statusFilter]);
 
+
+  if (loading && !hasLoadedOnce) {
+  return (
+    <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-4">
+      <p className="text-sm font-medium text-gray-600">Loading dashboard...</p>
+      <div className="w-full max-w-xs h-2 rounded-full bg-gray-100 overflow-hidden">
+        <motion.div
+          className="h-full bg-blue-600 rounded-full"
+          animate={{ width: `${(loadProgress / TOTAL_FETCHES) * 100}%` }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+        />
+      </div>
+      <p className="text-xs text-gray-400">
+        {Math.round((loadProgress / TOTAL_FETCHES) * 100)}%
+      </p>
+    </div>
+  );
+}
+
   return (
     <motion.div
       variants={containerVariants}
@@ -307,6 +357,33 @@ export default function Dashboard() {
           Refresh
         </motion.button>
       </motion.div>
+
+
+
+{/* Loading progress bar — shown during initial load and every refresh */}
+{loading && hasLoadedOnce && (
+  <motion.div
+    variants={itemVariants}
+    className="flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/60 px-5 py-3"
+  >
+    <RefreshCw size={16} className="text-blue-600 animate-spin shrink-0" />
+    <div className="flex-1">
+      <div className="flex items-center justify-between mb-1.5">
+        <p className="text-xs font-medium text-blue-700">Loading dashboard data...</p>
+        <p className="text-xs text-blue-600 font-semibold">
+          {Math.round((loadProgress / TOTAL_FETCHES) * 100)}%
+        </p>
+      </div>
+      <div className="w-full h-1.5 rounded-full bg-blue-100 overflow-hidden">
+        <motion.div
+          className="h-full bg-blue-600 rounded-full"
+          animate={{ width: `${(loadProgress / TOTAL_FETCHES) * 100}%` }}
+          transition={{ duration: 0.3, ease: 'easeOut' }}
+        />
+      </div>
+    </div>
+  </motion.div>
+)}
 
       {/* Low stock warning */}
       {isLowStock && (

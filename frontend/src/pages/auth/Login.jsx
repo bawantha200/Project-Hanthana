@@ -5,6 +5,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, LogIn, AlertCircle, CheckCircle, Eye, EyeOff, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { getTargetRoute } from '../../utils/roleRouting';
+
+
+
 
 const Login = ({ onSuccess, isModal = false }) => {
   const { login, loginWithGoogle } = useAuth();
@@ -90,11 +94,16 @@ const Login = ({ onSuccess, isModal = false }) => {
       // Login successful
       login(data.user, data.session.access_token, data.permissions || []);
 
-      // ✅ CRITICAL: Show success modal FIRST
+      
       setShowSuccessModal(true);
       setIsRedirecting(true);
       
-      const targetRole = data.user.role?.toUpperCase();
+      // Guaranteed landing page for the fixed system roles — these always win,
+// regardless of what order their permissions happen to be granted in.
+
+
+      const targetRole = data.user.role || data.user.role_name;
+      const targetRoute = getTargetRoute(targetRole, data.permissions || []);
       
       // Clear any existing timeout
       if (timeoutRef.current) {
