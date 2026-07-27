@@ -1,0 +1,1005 @@
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Calendar, Search, Plus, X, User, Edit, Trash2, 
+  CheckCircle, AlertCircle, Loader, RefreshCw, History,
+  ChevronDown, ChevronUp, Save, FileText, Clock,
+  Filter, Eye, Check, X as XIcon, MessageSquare,
+  Users, PieChart, TrendingUp, Briefcase, Info,
+  AlertTriangle
+} from 'lucide-react';
+import axios from 'axios';
+
+const API_BASE_URL = 'http://localhost:5000/api';
+const EMPLOYEES_API = `${API_BASE_URL}/employees`;
+const LEAVE_API = `${API_BASE_URL}/leaves`;
+const LEAVE_BALANCE_API = `${API_BASE_URL}/leaves/balance`;
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08 },
+  },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
+};
+
+// ========== LEAVE TYPES WITH ICONS ==========
+const LEAVE_TYPES = {
+  'Annual Leave': { color: 'blue', maxDays: 14 },
+  'Sick Leave': { color: 'red', maxDays: 7 },
+  'Casual Leave': { color: 'green', maxDays: 5 },
+  'Maternity Leave': { color: 'pink', maxDays: 84 },
+  'Paternity Leave': { color: 'purple', maxDays: 3 },
+  'Bereavement Leave': { color: 'gray', maxDays: 3 },
+  'Public Holiday': { color: 'orange', maxDays: 5},
+  'Other': { color: 'gray', maxDays: 10 },
+};
+
+// ========== LEAVE STATUS ==========
+const LEAVE_STATUS = {
+  'pending': { label: 'Pending', color: 'amber', icon: '⏳' },
+  'approved': { label: 'Approved', color: 'emerald', icon: '✅' },
+  'rejected': { label: 'Rejected', color: 'red', icon: '❌' },
+  'cancelled': { label: 'Cancelled', color: 'gray', icon: '🚫' },
+};
+
+// ========== HELPER FUNCTION FOR AUTH ==========
+const getAuthHeaders = () => {
+  const token = localStorage.getItem('token');
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  };
+};
+
+export default function Leave() {
+  // ========== STATE ==========
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [employees, setEmployees] = useState([]);
+  const [leaveData, setLeaveData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  // ========== LEAVE BALANCE STATE ==========
+  const [leaveBalance, setLeaveBalance] = useState(null);
+  const [loadingBalance, setLoadingBalance] = useState(false);
+  const [balanceError, setBalanceError] = useState(null);
+
+  // ========== PREVIOUS MONTHS STATE ==========
+  const [showPreviousLeaves, setShowPreviousLeaves] = useState(false);
+  const [previousLeaveData, setPreviousLeaveData] = useState([]);
+  const [loadingPrevious, setLoadingPrevious] = useState(false);
+
+  // ========== FORM STATES ==========
+  const [showLeaveForm, setShowLeaveForm] = useState(false);
+  const [isEditingLeave, setIsEditingLeave] = useState(false);
+  const [editingLeaveId, setEditingLeaveId] = useState(null);
+
+  // ========== VIEW DETAILS STATE ==========
+  const [showLeaveDetails, setShowLeaveDetails] = useState(false);
+  const [selectedLeave, setSelectedLeave] = useState(null);
+
+  // ========== DELETE CONFIRMATION ==========
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleteName, setDeleteName] = useState('');
+
+  // ========== LEAVE FORM DATA ==========
+  const [leaveForm, setLeaveForm] = useState({
+    employeeId: '',
+    employeeName: '',
+    leaveType: 'Annual Leave',
+    startDate: '',
+    endDate: '',
+    reason: '',
+    status: 'pending',
+    days: 1
+  });
+
+  // ========== FETCH LEAVE BALANCE ==========
+  const fetchLeaveBalance = async (employeeId) => {
+    if (!employeeId) {
+      setLeaveBalance(null);
+      setBalanceError(null);
+      return;
+    }
+    
+    setLoadingBalance(true);
+    setBalanceError(null);
+    
+    try {
+      console.log(`🔍 Fetching balance for employee ID: ${employeeId}`);
+      
+      const response = await axios.get(
+        `${LEAVE_BALANCE_API}/${employeeId}`,
+        getAuthHeaders()
+      );
+      
+      console.log('📦 Balance API Response:', response.data);
+      
+      if (response.data.success) {
+        setLeaveBalance(response.data.data);
+        console.log('✅ Leave balance loaded:', response.data.data);
+        setBalanceError(null);
+      } else {
+        setBalanceError(response.data.message || 'Failed to load leave balance');
+        setLeaveBalance(null);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching leave balance:', err);
+      
+      if (err.response) {
+        console.error('Response status:', err.response.status);
+        console.error('Response data:', err.response.data);
+        
+        if (err.response.status === 401) {
+          setBalanceError('⚠️ Session expired. Please login again.');
+        } else if (err.response.status === 404) {
+          setBalanceError('⚠️ Balance API not found. Please check server.');
+        } else if (err.response.status === 500) {
+          setBalanceError('⚠️ Server error. Please contact support.');
+        } else {
+          setBalanceError(err.response.data?.message || '⚠️ Could not load leave balance. Please try again.');
+        }
+      } else if (err.request) {
+        console.error('No response received:', err.request);
+        setBalanceError('⚠️ No response from server. Please check your connection.');
+      } else {
+        console.error('Error message:', err.message);
+        setBalanceError(`⚠️ ${err.message}`);
+      }
+      
+      setLeaveBalance(null);
+    } finally {
+      setLoadingBalance(false);
+    }
+  };
+
+  // ========== FETCH FUNCTIONS ==========
+  
+  const fetchEmployees = async () => {
+    try {
+      const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
+      if (response.data.success) {
+        setEmployees(response.data.data || []);
+        console.log('✅ Employees loaded:', response.data.data.length);
+      } else {
+        setEmployees([]);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching employees:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      }
+    }
+  };
+
+  const fetchLeaves = async () => {
+    try {
+      const response = await axios.get(LEAVE_API, getAuthHeaders());
+      if (response.data.success) {
+        const data = response.data.data || [];
+        setLeaveData(data);
+        console.log('✅ Leaves loaded:', data.length);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching leaves:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      }
+    }
+  };
+
+  // ========== FETCH PREVIOUS MONTHS DATA ==========
+  const fetchPreviousLeaves = async () => {
+    setLoadingPrevious(true);
+    try {
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth();
+      const currentYear = currentDate.getFullYear();
+      
+      const response = await axios.get(LEAVE_API, getAuthHeaders());
+      if (response.data.success) {
+        const allData = response.data.data || [];
+        const previousMonths = allData.filter(record => {
+          const recordDate = new Date(record.start_date || record.startDate);
+          return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
+        });
+        setPreviousLeaveData(previousMonths);
+        console.log('✅ Previous leaves loaded:', previousMonths.length);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching previous leaves:', err);
+      setError('Failed to load previous leave data.');
+    } finally {
+      setLoadingPrevious(false);
+    }
+  };
+
+  // ========== LOAD DATA ==========
+  useEffect(() => {
+    const loadData = async () => {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login to access leave data');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      
+      try {
+        await Promise.all([
+          fetchEmployees(),
+          fetchLeaves()
+        ]);
+      } catch (err) {
+        console.error('Error loading data:', err);
+        setError('Failed to load data. Please refresh the page.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // ========== FETCH BALANCE WHEN EMPLOYEE SELECTED ==========
+  useEffect(() => {
+    if (leaveForm.employeeId) {
+      fetchLeaveBalance(leaveForm.employeeId);
+    } else {
+      setLeaveBalance(null);
+      setBalanceError(null);
+    }
+  }, [leaveForm.employeeId]);
+
+  useEffect(() => {
+    if (showSuccess) {
+      const timer = setTimeout(() => {
+        setShowSuccess(false);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccess]);
+
+  // ========== CALCULATE LEAVE DAYS WITH BALANCE CHECK ==========
+  useEffect(() => {
+    if (leaveForm.startDate && leaveForm.endDate) {
+      const start = new Date(leaveForm.startDate);
+      const end = new Date(leaveForm.endDate);
+      const diffTime = Math.abs(end - start);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+      setLeaveForm(prev => ({ ...prev, days: diffDays }));
+    }
+  }, [leaveForm.startDate, leaveForm.endDate]);
+
+  // ========== CHECK IF DAYS EXCEED BALANCE ==========
+  const getBalanceValidation = () => {
+    if (!leaveBalance || !leaveForm.employeeId) return null;
+    
+    const selectedType = leaveForm.leaveType;
+    const balance = leaveBalance[selectedType];
+    
+    if (!balance) return null;
+    
+    const requestedDays = leaveForm.days || 1;
+    const availableDays = balance.remaining;
+    
+    if (requestedDays > availableDays) {
+      return {
+        isExceeded: true,
+        message: `⚠️ You have only ${availableDays} ${selectedType} day(s) remaining. You are requesting ${requestedDays} days.`,
+        available: availableDays,
+        requested: requestedDays
+      };
+    }
+    
+    if (availableDays === 0) {
+      return {
+        isExceeded: true,
+        message: `❌ No ${selectedType} days remaining. You have used all ${balance.max} days.`,
+        available: 0,
+        requested: requestedDays
+      };
+    }
+    
+    return null;
+  };
+
+  const balanceValidation = getBalanceValidation();
+
+  // ========== LEAVE CRUD OPERATIONS ==========
+
+  const handleLeaveSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+    
+    try {
+      // BALANCE CHECK
+      if (leaveBalance) {
+        const selectedType = leaveForm.leaveType;
+        const balance = leaveBalance[selectedType];
+        
+        if (balance) {
+          if (leaveForm.days > balance.remaining) {
+            setError(`❌ Insufficient ${selectedType} balance! Available: ${balance.remaining} days, Requested: ${leaveForm.days} days.`);
+            setSubmitting(false);
+            return;
+          }
+          
+          if (balance.remaining === 0) {
+            setError(`❌ No ${selectedType} days remaining. You have used all ${balance.max} days.`);
+            setSubmitting(false);
+            return;
+          }
+        }
+      }
+
+      const data = {
+        employeeId: parseInt(leaveForm.employeeId),
+        employeeName: leaveForm.employeeName,
+        leaveType: leaveForm.leaveType,
+        startDate: leaveForm.startDate,
+        endDate: leaveForm.endDate,
+        reason: leaveForm.reason,
+        status: leaveForm.status,
+        days: leaveForm.days
+      };
+
+      let response;
+      if (isEditingLeave && editingLeaveId) {
+        const { employeeId, ...updateData } = data;
+        response = await axios.put(`${LEAVE_API}/${editingLeaveId}`, updateData, getAuthHeaders());
+        if (response.data.success) {
+          await fetchLeaves();
+          setShowLeaveForm(false);
+          resetLeaveForm();
+          showSuccessNotification('Leave request updated successfully!');
+        }
+      } else {
+        response = await axios.post(LEAVE_API, data, getAuthHeaders());
+        if (response.data.success) {
+          await fetchLeaves();
+          setShowLeaveForm(false);
+          resetLeaveForm();
+          showSuccessNotification('Leave request submitted successfully!');
+          setTimeout(() => {
+            setLeaveData(prev => [...prev]);
+          }, 300);
+        }
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      } else if (err.response?.status === 409) {
+        setError('This employee already has a leave request for these dates.');
+      } else if (err.response?.status === 400) {
+        setError('Missing required fields (Please select an Employee).');
+      } else {
+        setError(err.response?.data?.message || 'Failed to save leave request.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteLeave = async () => {
+    if (!deleteId) return;
+    
+    try {
+      setSubmitting(true);
+      await axios.delete(`${LEAVE_API}/${deleteId}`, getAuthHeaders());
+      await fetchLeaves();
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+      showSuccessNotification('Leave request deleted successfully!');
+    } catch (err) {
+      console.error('Error deleting leave:', err);
+      if (err.response?.status === 401) {
+        setError('Session expired. Please login again.');
+      } else {
+        setError('Failed to delete leave request.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleStatusUpdate = async (id, newStatus) => {
+    try {
+      setSubmitting(true);
+      const leave = leaveData.find(l => l.id === id);
+      if (!leave) return;
+
+      const updatedLeave = { status: newStatus };
+      await axios.put(`${LEAVE_API}/${id}`, updatedLeave, getAuthHeaders());
+      await fetchLeaves();
+      showSuccessNotification(`Leave request ${newStatus}!`);
+    } catch (err) {
+      console.error('Error updating status:', err);
+      setError('Failed to update leave status.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const editLeave = (record) => {
+    setIsEditingLeave(true);
+    setEditingLeaveId(record.id);
+    setLeaveForm({
+      employeeId: record.employee_id || record.employeeId || '',
+      employeeName: record.employee_name || record.name || '',
+      leaveType: record.leave_type || record.leaveType || 'Annual Leave',
+      startDate: record.start_date || record.startDate || '',
+      endDate: record.end_date || record.endDate || '',
+      reason: record.reason || '',
+      status: record.status || 'pending',
+      days: record.days || 1
+    });
+    setShowLeaveForm(true);
+  };
+
+  const viewLeaveDetails = (record) => {
+    setSelectedLeave(record);
+    setShowLeaveDetails(true);
+  };
+
+  // ========== FORM RESET FUNCTIONS ==========
+
+  const resetLeaveForm = () => {
+    setLeaveForm({
+      employeeId: '',
+      employeeName: '',
+      leaveType: 'Annual Leave',
+      startDate: '',
+      endDate: '',
+      reason: '',
+      status: 'pending',
+      days: 1
+    });
+    setLeaveBalance(null);
+    setBalanceError(null);
+    setIsEditingLeave(false);
+    setEditingLeaveId(null);
+  };
+
+  const showSuccessNotification = (message) => {
+    setSuccessMessage(message);
+    setShowSuccess(true);
+  };
+
+  // ========== OPEN FORM FUNCTIONS ==========
+
+  const openLeaveForm = (employee = null) => {
+    if (employee) {
+      setLeaveForm({
+        employeeId: employee.id,
+        employeeName: employee.name,
+        leaveType: 'Annual Leave',
+        startDate: '',
+        endDate: '',
+        reason: '',
+        status: 'pending',
+        days: 1
+      });
+    } else {
+      setLeaveForm({
+        employeeId: '',
+        employeeName: '',
+        leaveType: 'Annual Leave',
+        startDate: '',
+        endDate: '',
+        reason: '',
+        status: 'pending',
+        days: 1
+      });
+    }
+    setShowLeaveForm(true);
+  };
+
+  const confirmDelete = (id, name) => {
+    setDeleteId(id);
+    setDeleteName(name);
+    setShowDeleteConfirm(true);
+  };
+
+  const togglePreviousLeaves = () => {
+    const newState = !showPreviousLeaves;
+    setShowPreviousLeaves(newState);
+    if (newState) {
+      fetchPreviousLeaves();
+    }
+  };
+
+  // ========== FILTER DATA ==========
+
+  const getCurrentMonthData = () => {
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    
+    return leaveData.filter(record => {
+      if (!record.start_date && !record.startDate) return false;
+      const date = new Date(record.start_date || record.startDate);
+      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+    });
+  };
+
+  const currentMonthLeaves = getCurrentMonthData();
+
+  const filteredLeaves = currentMonthLeaves.filter((rec) => {
+    const matchesSearch = (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || rec.status === statusFilter;
+    const matchesType = typeFilter === 'all' || (rec.leave_type || rec.leaveType) === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  const filteredPreviousLeaves = previousLeaveData.filter((rec) => {
+    const matchesSearch = (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || rec.status === statusFilter;
+    const matchesType = typeFilter === 'all' || (rec.leave_type || rec.leaveType) === typeFilter;
+    return matchesSearch && matchesStatus && matchesType;
+  });
+
+  // ========== SUMMARY STATISTICS ==========
+
+  const totalLeaves = currentMonthLeaves.length;
+  const pendingLeaves = currentMonthLeaves.filter(l => l.status === 'pending').length;
+  const approvedLeaves = currentMonthLeaves.filter(l => l.status === 'approved').length;
+  const rejectedLeaves = currentMonthLeaves.filter(l => l.status === 'rejected').length;
+  const totalDays = currentMonthLeaves.reduce((sum, l) => sum + (l.days || 1), 0);
+
+  const leaveTypeBreakdown = {};
+  currentMonthLeaves.forEach(l => {
+    const type = l.leave_type || l.leaveType || 'Other';
+    leaveTypeBreakdown[type] = (leaveTypeBreakdown[type] || 0) + 1;
+  });
+
+  const summaryCards = [
+    { key: 'total', label: 'Total Requests', value: totalLeaves, icon: FileText, bgClass: 'bg-blue-50', textClass: 'text-blue-600' },
+    { key: 'pending', label: 'Pending', value: pendingLeaves, icon: Clock, bgClass: 'bg-amber-50', textClass: 'text-amber-600' },
+    { key: 'approved', label: 'Approved', value: approvedLeaves, icon: CheckCircle, bgClass: 'bg-emerald-50', textClass: 'text-emerald-600' },
+    { key: 'rejected', label: 'Rejected', value: rejectedLeaves, icon: XIcon, bgClass: 'bg-red-50', textClass: 'text-red-600' },
+    { key: 'days', label: 'Total Days', value: totalDays, icon: Calendar, bgClass: 'bg-purple-50', textClass: 'text-purple-600' },
+  ];
+
+  // ========== LOADING ==========
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <Loader size={48} className="text-indigo-600 animate-spin mx-auto" />
+          <p className="mt-4 text-gray-500">Loading leave data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ========== RENDER ==========
+
+  return (
+    <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
+      
+      {/* ========== SUCCESS NOTIFICATION ========== */}
+      <AnimatePresence>
+        {showSuccess && (
+          <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="fixed top-20 right-4 z-50 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-lg shadow-lg flex items-center gap-2">
+            <CheckCircle size={20} className="text-emerald-500" />
+            <span className="text-sm font-medium">{successMessage}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ========== ERROR MESSAGE ========== */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center gap-2">
+          <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
+          <span className="text-sm font-medium">{error}</span>
+          <button onClick={() => setError(null)} className="ml-auto text-red-600 hover:text-red-800"><X size={16} /></button>
+        </div>
+      )}
+
+      {/* ========== HEADER ========== */}
+      <motion.div variants={itemVariants}>
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Leave Management</h1>
+            <p className="text-sm text-gray-500 mt-1">Manage employee leave requests, approvals, and tracking</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={async () => { setLoading(true); setError(null); try { await fetchLeaves(); showSuccessNotification('Leaves refreshed successfully!'); } catch (err) { setError('Failed to refresh leave data.'); } finally { setLoading(false); } }} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm">
+              <RefreshCw size={16} /> Refresh
+            </button>
+            <button onClick={() => { if (employees.length > 0) { openLeaveForm(employees[0]); } else { setError('No employees available. Please add employees first.'); } }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm">
+              <Plus size={16} /> New Leave Request
+            </button>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* ========== SUMMARY CARDS ========== */}
+      <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <motion.div key={card.key} variants={itemVariants} className={`bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200`}>
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl ${card.bgClass} flex items-center justify-center flex-shrink-0`}><Icon size={18} className={card.textClass} /></div>
+                <div className="min-w-0"><p className="text-xs text-gray-400 font-medium truncate">{card.label}</p><p className="text-sm font-bold text-gray-900 truncate">{card.value}</p></div>
+              </div>
+            </motion.div>
+          );
+        })}
+      </motion.div>
+
+      {/* ========== LEAVE TYPE BREAKDOWN ========== */}
+      {Object.keys(leaveTypeBreakdown).length > 0 && (
+        <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2"><PieChart size={16} className="text-indigo-600" /> Leave Type Breakdown</h3>
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(leaveTypeBreakdown).map(([type, count]) => {
+              const leaveInfo = LEAVE_TYPES[type] || LEAVE_TYPES['Other'];
+              return (<span key={type} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-full text-xs font-medium"><span>{leaveInfo.icon}</span><span>{type}</span><span className="bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded-full text-[10px]">{count}</span></span>);
+            })}
+          </div>
+        </motion.div>
+      )}
+
+      {/* ========== FILTERS ========== */}
+      <motion.div variants={itemVariants} className="flex items-center gap-4 flex-wrap">
+        <div className="relative flex-1 max-w-xs">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" placeholder="Search by employee name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white" />
+        </div>
+        <div className="flex items-center gap-2"><Filter size={14} className="text-gray-400" /><select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white"><option value="all">All Status</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="cancelled">Cancelled</option></select></div>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white"><option value="all">All Types</option>{Object.keys(LEAVE_TYPES).map((type) => (<option key={type} value={type}>{type}</option>))}</select>
+        <div className="text-sm text-gray-400 ml-auto">{filteredLeaves.length} records found</div>
+      </motion.div>
+
+      {/* ========== LEAVE TABLE ========== */}
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="space-y-6">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="p-6 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <div><h2 className="text-base font-semibold text-gray-900">Current Month Leave Requests<span className="ml-2 text-xs font-normal text-gray-400">{new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}</span></h2><p className="text-xs text-gray-400 mt-0.5">All leave requests for this month</p></div>
+            </div>
+          </div>
+          
+          {filteredLeaves.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Type</th><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th><th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Days</th><th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th><th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th></tr>
+                </thead>
+                <tbody>
+                  {filteredLeaves.map((record) => {
+                    const leaveTypeInfo = LEAVE_TYPES[record.leave_type || record.leaveType] || LEAVE_TYPES['Other'];
+                    const statusInfo = LEAVE_STATUS[record.status] || { label: record.status, color: 'gray', icon: '📋' };
+                    return (
+                      <tr key={record.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                        <td className="py-3 px-6 font-medium text-gray-900">{record.employee_name || record.name}</td>
+                        <td className="py-3 px-6"><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700"><span>{leaveTypeInfo.icon}</span>{record.leave_type || record.leaveType}</span></td>
+                        <td className="py-3 px-6 text-gray-600">{record.start_date || record.startDate}</td>
+                        <td className="py-3 px-6 text-gray-600">{record.end_date || record.endDate}</td>
+                        <td className="py-3 px-6 text-center font-medium text-gray-700">{record.days || 1}</td>
+                        <td className="py-3 px-6 text-center"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.color === 'amber' ? 'bg-amber-50 text-amber-700' : statusInfo.color === 'emerald' ? 'bg-emerald-50 text-emerald-700' : statusInfo.color === 'red' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-700'}`}><span>{statusInfo.icon}</span>{statusInfo.label}</span></td>
+                        <td className="py-3 px-6"><div className="flex items-center justify-center gap-1.5">
+                            <button onClick={() => viewLeaveDetails(record)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors" title="View Details"><Eye size={15} /></button>
+                            {record.status === 'pending' && (<><button onClick={() => handleStatusUpdate(record.id, 'approved')} className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors" title="Approve"><Check size={15} /></button><button onClick={() => handleStatusUpdate(record.id, 'rejected')} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Reject"><XIcon size={15} /></button></>)}
+                            <button onClick={() => editLeave(record)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit size={15} /></button>
+                            <button onClick={() => confirmDelete(record.id, record.employee_name || record.name)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={15} /></button>
+                        </div></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot><tr className="border-t border-gray-200 bg-gray-50/50"><td className="py-3 px-6 font-semibold text-gray-900">Total</td><td className="py-3 px-6"></td><td className="py-3 px-6"></td><td className="py-3 px-6"></td><td className="py-3 px-6 text-center font-semibold text-gray-900">{filteredLeaves.reduce((sum, l) => sum + (l.days || 1), 0)} days</td><td className="py-3 px-6 text-center text-sm text-gray-400">{filteredLeaves.length} requests</td><td className="py-3 px-6"></td></tr></tfoot>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-12"><Calendar size={48} className="mx-auto mb-4 text-gray-300" /><p className="text-gray-500 font-medium">No leave requests for current month</p><p className="text-sm text-gray-400 mt-1">Submit a leave request to get started</p><button onClick={() => openLeaveForm()} className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"><Plus size={16} /> New Leave Request</button></div>
+          )}
+        </div>
+
+        {/* ========== PREVIOUS MONTHS SECTION ========== */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
+          <button onClick={togglePreviousLeaves} className="w-full flex items-center justify-between px-6 py-4 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-100 hover:border-indigo-200 rounded-2xl transition-all duration-300 group">
+            <div className="flex items-center gap-3"><div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center group-hover:bg-indigo-200 transition-colors"><History size={20} className="text-indigo-600" /></div><div className="text-left"><p className="font-medium text-gray-800">Previous Months Leave Requests</p><p className="text-xs text-gray-500">{showPreviousLeaves ? 'Hide' : 'View'} historical leave requests{previousLeaveData.length > 0 && !showPreviousLeaves && (<span className="ml-2 text-indigo-600 font-medium">({previousLeaveData.length} records)</span>)}</p></div></div>
+            <div className="flex items-center gap-2">{loadingPrevious && (<Loader size={16} className="animate-spin text-indigo-600" />)}{showPreviousLeaves ? (<ChevronUp size={20} className="text-indigo-600" />) : (<ChevronDown size={20} className="text-indigo-600" />)}</div>
+          </button>
+
+          <AnimatePresence>
+            {showPreviousLeaves && (
+              <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className="overflow-hidden">
+                <div className="mt-4 bg-white rounded-2xl shadow-sm border border-indigo-100 overflow-hidden">
+                  <div className="p-4 border-b border-indigo-50 bg-indigo-50/30"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold text-gray-800"><History size={16} className="inline mr-2 text-indigo-600" /> Previous Leave Records</h3><p className="text-xs text-gray-400 mt-0.5">All leave requests from previous months</p></div><button onClick={fetchPreviousLeaves} className="p-1.5 hover:bg-indigo-100 rounded-lg transition-colors" title="Refresh"><RefreshCw size={14} className="text-indigo-500" /></button></div></div>
+                  
+                  {loadingPrevious ? (<div className="text-center py-8"><Loader size={24} className="animate-spin text-indigo-600 mx-auto" /><p className="text-xs text-gray-400 mt-2">Loading previous records...</p></div>) : filteredPreviousLeaves.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-indigo-50"><tr><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Employee</th><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Leave Type</th><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Start Date</th><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">End Date</th><th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Days</th><th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Status</th><th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Actions</th></tr></thead>
+                        <tbody>{filteredPreviousLeaves.map((record) => {
+                          const leaveTypeInfo = LEAVE_TYPES[record.leave_type || record.leaveType] || LEAVE_TYPES['Other'];
+                          const statusInfo = LEAVE_STATUS[record.status] || { label: record.status, color: 'gray', icon: '📋' };
+                          return (<tr key={record.id} className="border-b border-indigo-50 hover:bg-indigo-50/30 transition-colors">
+                            <td className="py-2.5 px-4 font-medium text-gray-800">{record.employee_name || record.name}</td>
+                            <td className="py-2.5 px-4"><span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700"><span>{leaveTypeInfo.icon}</span>{record.leave_type || record.leaveType}</span></td>
+                            <td className="py-2.5 px-4 text-gray-600">{record.start_date || record.startDate}</td>
+                            <td className="py-2.5 px-4 text-gray-600">{record.end_date || record.endDate}</td>
+                            <td className="py-2.5 px-4 text-center font-medium text-gray-700">{record.days || 1}</td>
+                            <td className="py-2.5 px-4 text-center"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.color === 'amber' ? 'bg-amber-50 text-amber-700' : statusInfo.color === 'emerald' ? 'bg-emerald-50 text-emerald-700' : statusInfo.color === 'red' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-700'}`}><span>{statusInfo.icon}</span>{statusInfo.label}</span></td>
+                            <td className="py-2.5 px-4"><div className="flex items-center justify-center gap-1.5"><button onClick={() => viewLeaveDetails(record)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors" title="View Details"><Eye size={14} /></button><button onClick={() => editLeave(record)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit size={14} /></button><button onClick={() => confirmDelete(record.id, record.employee_name || record.name)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={14} /></button></div></td>
+                          </tr>);
+                        })}</tbody>
+                        <tfoot className="bg-indigo-50/50"><tr><td colSpan="7" className="py-2 px-4 text-xs text-indigo-600 font-medium">Total: {filteredPreviousLeaves.length} records</td></tr></tfoot>
+                      </table>
+                    </div>
+                  ) : (<div className="text-center py-8 text-gray-500"><Calendar size={28} className="mx-auto mb-2 text-gray-300" /><p className="font-medium">No previous leave records</p><p className="text-xs mt-1">Records from previous months will appear here</p></div>)}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </motion.div>
+
+      {/* ========== LEAVE FORM MODAL ========== */}
+      <AnimatePresence>
+        {showLeaveForm && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-md z-50" onClick={() => { if (!submitting) { setShowLeaveForm(false); resetLeaveForm(); } }} />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} className="fixed inset-4 md:inset-10 lg:inset-20 xl:inset-28 bg-white rounded-3xl shadow-2xl z-50 overflow-y-auto">
+              <div className="relative p-6 md:p-8">
+                <button onClick={() => { if (!submitting) { setShowLeaveForm(false); resetLeaveForm(); } }} className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10" disabled={submitting}><X size={24} className="text-gray-400" /></button>
+                <div className="flex items-center gap-3 mb-6"><div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center"><Calendar size={20} className="text-blue-600" /></div><h2 className="text-xl font-semibold text-gray-900">{isEditingLeave ? 'Edit Leave Request' : 'New Leave Request'}</h2></div>
+
+                <form onSubmit={handleLeaveSubmit}>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><User size={14} className="inline mr-1" /> Employee *</label>
+                      <select 
+                        value={leaveForm.employeeId} 
+                        onChange={(e) => { 
+                          const emp = employees.find(emp => emp.id === parseInt(e.target.value)); 
+                          setLeaveForm({ ...leaveForm, employeeId: e.target.value, employeeName: emp ? emp.name : '' });
+                        }} 
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white" 
+                        required 
+                        disabled={submitting || isEditingLeave}
+                      >
+                        <option value="">Select Employee</option>
+                        {employees.map((emp) => (<option key={emp.id} value={emp.id}>{emp.name}</option>))}
+                      </select>
+                      {isEditingLeave && (<p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>)}
+                      {employees.length === 0 && (<p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>)}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><Briefcase size={14} className="inline mr-1" /> Leave Type *</label>
+                      <select 
+                        value={leaveForm.leaveType} 
+                        onChange={(e) => setLeaveForm({ ...leaveForm, leaveType: e.target.value })} 
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white" 
+                        required 
+                        disabled={submitting}
+                      >
+                        {Object.keys(LEAVE_TYPES).map((type) => {
+                          const info = LEAVE_TYPES[type];
+                          const balance = leaveBalance ? leaveBalance[type] : null;
+                          const remaining = balance ? balance.remaining : info.maxDays;
+                          const isExhausted = balance ? balance.isExhausted : false;
+                          return (
+                            <option key={type} value={type} disabled={isExhausted}>
+                              {info.icon} {type} (Available: {remaining} / {info.maxDays} days)
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {loadingBalance && (
+                        <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
+                          <Loader size={12} className="animate-spin" /> Loading balance...
+                        </p>
+                      )}
+                      {balanceError && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertTriangle size={12} /> {balanceError}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><Calendar size={14} className="inline mr-1" /> Start Date *</label>
+                      <input type="date" value={leaveForm.startDate} onChange={(e) => setLeaveForm({ ...leaveForm, startDate: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all" required disabled={submitting} />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><Calendar size={14} className="inline mr-1" /> End Date *</label>
+                      <input type="date" value={leaveForm.endDate} onChange={(e) => setLeaveForm({ ...leaveForm, endDate: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all" required disabled={submitting} />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><Clock size={14} className="inline mr-1" /> Total Days (Auto-calculated)</label>
+                      <div className={`px-4 py-2.5 border rounded-lg text-sm font-medium ${
+                        balanceValidation?.isExceeded 
+                          ? 'bg-red-50 border-red-300 text-red-700' 
+                          : 'bg-gray-50 border-gray-200 text-gray-700'
+                      }`}>
+                        {leaveForm.days} day{leaveForm.days > 1 ? 's' : ''}
+                        {balanceValidation?.isExceeded && (
+                          <span className="ml-2 text-xs text-red-600 font-normal">
+                            (Exceeds available: {balanceValidation.available} days)
+                          </span>
+                        )}
+                      </div>
+                      {balanceValidation?.isExceeded && (
+                        <p className="text-xs text-red-600 mt-1 flex items-center gap-1">
+                          <AlertTriangle size={12} />
+                          {balanceValidation.message}
+                        </p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><MessageSquare size={14} className="inline mr-1" /> Status</label>
+                      <select value={leaveForm.status} onChange={(e) => setLeaveForm({ ...leaveForm, status: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white" disabled={submitting}>
+                        <option value="pending">⏳ Pending</option>
+                        <option value="approved">✅ Approved</option>
+                        <option value="rejected">❌ Rejected</option>
+                        <option value="cancelled">🚫 Cancelled</option>
+                      </select>
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><FileText size={14} className="inline mr-1" /> Reason / Description</label>
+                      <textarea value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} rows="3" placeholder="Please provide reason for leave request..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none" disabled={submitting} />
+                    </div>
+                  </div>
+
+                  {/* ========== LEAVE BALANCE DISPLAY ========== */}
+                  {loadingBalance && (
+                    <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center gap-2">
+                        <Loader size={16} className="animate-spin text-blue-500" />
+                        <span className="text-sm text-blue-700">Loading leave balance...</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {balanceError && (
+                    <div className="mt-4 p-4 bg-red-50 rounded-lg border border-red-200">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-red-700">Error Loading Balance</p>
+                          <p className="text-xs text-red-600">{balanceError}</p>
+                          <button 
+                            onClick={() => fetchLeaveBalance(leaveForm.employeeId)}
+                            className="mt-2 text-xs text-red-600 hover:text-red-800 underline"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {leaveBalance && !loadingBalance && !balanceError && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <Info size={16} className="text-blue-500" />
+                        Leave Balance Summary
+                      </h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {Object.entries(leaveBalance).map(([type, data]) => {
+                          const info = LEAVE_TYPES[type] || LEAVE_TYPES['Other'];
+                          const isLow = data.remaining <= 2 && data.remaining > 0;
+                          const isExhausted = data.remaining === 0;
+                          return (
+                            <div key={type} className={`px-3 py-2 rounded-lg text-xs ${isExhausted ? 'bg-red-50 border border-red-200' : isLow ? 'bg-amber-50 border border-amber-200' : 'bg-white border border-gray-200'}`}>
+                              <div className="flex items-center gap-1">
+                                <span>{info.icon}</span>
+                                <span className="font-medium text-gray-700">{type}</span>
+                              </div>
+                              <div className="mt-1 flex items-center gap-2">
+                                <span className={`font-bold ${isExhausted ? 'text-red-600' : isLow ? 'text-amber-600' : 'text-green-600'}`}>
+                                  {data.remaining}
+                                </span>
+                                <span className="text-gray-400">/ {data.max}</span>
+                                <span className="text-[10px] text-gray-400">used: {data.used}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ========== BALANCE WARNING ========== */}
+                  {balanceValidation?.isExceeded && (
+                    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                      <AlertTriangle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-red-700">Insufficient Leave Balance</p>
+                        <p className="text-xs text-red-600">{balanceValidation.message}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+                    <button type="button" onClick={() => { if (!submitting) { setShowLeaveForm(false); resetLeaveForm(); } }} className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors" disabled={submitting}>Cancel</button>
+                    <motion.button 
+                      whileHover={{ scale: 1.04 }} 
+                      whileTap={{ scale: 0.97 }} 
+                      type="submit" 
+                      className={`flex items-center gap-2 px-6 py-2 text-sm font-medium text-white rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+                        balanceValidation?.isExceeded 
+                          ? 'bg-gray-400 cursor-not-allowed' 
+                          : 'bg-indigo-600 hover:bg-indigo-700'
+                      }`} 
+                      disabled={submitting || balanceValidation?.isExceeded}
+                    >
+                      {submitting ? (
+                        <><Loader size={16} className="animate-spin" />{isEditingLeave ? 'Updating...' : 'Saving...'}</>
+                      ) : (
+                        <><Save size={16} />{isEditingLeave ? 'Update Leave' : 'Submit Leave'}</>
+                      )}
+                    </motion.button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ========== LEAVE DETAILS MODAL ========== */}
+      <AnimatePresence>
+        {showLeaveDetails && selectedLeave && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-md z-50" onClick={() => { setShowLeaveDetails(false); setSelectedLeave(null); }} />
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed inset-4 md:inset-10 lg:inset-20 xl:inset-28 bg-white rounded-3xl shadow-2xl z-50 overflow-y-auto">
+              <div className="relative p-6 md:p-8">
+                <button onClick={() => { setShowLeaveDetails(false); setSelectedLeave(null); }} className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"><X size={24} className="text-gray-400" /></button>
+                <div className="flex items-center gap-3 mb-6"><div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center"><FileText size={20} className="text-indigo-600" /></div><h2 className="text-xl font-semibold text-gray-900">Leave Request Details</h2></div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-4"><div><p className="text-xs text-gray-400 font-medium">Employee</p><p className="text-sm font-medium text-gray-900">{selectedLeave.employee_name || selectedLeave.name}</p></div><div><p className="text-xs text-gray-400 font-medium">Leave Type</p><p className="text-sm font-medium text-gray-900">{selectedLeave.leave_type || selectedLeave.leaveType}</p></div><div><p className="text-xs text-gray-400 font-medium">Status</p><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${selectedLeave.status === 'approved' ? 'bg-emerald-50 text-emerald-700' : selectedLeave.status === 'pending' ? 'bg-amber-50 text-amber-700' : selectedLeave.status === 'rejected' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-700'}`}>{selectedLeave.status === 'approved' && '✅ Approved'}{selectedLeave.status === 'pending' && '⏳ Pending'}{selectedLeave.status === 'rejected' && '❌ Rejected'}{selectedLeave.status === 'cancelled' && '🚫 Cancelled'}</span></div></div>
+                  <div className="space-y-4"><div><p className="text-xs text-gray-400 font-medium">Start Date</p><p className="text-sm font-medium text-gray-900">{selectedLeave.start_date || selectedLeave.startDate}</p></div><div><p className="text-xs text-gray-400 font-medium">End Date</p><p className="text-sm font-medium text-gray-900">{selectedLeave.end_date || selectedLeave.endDate}</p></div><div><p className="text-xs text-gray-400 font-medium">Total Days</p><p className="text-sm font-medium text-gray-900">{selectedLeave.days || 1} day{(selectedLeave.days || 1) > 1 ? 's' : ''}</p></div></div>
+                  <div className="md:col-span-2"><p className="text-xs text-gray-400 font-medium">Reason</p><div className="mt-1 p-4 bg-gray-50 rounded-lg border border-gray-200"><p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedLeave.reason || 'No reason provided.'}</p></div></div>
+                  {selectedLeave.status === 'pending' && (<div className="md:col-span-2 flex items-center justify-end gap-3 pt-4 border-t border-gray-100"><button onClick={() => { handleStatusUpdate(selectedLeave.id, 'rejected'); setShowLeaveDetails(false); setSelectedLeave(null); }} className="px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors">Reject</button><button onClick={() => { handleStatusUpdate(selectedLeave.id, 'approved'); setShowLeaveDetails(false); setSelectedLeave(null); }} className="px-4 py-2 text-sm font-medium text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors">Approve</button></div>)}
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* ========== DELETE CONFIRMATION MODAL ========== */}
+      <AnimatePresence>
+        {showDeleteConfirm && deleteId && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-md z-50" onClick={() => { if (!submitting) { setShowDeleteConfirm(false); setDeleteId(null); } }} />
+            <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="fixed inset-0 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+                <div className="text-center"><div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4"><Trash2 size={32} className="text-red-500" /></div><h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Leave Request</h3><p className="text-sm text-gray-500 mb-6">Are you sure you want to delete this leave request for <span className="font-semibold text-gray-900">{deleteName}</span>? This action cannot be undone.</p><div className="flex items-center justify-center gap-3"><button onClick={() => { if (!submitting) { setShowDeleteConfirm(false); setDeleteId(null); } }} className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors" disabled={submitting}>Cancel</button><button onClick={handleDeleteLeave} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50" disabled={submitting}>{submitting ? (<><Loader size={16} className="animate-spin" />Deleting...</>) : ('Delete Record')}</button></div></div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}

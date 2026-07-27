@@ -38,7 +38,11 @@ import {
   Warehouse,
   Unlock,
   Key, 
+  UserCheck,
+  ClipboardCheck,
   Sliders,
+  CalendarDays,
+  
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -63,7 +67,9 @@ const NAV_ITEMS = [
   { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/admin/hrm-dashboard' },
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/admin/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/admin/hrm' },
-
+  { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, path: '/admin/attendance' },
+  { id: 'leave', label: 'Leave', icon: CalendarDays, path: '/admin/leave' },
+  { id: 'salaries-ot', label: 'Salaries & OT', icon: DollarSign, path: '/admin/salaries-ot' },
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/admin/finance' },
   { id: 'invoice', label: 'Invoice', icon: FileText, path: '/admin/finance/invoicing-reports' },
   { id: 'expenses', label: 'Expenses', icon: FileText, path: '/admin/finance/expenses' },
@@ -158,7 +164,7 @@ const NOTIFICATION_ICONS = {
   maintenance: Settings,
 };
 
-// Relative time helper - "2 min ago", "1 hour ago" ආදිය
+// Relative time helper - "2 min ago", "1 hour ago"
 const timeAgo = (dateString) => {
   const seconds = Math.floor((new Date() - new Date(dateString)) / 1000);
   if (seconds < 60) return 'Just now';

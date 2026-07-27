@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 // Route imports
+const leaveRoutes = require('./src/routes/leaveRoutes');
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const employeeRoutes = require('./src/routes/employeeRoutes');
@@ -22,8 +23,8 @@ const { startPaymentReminderJob } = require('./src/jobs/paymentReminderJob');
 const { startInventoryReminderJob } = require('./src/jobs/inventoryReminderJob');
 const { maintenanceMiddleware } = require('./src/middlewares/maintenanceMiddleware');
 
-const maintenanceRoutes = require('./src/routes/maintenanceRoutes'); // 🆕
-const { startMaintenanceReminderJob } = require('./src/jobs/maintenanceReminderJob'); // 🆕
+const maintenanceRoutes = require('./src/routes/maintenanceRoutes');
+const { startMaintenanceReminderJob } = require('./src/jobs/maintenanceReminderJob');
 const { initBackupScheduler } = require('./src/utils/backupScheduler');
 
 const forecastRoutes = require('./src/routes/forecastRoutes');
@@ -39,15 +40,12 @@ const stockRoutes = require('./src/routes/stockRoutes');
 const emptyBottlesRoutes = require('./src/routes/emptyBottlesRoutes');
 const analyticsRoutes = require('./src/routes/analyticsRoutes');
 
-
-
 const app = express();
 
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
 ];
-
 
 // Global middleware
 app.use(cors({
@@ -91,11 +89,9 @@ app.use('/api/stock', stockRoutes);
 app.use('/api/empty-bottles', emptyBottlesRoutes);
 app.use('/api/vendor-orders', vendorOrdersRoutes);
 app.use('/api/analytics', analyticsRoutes);
-app.use('/api/maintenance', maintenanceRoutes); // 🆕
-
-
-
-app.use('/api/contact', contactRoutes); 
+app.use('/api/leaves', leaveRoutes);
+app.use('/api/maintenance', maintenanceRoutes);
+app.use('/api/contact', contactRoutes);
 
 // Health check
 app.get('/', (req, res) => {
@@ -108,7 +104,7 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`[Server] Hanthana core engine actively running on port: ${PORT}`);
-  startPaymentReminderJob(); 
+  startPaymentReminderJob();
   startInventoryReminderJob();
   startMaintenanceReminderJob();
   initBackupScheduler();

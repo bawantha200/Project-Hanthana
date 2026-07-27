@@ -29,6 +29,9 @@ import ExpenseManagement from '../pages/admin/ExpenseManagement';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
+import Attendance from "../pages/admin/Attendance";
+import SalariesOT from "../pages/admin/SalariesOT";
+import Leave from "../pages/admin/Leave";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -49,7 +52,6 @@ import PaymentCancel from '../pages/customer/PaymentCancel';
 
 import InvoicingReports from "../pages/admin/InvoicingReports";
 
-
 function AdminRoutes() {
   const { user } = useAuth();
 
@@ -66,7 +68,7 @@ function AdminRoutes() {
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />
-        <Route path="orders/:id" element={<AdminOrderDetails />} /> {/* Admin order details */}
+        <Route path="orders/:id" element={<AdminOrderDetails />} />
         <Route path="deliveries" element={<Deliveries />} />
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
@@ -82,6 +84,12 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        
+        {/* ✅ New HRM Routes */}
+        <Route path="attendance" element={<Attendance />} />
+        <Route path="leave" element={<Leave />} />
+        <Route path="salaries-ot" element={<SalariesOT />} />
+        
         <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
       </Route>
     </Routes>
@@ -97,7 +105,7 @@ function CustomerRoutes() {
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
         <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} /> {/* Customer order details */}
+        <Route path="order/:id" element={<CustomerOrderDetails />} />
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="profile" element={<Profile />} />
         <Route path="register" element={<Register />} />
