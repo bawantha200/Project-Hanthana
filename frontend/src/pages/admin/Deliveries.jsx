@@ -1013,7 +1013,7 @@ export default function Deliveries() {
                   <button
                     onClick={() => {
                       closeModal();
-                      navigate(`/admin/orders/${selectedDelivery.orderId}`);
+                      navigate(`/app/orders/${selectedDelivery.orderId}`);
                     }}
                     className="w-full sm:flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
                   >

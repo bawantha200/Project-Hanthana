@@ -76,8 +76,11 @@ function GuestRoute() {
   // If user is already logged in, redirect them away from login/register
   if (user) {
     const role = user.role?.toUpperCase();
-    if (role === 'ADMIN' || role === 'STAFF' || role === 'SALES_MANAGER') {
+    if (role === 'ADMIN') {
       return <Navigate to="/admin/dashboard" replace />;
+    }
+    else if(role === 'RIDER'){
+      return <Navigate to="/admin/rider-dashboard" replace />;
     }
     return <Navigate to="/" replace />;
   }
@@ -99,7 +102,7 @@ function AdminRoutes() {
           index
           element={
             <Navigate
-              to={user?.role === 'SALES_MANAGER' ? '/admin/sales-dashboard' : '/admin/dashboard'}
+              to={user?.role === 'SALES_MANAGER' ? '/app/sales-dashboard' : '/app/sales-analytics'}
               replace
             />
           }
@@ -132,11 +135,32 @@ function AdminRoutes() {
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
         <Route path="delivery/config" element={<DeliveryConfiguration />} />
-        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/sales/dashboard" replace />} />
         <Route path="sales-analytics" element={<SalesAnalytics />} />
       </Route>
     </Routes>
   );
+}
+
+/**
+ * Protected wrapper for customer routes that require authentication
+ */
+function CustomerProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
 }
 
 function CustomerRoutes() {
@@ -147,12 +171,32 @@ function CustomerRoutes() {
         <Route path="services" element={<Services />} />
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
-        <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} />
+        {/* <Route path="orders" element={<CustomerOrders />} /> */}
+        {/* <Route path="order/:id" element={<CustomerOrderDetails />} /> */}
         <Route path="tracking" element={<OrderTracking />} />
-        <Route path="profile" element={<Profile />} />
+        {/* <Route path="profile" element={<Profile />} /> */}
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
+
+        {/* Protected routes - require authentication */}
+        <Route path="orders" element={
+            <CustomerProtectedRoute>
+              <CustomerOrders />
+            </CustomerProtectedRoute>} />
+        <Route 
+          path="order/:id" 
+          element={
+            <CustomerProtectedRoute>
+              <CustomerOrderDetails />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <Profile />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <OrderTracking />
+            </CustomerProtectedRoute>} />
 
         {/* 🔒 Restricted for logged-in users */}
         <Route element={<GuestRoute />}>
@@ -174,7 +218,7 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
       <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
-      <Route path="/admin/*" element={<AdminRoutes />} />
+      <Route path="/app/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
     </Routes>
   );

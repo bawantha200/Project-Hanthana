@@ -150,7 +150,7 @@ export default function Dashboard() {
               <p className="text-xs text-gray-400 mt-0.5">Latest customer inquiries</p>
             </div>
             <button
-              onClick={() => navigate('/admin/messages')}
+              onClick={() => navigate('/app/messages')}
               className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
               View all <ArrowUpRight size={14} />
@@ -183,7 +183,7 @@ export default function Dashboard() {
               <p className="text-xs text-gray-400 mt-0.5">Latest orders placed</p>
             </div>
             <button
-              onClick={() => navigate('/admin/orders')}
+              onClick={() => navigate('/app/orders')}
               className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1"
             >
               View all <ArrowUpRight size={14} />

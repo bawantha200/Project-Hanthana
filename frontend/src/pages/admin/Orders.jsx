@@ -754,7 +754,7 @@ export default function Orders() {
                   </td>
                   <td className="px-6 py-3">
                     <button
-                      onClick={() => navigate(`/admin/orders/${order.id}`)}
+                      onClick={() => navigate(`/app/orders/${order.id}`)}
                       className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
                     >
                       <Eye size={14} />

@@ -1,59 +1,69 @@
 // components/VendorTable.jsx
+import { Edit, Trash2 } from 'lucide-react';
 import StatusBadge from './StatusBadge';
-import { Edit, Trash2, ShoppingCart } from 'lucide-react';
 
-export default function VendorTable({ vendors, onEdit, onDelete, showOrderActions = false }) {
+export default function VendorTable({ vendors, onEdit, onDelete, onRowClick }) {
+  if (!vendors || vendors.length === 0) {
+    return (
+      <div className="p-12 text-center">
+        <p className="text-gray-500 font-medium">No vendors found</p>
+        <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filters</p>
+      </div>
+    );
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-gray-100">
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Vendor</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Phone</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Supply Type</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Last Delivery</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
-            <th className="text-left py-3 px-4 font-semibold text-gray-600">Actions</th>
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Supply Type</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+            <th className="text-center py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {vendors.map((v) => (
-            <tr key={v.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-              <td className="py-3 px-4 font-medium text-gray-900">{v.vendor_name || v.name}</td>
-              <td className="py-3 px-4 text-gray-600">{v.contact_number || v.phone}</td>
+          {vendors.map((vendor) => (
+            <tr 
+              key={vendor.id} 
+              className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer"
+              onClick={() => onRowClick && onRowClick(vendor)}
+            >
+              <td className="py-3 px-4 font-medium text-gray-900">{vendor.name}</td>
+              <td className="py-3 px-4 text-gray-600">{vendor.contact || '—'}</td>
+              <td className="py-3 px-4 text-gray-600">{vendor.phone || '—'}</td>
               <td className="py-3 px-4">
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                  {v.supply_type || v.supplyType}
+                  {vendor.supplyType || 'Not specified'}
                 </span>
               </td>
-              <td className="py-3 px-4 text-gray-500">
-                {v.last_delivery || v.lastDelivery ? new Date(v.last_delivery || v.lastDelivery).toLocaleDateString() : 'N/A'}
+              <td className="py-3 px-4">
+                <StatusBadge status={vendor.status} />
               </td>
               <td className="py-3 px-4">
-                <StatusBadge status={v.isActive !== undefined ? (v.isActive ? 'active' : 'inactive') : v.status} />
-              </td>
-              <td className="py-3 px-4">
-                <div className="flex items-center gap-1">
-                  {showOrderActions && (
-                    <button
-                      onClick={() => onEdit?.(v)}
-                      className="p-1 text-gray-500 hover:text-green-600 hover:bg-green-50 rounded transition-colors"
-                      title="Place Order"
-                    >
-                      <ShoppingCart size={14} />
-                    </button>
-                  )}
+                <div className="flex items-center justify-center gap-1">
                   <button
-                    onClick={() => onEdit?.(v)}
-                    className="p-1 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEdit(vendor);
+                    }}
+                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                    title="Edit Vendor"
                   >
-                    <Edit size={14} />
+                    <Edit size={16} />
                   </button>
                   <button
-                    onClick={() => onDelete?.(v)}
-                    className="p-1 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(vendor);
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    title="Delete Vendor"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
               </td>

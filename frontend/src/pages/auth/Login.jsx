@@ -109,10 +109,12 @@ const Login = ({ onSuccess, isModal = false }) => {
         if (isModal && onSuccess) {
           onSuccess();
         } else {
-          if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
-            navigate('/admin/dashboard', { replace: true });
+          if (targetRole === 'ADMIN') {
+            navigate('/app/dashboard', { replace: true });
+          } else if (targetRole === 'RIDER'){
+            navigate('/app/rider-dashboard', { replace: true });
           } else {
-            navigate('/customer/dashboard', { replace: true });
+            navigate('/', { replace: true });
           }
         }
         timeoutRef.current = null;
