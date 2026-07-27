@@ -30,9 +30,14 @@ const summaryCards = [
   { key: 'revenue', label: 'Total Revenue', icon: DollarSign, bgClass: 'bg-blue-50', textClass: 'text-blue-600' },
 ];
 
+const PAGE_SIZE = 10;
+
 export default function Customers() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Modal states
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -82,6 +87,7 @@ export default function Customers() {
     const delayDebounceFn = setTimeout(() => {
       fetchCustomers();
       fetchStats();
+      setCurrentPage(1); // reset to first page whenever search/filter changes
     }, 250);
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, activeFilter]);
@@ -132,6 +138,13 @@ export default function Customers() {
     inactive: stats.inactive,
     revenue: formatCurrency(stats.revenue),
   };
+
+  // ---- Pagination derived values ----
+  const totalPages = Math.max(1, Math.ceil(customers.length / PAGE_SIZE));
+  const paginatedCustomers = customers.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
 
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6 relative">
@@ -211,7 +224,7 @@ export default function Customers() {
               </tr>
             </thead>
             <tbody>
-              {customers.map((customer) => (
+              {paginatedCustomers.map((customer) => (
                 <tr
                   key={customer.id}
                   onClick={() => handleRowClick(customer)}
@@ -248,6 +261,49 @@ export default function Customers() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination controls */}
+        {customers.length > 0 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-sm">
+            <span className="text-gray-500">
+              Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+              {Math.min(currentPage * PAGE_SIZE, customers.length)} of {customers.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+              >
+                Prev
+              </button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                .map((p, idx, arr) => (
+                  <span key={p} className="flex items-center">
+                    {idx > 0 && arr[idx - 1] !== p - 1 && <span className="px-1 text-gray-400">…</span>}
+                    <button
+                      onClick={() => setCurrentPage(p)}
+                      className={`px-3 py-1.5 rounded-lg border text-sm ${
+                        p === currentPage
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </span>
+                ))}
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </motion.div>
 
       {/* --- READ-ONLY CUSTOMER DETAILS MODAL --- */}
