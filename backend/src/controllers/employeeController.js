@@ -7,9 +7,15 @@ exports.getAllEmployees = async (req, res) => {
     
     console.log('[Employees] Fetching with params:', { position, status, search });
     
-    let query = supabase
+     let query = supabase
       .from('employees')
-      .select('*');
+      .select(`
+        *,
+        designation:designation_id (
+          id,
+          designation
+        )
+      `);
     
     if (position && position !== 'All') {
       query = query.eq('position', position);
@@ -94,7 +100,13 @@ exports.getEmployeeById = async (req, res) => {
     
     const { data, error } = await supabase
       .from('employees')
-      .select('*')
+      .select(`
+        *,
+        designation:designation_id (
+          id,
+          designation
+        )
+      `)
       .eq('id', id)
       .single();
     
@@ -123,7 +135,7 @@ exports.getEmployeeById = async (req, res) => {
 exports.createEmployee = async (req, res) => {
   try {
     const {
-      name, position, designation, phone, email, hireDate,
+      name, position, designation, designation_id, phone, email, hireDate,
       birthday, gender, nic, address, marriageStatus,
       jobType, profileImage, baseSalary, bonus
     } = req.body;
@@ -194,7 +206,7 @@ exports.createEmployee = async (req, res) => {
     const employeeData = {
       name,
       position,
-      designation: designation || position,  
+      designation_id: designation_id || null, // Use designation_id instead of designation
       phone: cleanedPhone,
       email,
       hire_date: hireDate,
@@ -243,7 +255,7 @@ exports.updateEmployee = async (req, res) => {
     const {
       name,
       position,
-      designation,    // ✅ ADDED - Designation field
+      designation_id,    // ✅ ADDED - Designation field
       phone,
       email,
       hireDate,
@@ -277,7 +289,7 @@ exports.updateEmployee = async (req, res) => {
     const updateData = {};
     if (name) updateData.name = name;
     if (position) updateData.position = position;
-    if (designation) updateData.designation = designation;  // ✅ ADDED - Update designation if provided
+    if (designation_id) updateData.designation_id = designation_id;  // ✅ ADDED - Update designation_id if provided
     if (phone) updateData.phone = phone;
     if (email) updateData.email = email;
     if (hireDate) updateData.hire_date = hireDate;
