@@ -1,13 +1,24 @@
-// backend/src/routes/maintenanceRoutes.js
 const express = require('express');
 const router = express.Router();
-const { postMaintenanceWindow, getMaintenanceWindows, toggleMaintenanceMode } = require('../controllers/maintenanceController');
+const {
+  postMaintenanceWindow,
+  getMaintenanceWindows,
+  toggleMaintenanceMode,
+  getMaintenanceStatus,
+  deleteMaintenanceWindow,
+  updateMaintenanceWindow,
+} = require('../controllers/maintenanceController');
 const { protect } = require('../middlewares/authMiddleware');
 
-router.use(protect);
+
+router.get('/mode', getMaintenanceStatus);
+router.get('/', getMaintenanceWindows);
+
+router.use(protect); 
 
 router.post('/', postMaintenanceWindow);
-router.get('/', getMaintenanceWindows);
-router.put('/mode', toggleMaintenanceMode);
+router.put('/mode', toggleMaintenanceMode);   
+router.put('/:id', updateMaintenanceWindow);  
+router.delete('/:id', deleteMaintenanceWindow);
 
 module.exports = router;

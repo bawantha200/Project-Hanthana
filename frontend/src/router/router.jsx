@@ -1,19 +1,22 @@
 // frontend/src/router/router.jsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { getTargetRoute } from '../utils/roleRouting';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
 import Deliveries from '../pages/admin/Deliveries';
 import Reports from '../pages/admin/Reports';
 import UserManagement from '../pages/admin/UserManagement';
 import Settings from '../pages/admin/Settings';
+import SettingsRequests from '../pages/admin/SettingsRequests';
 import Employees from '../pages/admin/Employees';
 import HrmDashboard from '../pages/admin/HrmDashboard';
 import HRM from '../pages/admin/HRM';
@@ -26,12 +29,18 @@ import ManagePermissions from '../pages/admin/ManagePermissions';
 import AdminOrderDetails from '../pages/admin/OrderDetails';
 import RiderDashboard from '../pages/admin/RiderDashboard';
 import ExpenseManagement from '../pages/admin/ExpenseManagement';
+import ExpenseComparison from '../pages/admin/ExpenseComparison';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
 import Attendance from "../pages/admin/Attendance";
 import SalariesOT from "../pages/admin/SalariesOT";
 import Leave from "../pages/admin/Leave";
+import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
+import InvoicingReports from "../pages/admin/InvoicingReports";
+import InventoryDashboard from "../pages/admin/InventoryDashboard";
+import JITDashboard from "../pages/admin/JITDashboard";
+import DemandForecastDashboard from "../pages/admin/DemandForecasting";
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -49,8 +58,41 @@ import Profile from '../pages/customer/Profile';
 import CustomerOrderDetails from '../pages/customer/OrderDetails';
 import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
+import ForgotPassword from '../pages/customer/ForgotPassword';
+import ResetPassword from '../pages/customer/ResetPassword';
+import SalesAnalytics from '../pages/admin/salesAnalytics';
 
-import InvoicingReports from "../pages/admin/InvoicingReports";
+
+/**
+ * Guest-only wrapper to prevent authenticated users from opening Login & Register pages
+ */
+function GuestRoute() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  // If user is already logged in, redirect them away from login/register
+  // using the exact same rule Login.jsx uses right after a fresh login —
+  // so a CUSTOMER goes Home, but every other role stays out of Home.
+  if (user) {
+    const role = user.role?.toUpperCase();
+    if (role === 'ADMIN') {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
+    else if(role === 'RIDER'){
+      return <Navigate to="/admin/rider-dashboard" replace />;
+    }
+    return <Navigate to="/" replace />;
+  }
+
+  return <Outlet />;
+}
 
 function AdminRoutes() {
   const { user } = useAuth();
@@ -59,11 +101,35 @@ function AdminRoutes() {
     return <Navigate to="/" replace />;
   }
 
+  const role = user?.role?.toUpperCase();
+
+  // Default landing page per role, used both for the index redirect
+  // and the catch-all fallback below.
+  const defaultRouteForRole = () => {
+    if (role === 'ADMIN') return '/admin/user-management';
+    if (role === 'SALES_MANAGER') return '/admin/sales-dashboard';
+    return '/admin/dashboard';
+  };
+
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="/admin/dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
+        <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
+
+        {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
+        <Route
+          path="dashboard"
+          element={
+            role === 'ADMIN'
+              ? <Navigate to="/admin/user-management" replace />
+              : <Dashboard />
+          }
+        />
+
+        <Route path="sales-dashboard" element={<SalesDashboard />} />
+        <Route path="inventory-dashboard" element={<InventoryDashboard />} />
+        <Route path="demandforecast-dashboard" element={<DemandForecastDashboard />} />
+        <Route path="jit-dashboard" element={<JITDashboard />} />
         <Route path="hrm-dashboard" element={<HrmDashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
@@ -73,6 +139,7 @@ function AdminRoutes() {
         <Route path="reports" element={<Reports />} />
         <Route path="user-management" element={<UserManagement />} />
         <Route path="settings" element={<Settings />} />
+        <Route path="settings-requests" element={<SettingsRequests />} />
         <Route path="employees" element={<Employees />} />
         <Route path="hrm" element={<HRM />} />
         <Route path="vendors" element={<Vendors />} />
@@ -80,6 +147,7 @@ function AdminRoutes() {
         <Route path="finance" element={<Finance />} />
         <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
+        <Route path="finance/expenses/compare" element={<ExpenseComparison />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
@@ -90,10 +158,33 @@ function AdminRoutes() {
         <Route path="leave" element={<Leave />} />
         <Route path="salaries-ot" element={<SalariesOT />} />
         
-        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+        <Route path="delivery/config" element={<DeliveryConfiguration />} />
+        <Route path="sales-analytics" element={<SalesAnalytics />} />
+        <Route path="*" element={<Navigate to={defaultRouteForRole()} replace />} />
       </Route>
     </Routes>
   );
+}
+
+/**
+ * Protected wrapper for customer routes that require authentication
+ */
+function CustomerProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
 }
 
 function CustomerRoutes() {
@@ -104,12 +195,39 @@ function CustomerRoutes() {
         <Route path="services" element={<Services />} />
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
-        <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} />
+        {/* <Route path="orders" element={<CustomerOrders />} /> */}
+        {/* <Route path="order/:id" element={<CustomerOrderDetails />} /> */}
         <Route path="tracking" element={<OrderTracking />} />
-        <Route path="profile" element={<Profile />} />
-        <Route path="register" element={<Register />} />
-        <Route path="login" element={<Login />} />
+        {/* <Route path="profile" element={<Profile />} /> */}
+        <Route path="forgot-password" element={<ForgotPassword />} />
+        <Route path="reset-password" element={<ResetPassword />} />
+
+        {/* Protected routes - require authentication */}
+        <Route path="orders" element={
+            <CustomerProtectedRoute>
+              <CustomerOrders />
+            </CustomerProtectedRoute>} />
+        <Route 
+          path="order/:id" 
+          element={
+            <CustomerProtectedRoute>
+              <CustomerOrderDetails />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <Profile />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <OrderTracking />
+            </CustomerProtectedRoute>} />
+
+        {/* 🔒 Restricted for logged-in users */}
+        <Route element={<GuestRoute />}>
+          <Route path="register" element={<Register />} />
+          <Route path="login" element={<Login />} />
+        </Route>
+
         <Route path="payment-result" element={<PaymentResult />} />
         <Route path="payment-cancel" element={<PaymentCancel />} />
         <Route path="*" element={<Navigate to="/" replace />} />
@@ -124,7 +242,7 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
       <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
-      <Route path="/admin/*" element={<AdminRoutes />} />
+      <Route path="/app/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
     </Routes>
   );

@@ -80,7 +80,7 @@ export default function TwoFactorSetup() {
 
       const targetRole = data.user.role?.toUpperCase();
       if (targetRole === 'ADMIN' || targetRole === 'STAFF') {
-        navigate('/admin/dashboard', { replace: true });
+        navigate('/app/dashboard', { replace: true });
       } else {
         navigate('/customer/dashboard', { replace: true });
       }

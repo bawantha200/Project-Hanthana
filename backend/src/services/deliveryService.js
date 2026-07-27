@@ -1,8 +1,22 @@
 // backend/src/services/deliveryService.js
 const supabase = require('../config/db');
-const stockService = require('./stockService');
 
-// ============ HELPER: Get Refill 19L Product ============
+// ============ HELPER: Get All 19L Products ============
+const getAll19LProducts = async () => {
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, type')
+      .ilike('name', '%19L%');
+    
+    if (error) throw new Error(`Failed to fetch 19L products: ${error.message}`);
+    return data || [];
+  } catch (error) {
+    console.error('Error in getAll19LProducts:', error);
+    return [];
+  }
+};
+
 const getRefill19LProduct = async () => {
   try {
     const { data, error } = await supabase
@@ -17,6 +31,147 @@ const getRefill19LProduct = async () => {
   } catch (error) {
     console.error('Error in getRefill19LProduct:', error);
     return null;
+  }
+};
+
+// ============ UPDATE EMPTY BOTTLE STOCK FOR 19L PRODUCTS ONLY ============
+const updateEmptyBottleStockFor19L = async (quantity, operation = 'add', notes = '') => {
+  console.log(`📦 [updateEmptyBottleStockFor19L] ${operation} ${quantity} empty bottles for 19L products...`);
+
+  if (!quantity || quantity <= 0) {
+    console.log('ℹ️ No empty bottles to update');
+    return null;
+  }
+
+  try {
+    const all19LProducts = await getAll19LProducts();
+    
+    if (!all19LProducts || all19LProducts.length === 0) {
+      console.error('❌ No 19L products found');
+      throw new Error('No 19L products found');
+    }
+
+    console.log(`✅ Found ${all19LProducts.length} 19L products:`, all19LProducts.map(p => p.name));
+
+    let results = [];
+    let totalUpdated = 0;
+
+    // For subtract operation, check if we have enough
+    if (operation === 'subtract') {
+      const firstProduct = all19LProducts[0];
+      const { data: checkInventory, error: checkError } = await supabase
+        .from('inventory')
+        .select('empty_bottle_stock')
+        .eq('product_id', firstProduct.id)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('❌ Error checking inventory:', checkError);
+      }
+
+      const currentEmpty = checkInventory?.empty_bottle_stock || 0;
+
+      if (currentEmpty < quantity) {
+        throw new Error(`Insufficient empty bottles in 19L products. Available: ${currentEmpty}, Required: ${quantity}`);
+      }
+    }
+
+    for (const product of all19LProducts) {
+      console.log(`📊 Processing 19L product: ${product.name} (ID: ${product.id})`);
+
+      const { data: existingInventory, error: invError } = await supabase
+        .from('inventory')
+        .select('id, empty_bottle_stock, current_stock')
+        .eq('product_id', product.id)
+        .maybeSingle();
+
+      if (invError && invError.code !== 'PGRST116') {
+        console.error(`❌ Error checking inventory for ${product.name}:`, invError);
+        continue;
+      }
+
+      let currentStock = 0;
+      let newStock = 0;
+
+      if (existingInventory) {
+        currentStock = existingInventory.empty_bottle_stock || 0;
+        
+        if (operation === 'add') {
+          newStock = currentStock + quantity;
+        } else if (operation === 'subtract') {
+          if (currentStock < quantity) {
+            console.warn(`⚠️ Insufficient empty bottles for ${product.name}. Available: ${currentStock}, Required: ${quantity}`);
+            continue;
+          }
+          newStock = currentStock - quantity;
+        } else {
+          throw new Error('Invalid operation. Use "add" or "subtract"');
+        }
+
+        const { data: updatedInventory, error: updateError } = await supabase
+          .from('inventory')
+          .update({
+            empty_bottle_stock: newStock,
+            last_empty_updated: new Date().toISOString()
+          })
+          .eq('id', existingInventory.id)
+          .select()
+          .single();
+
+        if (updateError) {
+          console.error(`❌ Failed to update ${product.name}:`, updateError);
+          continue;
+        }
+
+        results.push(updatedInventory);
+        totalUpdated++;
+        console.log(`✅ ${product.name}: empty_bottle_stock ${currentStock} -> ${newStock}`);
+      } else {
+        // No inventory exists - create one
+        const initialStock = operation === 'add' ? quantity : 0;
+        
+        const { data: newInventory, error: createError } = await supabase
+          .from('inventory')
+          .insert({
+            product_id: product.id,
+            current_stock: 0,
+            empty_bottle_stock: initialStock,
+            reorder_level: 50,
+            last_updated: new Date().toISOString(),
+            last_empty_updated: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error(`❌ Failed to create inventory for ${product.name}:`, createError);
+          continue;
+        }
+
+        results.push(newInventory);
+        totalUpdated++;
+        console.log(`✅ ${product.name}: empty_bottle_stock 0 -> ${initialStock} (new inventory created)`);
+      }
+
+      // Record transaction for this product
+      await supabase
+        .from('inventory_transactions')
+        .insert({
+          product_id: product.id,
+          quantity: operation === 'add' ? quantity : -quantity,
+          type: operation === 'add' ? 'empty_bottle_collection' : 'empty_bottle_usage',
+          reason: operation === 'add' ? 'delivery_completed' : 'production_usage',
+          notes: notes || (operation === 'add' 
+            ? `Collected ${quantity} empty bottles for ${product.name}` 
+            : `Used ${quantity} empty bottles from ${product.name}`)
+        });
+    }
+
+    console.log(`✅ Successfully updated ${totalUpdated} of ${all19LProducts.length} 19L products`);
+    return results;
+  } catch (err) {
+    console.error('💥 [updateEmptyBottleStockFor19L] Unexpected error:', err);
+    throw err;
   }
 };
 
@@ -42,7 +197,7 @@ const checkOrderHasRefill19LBottles = async (orderId) => {
     }
 
     const productIds = products.map(p => p.id);
-    console.log(`📦 Found ${productIds.length} REFILL 19L products`);
+    console.log(`📦 Found ${productIds.length} REFILL 19L products:`, productIds);
 
     const { data: orderItems, error: itemsError } = await supabase
       .from('order_items')
@@ -59,6 +214,7 @@ const checkOrderHasRefill19LBottles = async (orderId) => {
     const refillCount = orderItems?.reduce((sum, item) => sum + item.quantity, 0) || 0;
     
     console.log(`📦 Order ${orderId} has REFILL 19L bottles: ${hasRefill}, Count: ${refillCount}`);
+    console.log(`📦 Order items:`, orderItems);
     
     return {
       hasRefill: hasRefill,
@@ -98,6 +254,7 @@ const getOrderItemsWithProducts = async (orderId) => {
       throw new Error(`Failed to fetch order items: ${error.message}`);
     }
 
+    console.log(`✅ Found ${data?.length || 0} order items`);
     return data.map(item => ({
       id: item.id,
       quantity: item.quantity,
@@ -303,7 +460,7 @@ const getRiderDeliveries = async (riderId, status = null) => {
   }
 };
 
-// ============ UPDATE DELIVERY STATUS ============
+// ============ UPDATE DELIVERY STATUS - FIXED ============
 const updateDeliveryStatus = async (deliveryId, status) => {
   console.log(`🔄 [updateDeliveryStatus] Delivery ${deliveryId} -> ${status}`);
 
@@ -326,9 +483,11 @@ const updateDeliveryStatus = async (deliveryId, status) => {
     let emptyBottlesCollected = 0;
 
     if (status === 'DELIVERED') {
+      console.log('✅ Delivery is being marked as DELIVERED');
       updateData.delivery_end_time = new Date().toISOString();
       
       const refillCheck = await checkOrderHasRefill19LBottles(deliveryData.order_id);
+      
       if (refillCheck.hasRefill) {
         emptyBottlesCollected = refillCheck.refillCount;
         updateData.collecting_empty_bottles = emptyBottlesCollected;
@@ -343,6 +502,7 @@ const updateDeliveryStatus = async (deliveryId, status) => {
       updateData.delivery_start_time = new Date().toISOString();
     }
 
+    // Update delivery status
     const { data, error } = await supabase
       .from('deliveries')
       .update(updateData)
@@ -351,48 +511,39 @@ const updateDeliveryStatus = async (deliveryId, status) => {
       .single();
 
     if (error) {
-      console.error('❌ [updateDeliveryStatus] Error:', error);
+      console.error('❌ Failed to update delivery status:', error);
       throw new Error(`Failed to update delivery status: ${error.message}`);
     }
 
-    if (status === 'DELIVERED') {
-      await supabase
-        .from('orders')
-        .update({ 
-          order_status: 'DELIVERED',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', deliveryData.order_id);
+    console.log(`✅ Delivery updated:`, data);
 
-      if (emptyBottlesCollected > 0) {
-        try {
-          console.log(`📦 Adding ${emptyBottlesCollected} empty bottles to inventory`);
-          
-          // Get the Refill 19L product
-          const refillProduct = await getRefill19LProduct();
-          if (refillProduct) {
-            // Use stockService to add stock (this will update ALL 19L products)
-            await stockService.addStock(
-              refillProduct.id,
-              emptyBottlesCollected,
-              'delivery_collection',
-              `Collected ${emptyBottlesCollected} empty bottles from delivery #${deliveryId}`
-            );
-            console.log(`✅ Successfully updated inventory with ${emptyBottlesCollected} bottles`);
-          } else {
-            console.error('❌ Refill 19L product not found');
-          }
-        } catch (inventoryError) {
-          console.error('❌ [updateDeliveryStatus] Failed to update inventory:', inventoryError);
-        }
-      } else {
-        console.log('ℹ️ No empty bottles to add to inventory');
+    // ============================================================
+    // ✅ If delivery is completed, update empty_bottle_stock for 19L products ONLY
+    // ============================================================
+    if (status === 'DELIVERED' && emptyBottlesCollected > 0) {
+      try {
+        console.log(`📦 Adding ${emptyBottlesCollected} empty bottles to 19L products (empty_bottle_stock ONLY)`);
+        console.log(`⚠️ NOT updating current_stock!`);
+        
+        // ✅ Directly call the function to update ONLY empty_bottle_stock
+        await updateEmptyBottleStockFor19L(
+          emptyBottlesCollected, 
+          'add', 
+          `Collected ${emptyBottlesCollected} empty bottles from delivery #${deliveryId}`
+        );
+        
+        console.log(`✅ Successfully updated empty_bottle_stock for ALL 19L products`);
+      } catch (inventoryError) {
+        console.error('❌ Failed to update empty_bottle_stock:', inventoryError);
       }
+    } else if (status === 'DELIVERED' && emptyBottlesCollected === 0) {
+      console.log('ℹ️ No empty bottles to add to inventory');
     }
 
+    console.log(`✅ Delivery ${deliveryId} status updated to ${status}`);
     return data;
   } catch (error) {
-    console.error('Error in updateDeliveryStatus:', error);
+    console.error('❌ Error in updateDeliveryStatus:', error);
     throw error;
   }
 };
@@ -581,6 +732,148 @@ const assignRiderToDelivery = async (deliveryId, riderId) => {
   }
 };
 
+// ============ GET DELIVERY LOCATION ============
+const getDeliveryLocation = async (orderId) => {
+  console.log(`📍 [getDeliveryLocation] Fetching location for order ${orderId}...`);
+
+  try {
+    const { data, error } = await supabase
+      .from('order_delivery_locations')
+      .select('id, address, latitude, longitude')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('❌ [getDeliveryLocation] Error:', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error in getDeliveryLocation:', error);
+    return null;
+  }
+};
+
+// ============ UPDATE DELIVERY LOCATION ============
+const updateDeliveryLocation = async (orderId, address, latitude, longitude) => {
+  console.log(`📍 [updateDeliveryLocation] Updating location for order ${orderId}...`);
+
+  try {
+    // Check if location exists
+    const { data: existing, error: checkError } = await supabase
+      .from('order_delivery_locations')
+      .select('id')
+      .eq('order_id', orderId)
+      .maybeSingle();
+
+    let result;
+
+    if (existing) {
+      // Update existing
+      const { data, error } = await supabase
+        .from('order_delivery_locations')
+        .update({
+          address,
+          latitude,
+          longitude,
+          updated_at: new Date().toISOString()
+        })
+        .eq('order_id', orderId)
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+    } else {
+      // Insert new
+      const { data, error } = await supabase
+        .from('order_delivery_locations')
+        .insert({
+          order_id: orderId,
+          address,
+          latitude,
+          longitude
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      result = data;
+    }
+
+    console.log(`✅ Location updated for order ${orderId}`);
+    return result;
+  } catch (error) {
+    console.error('Error in updateDeliveryLocation:', error);
+    throw error;
+  }
+};
+
+// ============ GET DELIVERY WITH LOCATION ============
+const getDeliveryWithLocation = async (deliveryId) => {
+  console.log(`🔍 [getDeliveryWithLocation] Fetching delivery ${deliveryId} with location...`);
+
+  try {
+    const delivery = await getDeliveryById(deliveryId);
+    
+    if (delivery && delivery.orderId) {
+      const location = await getDeliveryLocation(delivery.orderId);
+      delivery.location = location;
+    }
+
+    return delivery;
+  } catch (error) {
+    console.error('Error in getDeliveryWithLocation:', error);
+    throw error;
+  }
+};
+
+// ============ GET ALL DELIVERIES WITH LOCATIONS ============
+const getAllDeliveriesWithLocations = async (filters = {}) => {
+  console.log('🔍 [getAllDeliveriesWithLocations] Fetching all deliveries with locations...');
+
+  try {
+    const deliveries = await getAllDeliveries(filters);
+    
+    // Add location to each delivery
+    for (const delivery of deliveries) {
+      if (delivery.orderId) {
+        const location = await getDeliveryLocation(delivery.orderId);
+        delivery.location = location;
+      }
+    }
+
+    return deliveries;
+  } catch (error) {
+    console.error('Error in getAllDeliveriesWithLocations:', error);
+    throw error;
+  }
+};
+
+// ============ GET RIDER DELIVERIES WITH LOCATIONS ============
+const getRiderDeliveriesWithLocations = async (riderId, status = null) => {
+  console.log(`🔍 [getRiderDeliveriesWithLocations] Fetching deliveries for rider ${riderId}...`);
+
+  try {
+    const deliveries = await getRiderDeliveries(riderId, status);
+    
+    // Add location to each delivery
+    for (const delivery of deliveries) {
+      if (delivery.orderId) {
+        const location = await getDeliveryLocation(delivery.orderId);
+        delivery.location = location;
+      }
+    }
+
+    return deliveries;
+  } catch (error) {
+    console.error('Error in getRiderDeliveriesWithLocations:', error);
+    throw error;
+  }
+};
+
+
 // ============ EXPORTS ============
 module.exports = {
   getAllDeliveries,
@@ -591,5 +884,12 @@ module.exports = {
   assignRiderToDelivery,
   checkOrderHasRefill19LBottles,
   getRefill19LProduct,
-  getOrderItemsWithProducts
+  getOrderItemsWithProducts,
+  getAll19LProducts,
+  updateEmptyBottleStockFor19L,
+  getDeliveryLocation,
+  updateDeliveryLocation,
+  getDeliveryWithLocation,
+  getAllDeliveriesWithLocations,
+  getRiderDeliveriesWithLocations
 };

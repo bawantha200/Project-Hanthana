@@ -280,51 +280,65 @@ class UserService {
   // UPDATE USER (Update profile only)
   // ============================================================
   async updateUser(id, userData) {
-    try {
-      console.log(`[UserService] ✏️ Updating user: ${id}`);
+  try {
+    console.log(`[UserService] ✏️ Updating user: ${id}`);
 
-      const { fullName, email, phone, address, role, status } = userData;
+    const { fullName, email, phone, address, role, status, password } = userData; // ✅ added password
 
-      // Update profiles
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: fullName,
-          email,
-          phone_number: phone,
-          address,
-          role_id: role
-        })
-        .eq('id', id);
+    // Update profiles
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        full_name: fullName,
+        email,
+        phone_number: phone,
+        address,
+        role_id: role
+      })
+      .eq('id', id);
 
-      if (profileError) {
-        console.error('[UserService] ❌ Profile update error:', profileError);
-        throw profileError;
-      }
-
-      console.log('[UserService] ✅ Profile updated');
-
-      // ✅ Update employee status separately (if status provided)
-      if (status) {
-        const { error: empError } = await supabase
-          .from('employees')
-          .update({ status })
-          .eq('email', email);
-
-        if (empError) {
-          console.error('[UserService] ❌ Employee update error:', empError);
-        } else {
-          console.log('[UserService] ✅ Employee status updated');
-        }
-      }
-
-      console.log(`[UserService] 🎯 User updated: ${email}`);
-      return { id, email, fullName, role };
-    } catch (error) {
-      console.error('[UserService] ❌ updateUser error:', error);
-      throw error;
+    if (profileError) {
+      console.error('[UserService] ❌ Profile update error:', profileError);
+      throw profileError;
     }
+
+    console.log('[UserService] ✅ Profile updated');
+
+    // ✅ NEW: update auth password if a new one was provided
+    if (password) {
+      const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(id, {
+        password
+      });
+
+      if (passwordError) {
+        console.error('[UserService] ❌ Password update error:', passwordError);
+        throw passwordError;
+      }
+
+      console.log('[UserService] ✅ Password updated');
+    }
+
+    // ✅ Update employee status separately (if status provided)
+    if (status) {
+      const { error: empError } = await supabase
+        .from('employees')
+        .update({ status })
+        .eq('email', email);
+
+      if (empError) {
+        console.error('[UserService] ❌ Employee update error:', empError);
+      } else {
+        console.log('[UserService] ✅ Employee status updated');
+      }
+    }
+
+    console.log(`[UserService] 🎯 User updated: ${email}`);
+    return { id, email, fullName, role };
+  } catch (error) {
+    console.error('[UserService] ❌ updateUser error:', error);
+    throw error;
   }
+}
 
   // ============================================================
   // DELETE USER (Delete from profiles only)
@@ -339,6 +353,19 @@ class UserService {
         .select('email')
         .eq('id', id)
         .maybeSingle();
+
+      // ✅ NEW STEP: detach audit logs first so FK constraint doesn't block deletion
+      const { error: auditError } = await supabase
+        .from('audit_logs')
+        .update({ user_id: null })
+        .eq('user_id', id);
+
+      if (auditError) {
+        console.warn('[UserService] ⚠️ Audit log update warning:', auditError.message);
+        // don't throw — this is best-effort cleanup, not a blocking failure
+      } else {
+        console.log('[UserService] ✅ Audit logs detached (user_id set to NULL)');
+      }
 
       // Delete profile
       const { error: profileError } = await supabase
@@ -386,39 +413,27 @@ class UserService {
   // ============================================================
   // UPDATE USER STATUS (Employee status by email)
   // ============================================================
-  async updateUserStatus(id, status) {
-    try {
-      console.log(`[UserService] 🔄 Updating status for user ${id} to ${status}`);
+async updateUserStatus(id, status) {
+  try {
+    console.log(`[UserService] 🔄 Updating status for user ${id} to ${status}`);
 
-      // Get user email from profile
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', id)
-        .maybeSingle();
+    const { error } = await supabase
+      .from('profiles')
+      .update({ status })
+      .eq('id', id);
 
-      if (!profile) {
-        throw new Error('User not found');
-      }
-
-      // Update employee status by email
-      const { error } = await supabase
-        .from('employees')
-        .update({ status })
-        .eq('email', profile.email);
-
-      if (error) {
-        console.error('[UserService] ❌ Status update error:', error);
-        throw error;
-      }
-
-      console.log(`[UserService] 🎯 Status updated to ${status} for ${profile.email}`);
-      return true;
-    } catch (error) {
-      console.error('[UserService] ❌ updateUserStatus error:', error);
+    if (error) {
+      console.error('[UserService] ❌ Status update error:', error);
       throw error;
     }
+
+    console.log(`[UserService] 🎯 Status updated to ${status} for user ${id}`);
+    return true;
+  } catch (error) {
+    console.error('[UserService] ❌ updateUserStatus error:', error);
+    throw error;
   }
+}
 
   // ============================================================
   // GET PENDING EMPLOYEES (Direct from employees table)

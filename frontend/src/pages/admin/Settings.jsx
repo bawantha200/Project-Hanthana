@@ -14,6 +14,16 @@ const containerVariants = {
   },
 };
 
+
+// UTC ISO string eka, datetime-local input ekata one format ekata (local timezone eken) convert karanawa
+const toDatetimeLocalValue = (isoString) => {
+  if (!isoString) return '';
+  const date = new Date(isoString);
+  const offsetMs = date.getTimezoneOffset() * 60000; // local timezone offset eka minutes → ms
+  const localDate = new Date(date.getTime() - offsetMs);
+  return localDate.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:mm"
+};
+
 const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
@@ -88,6 +98,16 @@ export default function Settings() {
   ]);
 
   const [uploadingMemberId, setUploadingMemberId] = useState(null);
+  const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
+  const [maintenanceMessage, setMaintenanceMessage] = useState('');
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [editingWindowId, setEditingWindowId] = useState(null); // null = create mode, id = edit mode
+  const [scheduleStart, setScheduleStart] = useState('');
+  const [scheduleEnd, setScheduleEnd] = useState('');
+  const [scheduleMessage, setScheduleMessage] = useState('');
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [upcomingWindows, setUpcomingWindows] = useState([]);
 
   const [notificationSettings, setNotificationSettings] = useState({
     orderAlerts: true,
@@ -157,13 +177,30 @@ export default function Settings() {
     }
   };
 
+  const fetchUpcomingWindows = async () => {
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch('http://localhost:5000/api/maintenance', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    if (data.success) setUpcomingWindows(data.windows || []);
+  } catch (err) {
+    console.error('Failed to fetch maintenance windows:', err);
+  }
+};
+
+useEffect(() => {
+  if (activeTab === 'system') fetchUpcomingWindows();
+}, [activeTab]);
+
   useEffect(() => {
     if (!user) return;
     const currentRole = user?.role?.toString().trim().toUpperCase();
     if (currentRole === 'CEO') {
       setActiveTab('general');
     } else if (currentRole === 'ADMIN') {
-      setActiveTab('notifications');
+      setActiveTab('general');
     }
   }, [user]);
 
@@ -172,54 +209,58 @@ export default function Settings() {
   }, []);
 
   // ===== SAVE SETTINGS =====
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const token = localStorage.getItem('token');
+const handleSave = async () => {
+  setSaving(true);
+  try {
+    const token = localStorage.getItem('token');
 
-      const payload = {};
-      if (role === 'CEO') {
-        payload.general = generalSettings;
-        payload.services = servicesSettings;
-        payload.team = teamMembers;
-      } else if (canManageUsers) {
-        // 🆕 Admin ta CEO ge sections ත් save karanna one nisa
-        payload.general = generalSettings;
-        payload.services = servicesSettings;
-        payload.team = teamMembers;
-        payload.notifications = notificationSettings;
-        payload.security = securitySettings;
-        payload.system = systemSettings;
-      }
-
-      const response = await fetch('http://localhost:5000/api/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        toast.success('Settings saved successfully!');
-      } else {
-        throw new Error(data.message || 'Failed to save');
-      }
-    } catch (error) {
-      console.error('Save settings error:', error);
-      toast.error(error.message || 'Failed to save settings');
-    } finally {
-      setSaving(false);
+    const payload = {};
+    if (role === 'CEO') {
+      payload.general = generalSettings;
+      payload.services = servicesSettings;
+      payload.team = teamMembers;
+    } else if (canManageUsers) {
+      payload.general = generalSettings;
+      payload.services = servicesSettings;
+      payload.team = teamMembers;
+      payload.notifications = notificationSettings;
+      payload.security = securitySettings;
+      payload.system = systemSettings;
     }
-  };
+
+    const response = await fetch('http://localhost:5000/api/settings', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // ✅ Admin nam CEO approval ekata giya kiyala pennanawa
+      if (data.pendingApproval) {
+        toast.success('Changes submitted! Waiting for CEO approval.', { duration: 4000 });
+      } else {
+        toast.success('Settings saved successfully!');
+      }
+    } else {
+      throw new Error(data.message || 'Failed to save');
+    }
+  } catch (error) {
+    console.error('Save settings error:', error);
+    toast.error(error.message || 'Failed to save settings');
+  } finally {
+    setSaving(false);
+  }
+};
 
   const Toggle = ({ enabled, onToggle }) => (
     <button
       onClick={onToggle}
-      className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none ${
+      className={`relative inline-flex items-center h-6 w-11 rounded-full transition-colors duration-200 focus:outline-none shrink-0 ${
         enabled ? 'bg-blue-600' : 'bg-gray-200'
       }`}
     >
@@ -385,9 +426,9 @@ export default function Settings() {
       className="space-y-6"
     >
       {/* Page Header */}
-      <motion.div variants={itemVariants} className="flex items-center justify-between flex-wrap gap-4">
+      <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Settings</h1>
           <p className="text-sm text-gray-500 mt-1">
             Configure system preferences and company settings
           </p>
@@ -397,7 +438,7 @@ export default function Settings() {
           whileTap={{ scale: 0.97 }}
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-70"
+          className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-70"
         >
           {saving ? (
             <>
@@ -416,7 +457,7 @@ export default function Settings() {
       {/* Tab Navigation */}
       <motion.div
         variants={itemVariants}
-        className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-fit overflow-x-auto"
+        className="flex items-center gap-1 bg-white rounded-2xl p-1.5 shadow-sm border border-gray-100 w-full sm:w-fit overflow-x-auto"
       >
         {visibleTabs.map((tab) => {
           const Icon = tab.icon;
@@ -425,7 +466,7 @@ export default function Settings() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap ${
+              className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap shrink-0 ${
                 activeTab === tab.key
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
@@ -442,10 +483,10 @@ export default function Settings() {
       {activeTab === 'general' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <SettingsIcon size={18} className="text-blue-600" />
             </div>
             <div>
@@ -457,15 +498,15 @@ export default function Settings() {
 
             <div className="sm:col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Hero Background Image</label>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
                 {generalSettings.heroImageUrl && (
                   <img
                     src={generalSettings.heroImageUrl}
                     alt="Hero preview"
-                    className="w-24 h-16 object-cover rounded-lg border border-gray-200"
+                    className="w-full sm:w-24 h-32 sm:h-16 object-cover rounded-lg border border-gray-200"
                   />
                 )}
-                <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all">
+                <label className="cursor-pointer px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-all text-center">
                   {uploading ? 'Uploading...' : 'Change Image'}
                   <input
                     type="file"
@@ -524,11 +565,11 @@ export default function Settings() {
       {activeTab === 'services' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+              <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
                 <Package size={18} className="text-blue-600" />
               </div>
               <div>
@@ -540,7 +581,7 @@ export default function Settings() {
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleAddService}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
             >
               <Plus size={16} />
               Add Service
@@ -551,7 +592,7 @@ export default function Settings() {
             {servicesSettings.map((service) => (
               <div
                 key={service.id}
-                className="border border-gray-200 rounded-xl p-5 relative"
+                className="border border-gray-200 rounded-xl p-4 sm:p-5 relative"
               >
                 {/* Remove service button */}
                 <button
@@ -634,11 +675,11 @@ export default function Settings() {
                               handleFeatureChange(service.id, fIndex, e.target.value)
                             }
                             placeholder="e.g. Free delivery"
-                            className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                            className="flex-1 min-w-0 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
                           />
                           <button
                             onClick={() => handleRemoveFeature(service.id, fIndex)}
-                            className="text-gray-400 hover:text-red-500 transition-colors p-1"
+                            className="text-gray-400 hover:text-red-500 transition-colors p-1 shrink-0"
                             title="Remove feature"
                           >
                             <Trash2 size={14} />
@@ -664,11 +705,11 @@ export default function Settings() {
       {activeTab === 'aboutus' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+              <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
                 <Users size={18} className="text-blue-600" />
               </div>
               <div>
@@ -680,7 +721,7 @@ export default function Settings() {
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
               onClick={handleAddMember}
-              className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
             >
               <Plus size={16} />
               Add Member
@@ -691,7 +732,7 @@ export default function Settings() {
             {teamMembers.map((member) => (
               <div
                 key={member.id}
-                className="border border-gray-200 rounded-xl p-5 relative"
+                className="border border-gray-200 rounded-xl p-4 sm:p-5 relative"
               >
                 {/* Remove button */}
                 <button
@@ -703,15 +744,15 @@ export default function Settings() {
                 </button>
 
                 {/* Photo upload */}
-                <div className="flex items-center gap-4 mb-4">
+                <div className="flex flex-wrap items-center gap-4 mb-4 pr-8">
                   {member.photoUrl ? (
                     <img
                       src={member.photoUrl}
                       alt={member.name || 'Team member'}
-                      className="w-16 h-16 rounded-full object-cover border border-gray-200"
+                      className="w-16 h-16 shrink-0 rounded-full object-cover border border-gray-200"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-lg font-bold">
+                    <div className="w-16 h-16 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-lg font-bold">
                       {member.name
                         ? member.name.split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2)
                         : '?'}
@@ -786,7 +827,7 @@ export default function Settings() {
       {activeTab === 'contactus' && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -826,18 +867,6 @@ export default function Settings() {
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               />
             </div>
-            {/* <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">Language</label>
-              <select
-                value={generalSettings.language}
-                onChange={(e) => setGeneralSettings({ ...generalSettings, language: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="en">English</option>
-                <option value="si">Sinhala</option>
-                <option value="ta">Tamil</option>
-              </select>
-            </div> */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">Contact Phone (Hotline)</label>
               <input
@@ -936,10 +965,10 @@ export default function Settings() {
       {activeTab === 'notifications' && canManageUsers && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <Bell size={18} className="text-blue-600" />
             </div>
             <div>
@@ -957,8 +986,8 @@ export default function Settings() {
               { key: 'paymentReminders', label: 'Payment Reminders', description: 'Receive alerts for pending and overdue payments' },
               { key: 'systemMaintenance', label: 'System Maintenance', description: 'Notifications about scheduled maintenance windows' },
             ].map((item) => (
-              <div key={item.key} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
-                <div>
+              <div key={item.key} className="flex items-center justify-between gap-4 py-3 border-b border-gray-50 last:border-0">
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800">{item.label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.description}</p>
                 </div>
@@ -979,8 +1008,8 @@ export default function Settings() {
               { key: 'smsNotifications', label: 'SMS Notifications', description: 'Receive notifications via SMS' },
               { key: 'pushNotifications', label: 'Push Notifications', description: 'Browser and mobile push notifications' },
             ].map((item) => (
-              <div key={item.key} className="flex items-center justify-between py-3 border-b border-gray-50 last:border-0">
-                <div>
+              <div key={item.key} className="flex items-center justify-between gap-4 py-3 border-b border-gray-50 last:border-0">
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-800">{item.label}</p>
                   <p className="text-xs text-gray-400 mt-0.5">{item.description}</p>
                 </div>
@@ -1000,10 +1029,10 @@ export default function Settings() {
       {activeTab === 'security' && canManageUsers && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <Shield size={18} className="text-blue-600" />
             </div>
             <div>
@@ -1013,8 +1042,8 @@ export default function Settings() {
           </div>
 
           <div className="space-y-1">
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Two-Factor Authentication</p>
                 <p className="text-xs text-gray-400 mt-0.5">Require 2FA for all admin and manager accounts</p>
               </div>
@@ -1025,8 +1054,8 @@ export default function Settings() {
                 }
               />
             </div>
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Audit Logging</p>
                 <p className="text-xs text-gray-400 mt-0.5">Log all user actions for security auditing</p>
               </div>
@@ -1097,10 +1126,10 @@ export default function Settings() {
       {activeTab === 'system' && canManageUsers && (
         <motion.div
           variants={itemVariants}
-          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-6 hover:shadow-md transition-shadow duration-200"
         >
           <div className="flex items-center gap-3 mb-6">
-            <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-blue-50 flex items-center justify-center">
               <Globe size={18} className="text-blue-600" />
             </div>
             <div>
@@ -1110,8 +1139,8 @@ export default function Settings() {
           </div>
 
           <div className="space-y-1">
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Auto Backup</p>
                 <p className="text-xs text-gray-400 mt-0.5">Automatically backup data at scheduled intervals</p>
               </div>
@@ -1143,56 +1172,135 @@ export default function Settings() {
               }}
             />
             </div>
-            <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
+            <div className="flex items-center justify-between gap-4 py-3 border-b border-gray-50">
+              <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-800">Maintenance Mode</p>
                 <p className="text-xs text-gray-400 mt-0.5">Temporarily disable system access for maintenance</p>
               </div>
               <Toggle
-              enabled={systemSettings.maintenanceMode}
-              onToggle={async () => {
-                const newValue = !systemSettings.maintenanceMode;
-                setSystemSettings({ ...systemSettings, maintenanceMode: newValue });
-
-                try {
-                  const token = localStorage.getItem('token');
-                  const response = await fetch('http://localhost:5000/api/maintenance/mode', {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                      'Authorization': `Bearer ${token}`,
-                    },
-                    body: JSON.stringify({
-                      enabled: newValue,
-                      message: newValue ? 'Scheduled maintenance in progress. We will be back shortly.' : '',
-                    }),
-                  });
-
-                  const result = await response.json();
-
-                  if (!result.success) {
-                    setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
-                    alert('Failed to update maintenance mode: ' + (result.message || 'Unknown error'));
+                enabled={systemSettings.maintenanceMode}
+                onToggle={async () => {
+                  // ✅ ON karanna hadanawa nam — message eka one, modal eka open karanna
+                  if (!systemSettings.maintenanceMode) {
+                    setMaintenanceMessage('Scheduled maintenance in progress. We will be back shortly.');
+                    setShowMaintenanceModal(true);
+                    return;
                   }
-                } catch (err) {
-                  setSystemSettings({ ...systemSettings, maintenanceMode: !newValue });
-                  console.error('Maintenance mode toggle failed:', err);
-                }
-              }}
+
+                  // OFF karanna hadanawa nam — direct turn off karanna
+                  setSystemSettings({ ...systemSettings, maintenanceMode: false });
+                  try {
+                    const token = localStorage.getItem('token');
+                    const response = await fetch('http://localhost:5000/api/maintenance/mode', {
+                      method: 'PUT',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: `Bearer ${token}`,
+                      },
+                      body: JSON.stringify({ enabled: false, message: '' }),
+                    });
+                    const result = await response.json();
+                    if (!result.success) {
+                      setSystemSettings({ ...systemSettings, maintenanceMode: true });
+                      toast.error('Failed to disable maintenance mode: ' + (result.message || 'Unknown error'));
+                    } else {
+                      toast.success('Maintenance mode turned off');
+                    }
+                  } catch (err) {
+                    setSystemSettings({ ...systemSettings, maintenanceMode: true });
+                    console.error('Maintenance mode toggle failed:', err);
+                    toast.error('Failed to disable maintenance mode');
+                  }
+                }}
               />
             </div>
-            {/* <div className="flex items-center justify-between py-3 border-b border-gray-50">
-              <div>
-                <p className="text-sm font-medium text-gray-800">Debug Mode</p>
-                <p className="text-xs text-gray-400 mt-0.5">Enable detailed error logging and diagnostic output</p>
-              </div>
-              <Toggle
-                enabled={systemSettings.debugMode}
-                onToggle={() =>
-                  setSystemSettings({ ...systemSettings, debugMode: !systemSettings.debugMode })
+
+            {/* ✅ Aluත් — Advance Notice Scheduler */}
+<div className="py-4 border-b border-gray-50">
+  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+    <div>
+      <p className="text-sm font-medium text-gray-800">Advance Maintenance Notice</p>
+      <p className="text-xs text-gray-400 mt-0.5">Notify customers ahead of a planned maintenance window</p>
+    </div>
+    <button
+  onClick={() => {
+    if (upcomingWindows.length > 0) {
+      toast.error('An active notice already exists. Please cancel or edit it before adding a new one.');
+      return;
+    }
+    setEditingWindowId(null);
+    setScheduleStart('');
+    setScheduleEnd('');
+    setScheduleMessage('');
+    setShowScheduleModal(true);
+  }}
+  disabled={upcomingWindows.length > 0}
+  className={`w-full sm:w-auto px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+    upcomingWindows.length > 0
+      ? 'text-gray-400 bg-gray-100 cursor-not-allowed'
+      : 'text-blue-600 bg-blue-50 hover:bg-blue-100'
+  }`}
+>
+  Schedule Notice
+</button>
+  </div>
+
+  {upcomingWindows.length > 0 && (
+  <div className="space-y-2 mt-3">
+    {upcomingWindows.map((w) => (
+      <div key={w.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+        <div className="min-w-0">
+          <p className="font-medium text-amber-800">{w.message}</p>
+          <p className="text-xs text-amber-600 mt-0.5">
+            {new Date(w.scheduled_start).toLocaleString()} → {new Date(w.scheduled_end).toLocaleString()}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* ✅ Edit button */}
+          <button
+  onClick={() => {
+    setEditingWindowId(w.id);
+    setScheduleStart(toDatetimeLocalValue(w.scheduled_start)); // ✅ wenas karanna
+    setScheduleEnd(toDatetimeLocalValue(w.scheduled_end));     // ✅ wenas karanna
+    setScheduleMessage(w.message);
+    setShowScheduleModal(true);
+  }}
+  className="px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+>
+  Edit
+</button>
+          {/* Cancel button (dan thiyena eka) */}
+          <button
+            onClick={async () => {
+              if (!window.confirm('Cancel this maintenance notice?')) return;
+              try {
+                const token = localStorage.getItem('token');
+                const response = await fetch(`http://localhost:5000/api/maintenance/${w.id}`, {
+                  method: 'DELETE',
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                const result = await response.json();
+                if (result.success) {
+                  toast.success('Notice cancelled');
+                  fetchUpcomingWindows();
+                } else {
+                  toast.error(result.message || 'Failed to cancel notice');
                 }
-              />
-            </div> */}
+              } catch (err) {
+                console.error('Cancel notice error:', err);
+                toast.error('Failed to cancel notice');
+              }
+            }}
+            className="px-3 py-1.5 text-xs font-medium text-rose-600 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    ))}
+  </div>
+)}
+</div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mt-6 pt-4 border-t border-gray-100">
@@ -1208,35 +1316,194 @@ export default function Settings() {
                 <option value="weekly">Weekly</option>
               </select>
             </div>
-            <div>
-              {/* <label className="block text-xs font-medium text-gray-600 mb-1.5">Data Retention (days)</label>
-              <select
-                value={systemSettings.dataRetention}
-                onChange={(e) => setSystemSettings({ ...systemSettings, dataRetention: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="90">90 days</option>
-                <option value="180">180 days</option>
-                <option value="365">365 days</option>
-                <option value="730">730 days</option>
-              </select> */}
-            </div>
-            {/* <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1.5">API Rate Limit (req/min)</label>
-              <select
-                value={systemSettings.apiRateLimit}
-                onChange={(e) => setSystemSettings({ ...systemSettings, apiRateLimit: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-              >
-                <option value="100">100</option>
-                <option value="500">500</option>
-                <option value="1000">1000</option>
-                <option value="5000">5000</option>
-              </select>
-            </div> */}
+            <div></div>
           </div>
         </motion.div>
+        
       )}
+      {/* ===== MAINTENANCE MODE MESSAGE MODAL ===== */}
+{showMaintenanceModal && (
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+    <motion.div
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+    >
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">Enable Maintenance Mode</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Write a message that will be shown to users while the system is under maintenance.
+      </p>
+
+      <label className="block text-xs font-medium text-gray-600 mb-1.5">Maintenance Message</label>
+      <textarea
+        value={maintenanceMessage}
+        onChange={(e) => setMaintenanceMessage(e.target.value)}
+        rows={3}
+        placeholder="e.g. We're upgrading our systems. Back online by 5 PM."
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
+      />
+
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 mt-5">
+        <button
+          onClick={() => setShowMaintenanceModal(false)}
+          className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            if (!maintenanceMessage.trim()) {
+              toast.error('Please enter a maintenance message');
+              return;
+            }
+            setMaintenanceLoading(true);
+            try {
+              const token = localStorage.getItem('token');
+              const response = await fetch('http://localhost:5000/api/maintenance/mode', {
+                method: 'PUT',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({ enabled: true, message: maintenanceMessage.trim() }),
+              });
+              const result = await response.json();
+              if (result.success) {
+                setSystemSettings({ ...systemSettings, maintenanceMode: true });
+                toast.success('Maintenance mode enabled');
+                setShowMaintenanceModal(false);
+              } else {
+                toast.error('Failed to enable maintenance mode: ' + (result.message || 'Unknown error'));
+              }
+            } catch (err) {
+              console.error('Maintenance mode enable failed:', err);
+              toast.error('Failed to enable maintenance mode');
+            } finally {
+              setMaintenanceLoading(false);
+            }
+          }}
+          disabled={maintenanceLoading}
+          className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {maintenanceLoading ? 'Enabling...' : 'Enable Maintenance Mode'}
+        </button>
+      </div>
+    </motion.div>
+  </div>
+)}
+
+{/* ===== SCHEDULE ADVANCE NOTICE MODAL ===== */}
+{showScheduleModal && (
+  <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4">
+    <motion.div
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+    >
+      <h2 className="text-lg font-semibold text-gray-900 mb-1">
+        {editingWindowId ? 'Edit Maintenance Notice' : 'Schedule Maintenance Notice'}
+      </h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Customers will see this notice in advance, before maintenance actually starts.
+      </p>
+
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">Start Date &amp; Time</label>
+          <input
+            type="datetime-local"
+            value={scheduleStart}
+            onChange={(e) => setScheduleStart(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">End Date &amp; Time</label>
+          <input
+            type="datetime-local"
+            value={scheduleEnd}
+            onChange={(e) => setScheduleEnd(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1.5">Notice Message</label>
+          <textarea
+            value={scheduleMessage}
+            onChange={(e) => setScheduleMessage(e.target.value)}
+            rows={3}
+            placeholder="e.g. We'll be performing scheduled maintenance on Sunday, 2AM - 4AM."
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all resize-none"
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 mt-5">
+        <button
+          onClick={() => {
+            setShowScheduleModal(false);
+            setEditingWindowId(null);
+          }}
+          className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={async () => {
+            if (!scheduleStart || !scheduleEnd || !scheduleMessage.trim()) {
+              toast.error('Please fill in start time, end time, and message.');
+              return;
+            }
+            if (new Date(scheduleEnd) <= new Date(scheduleStart)) {
+              toast.error('End time must be after start time.');
+              return;
+            }
+            setScheduleLoading(true);
+            try {
+              const token = localStorage.getItem('token');
+              const isEdit = !!editingWindowId;
+              const url = isEdit
+                ? `http://localhost:5000/api/maintenance/${editingWindowId}`
+                : 'http://localhost:5000/api/maintenance';
+              const method = isEdit ? 'PUT' : 'POST';
+
+              const response = await fetch(url, {
+                method,
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  scheduledStart: new Date(scheduleStart).toISOString(),
+                  scheduledEnd: new Date(scheduleEnd).toISOString(),
+                  message: scheduleMessage.trim(),
+                }),
+              });
+              const result = await response.json();
+              if (result.success) {
+                toast.success(isEdit ? 'Notice updated successfully' : 'Maintenance notice scheduled successfully');
+                setShowScheduleModal(false);
+                setEditingWindowId(null);
+                fetchUpcomingWindows();
+              } else {
+                toast.error(result.message || 'Failed to save notice');
+              }
+            } catch (err) {
+              console.error('Save maintenance notice error:', err);
+              toast.error('Failed to save notice');
+            } finally {
+              setScheduleLoading(false);
+            }
+          }}
+          disabled={scheduleLoading}
+          className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {scheduleLoading ? 'Saving...' : editingWindowId ? 'Update Notice' : 'Schedule Notice'}
+        </button>
+      </div>
+    </motion.div>
+  </div>
+)}
 
     </motion.div>
   );

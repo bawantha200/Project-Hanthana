@@ -54,7 +54,7 @@ exports.getStock = async (req, res) => {
     }
 
     const stock = inventory?.empty_bottle_stock || 0;
-    console.log(`📊 Current empty bottle stock: ${stock}`);
+    console.log(`📊 Current shared empty bottle stock: ${stock}`);
 
     const { data: deliveries, error: delError } = await supabase
       .from('deliveries')

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 const AuthContext = createContext(null);
@@ -34,48 +34,65 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Derived state to check if current user has ADMIN role
   const isAdmin = user?.role?.toUpperCase() === 'ADMIN';
 
+  // Refs to manage inactivity timeout timers
+  const idleTimerRef = useRef(null);
+  const warningTimerRef = useRef(null);
+  const sessionTimeoutMinutesRef = useRef(30); // Default timeout in minutes
+
   /**
-   * Standardizes database variations of user objects into camelCase fields used by components
+   * Standardizes database variations of user objects into consistent camelCase/snake_case fields
    */
-  const formatUserData = useCallback((data) => {
-    if (!data) return null;
+const formatUserData = useCallback((data) => {
+  if (!data) return null;
 
-    const finalFullName = data.fullName || data.full_name || 'User Profile';
-    const finalRole = data.role || data.role_name || 'CUSTOMER';
-    const finalPhone = data.phone || data.phone_number || '';
-    const finalAddress = data.address || '';
+  const { isGoogleUser, hasPassword } = detectUserType(data);
 
-    return {
-      ...data,
-      id: data.id,
-      email: data.email || '',
-      fullName: finalFullName, 
-      full_name: finalFullName, 
-      role: finalRole.toUpperCase(),
-      role_name: finalRole.toUpperCase(), 
-      phone: finalPhone,
-      phone_number: finalPhone,
-      address: finalAddress,
-      roleColor: getRoleColorClass(finalRole)
-    };
-  }, []);
+  const finalFullName = data.fullName || data.full_name || 'User Profile';
+  const finalRole = data.role || data.role_name || 'CUSTOMER';
+  const finalPhone = data.phone || data.phone_number || '';
+  const finalAddress = data.address || '';
+
+  return {
+    ...data,
+    id: data.id,
+    email: data.email || '',
+    fullName: finalFullName, 
+    full_name: finalFullName, 
+    role: finalRole.toUpperCase(),
+    role_name: finalRole.toUpperCase(), 
+    phone: finalPhone,
+    phone_number: finalPhone,
+    address: finalAddress,
+    hasPassword: hasPassword || data.hasPassword || false,
+    provider: isGoogleUser ? 'google' : 'email',
+    roleColor: getRoleColorClass(finalRole)
+  };
+}, []);
 
   /**
-   * Checks local storage for tokens and synchronizes session state with the Express backend
+   * Retrieves active Supabase session token and verifies user authentication with Express backend
    */
   const checkAuthStatus = useCallback(async () => {
-    const token = localStorage.getItem('token'); 
-    
-    if (!token) {
-      setUser(null);
-      setPermissions([]);
-      setLoading(false);
-      return;
-    }
-
     try {
+      // 1. Fetch latest active session directly from Supabase to handle token refreshes properly
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || localStorage.getItem('token'); 
+      
+      if (!token) {
+        setUser(null);
+        setPermissions([]);
+        setLoading(false);
+        return;
+      }
+
+      // Sync active token to localStorage for backend requests
+      localStorage.setItem('token', token);
+
+      // 2. Validate token against backend endpoint
       const response = await fetch('http://localhost:5000/api/auth/me', {
         method: 'GET',
         headers: {
@@ -90,13 +107,13 @@ export function AuthProvider({ children }) {
         setUser(formatUserData(result.user)); 
         setPermissions(result.permissions || []); 
       } else {
+        // Clear stored token and state if token validation fails
         localStorage.removeItem('token');
         setUser(null);
         setPermissions([]);
       }
     } catch (error) {
       console.error("Auth state checking error:", error);
-      localStorage.removeItem('token');
       setUser(null);
       setPermissions([]);
     } finally {
@@ -104,12 +121,35 @@ export function AuthProvider({ children }) {
     }
   }, [formatUserData]);
 
+  /**
+   * Initial authentication check and Supabase Auth State listener lifecycle
+   */
   useEffect(() => {
     checkAuthStatus();
+
+    // Listen to auth state changes (e.g., token refreshes, sign in, sign out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session) {
+        localStorage.setItem('token', session.access_token);
+        
+        // Re-verify auth status on explicit login or token refresh events
+        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          checkAuthStatus();
+        }
+      } else if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('token');
+        setUser(null);
+        setPermissions([]);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, [checkAuthStatus]);
 
   /**
-   * Sets up local session and authenticates context following email or OAuth workflows
+   * Manual login handler to persist token and update application state
    */
   const login = useCallback((userData, sessionOrToken, dynamicPermissions) => {
     const token = typeof sessionOrToken === 'object' && sessionOrToken !== null
@@ -126,20 +166,99 @@ export function AuthProvider({ children }) {
   }, [formatUserData]);
 
   /**
-   * Destroys active tokens and clears memory state wrappers
+   * Destroys active Supabase session and clears local application state
    */
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      console.error("Supabase signout error:", e);
+    }
     localStorage.removeItem('token');
     setUser(null);
     setPermissions([]);
   }, []);
 
   /**
-   * Sends updated profile changes to the database and refreshes local application state
+   * Fetches configurable session timeout settings from backend
+   */
+  const fetchSessionTimeout = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || localStorage.getItem('token');
+      if (!token) return;
+
+      const response = await fetch('http://localhost:5000/api/settings/security', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const result = await response.json();
+      const minutes = parseInt(result?.settings?.sessionTimeout || '30', 10);
+      sessionTimeoutMinutesRef.current = minutes;
+    } catch (error) {
+      console.error('Failed to fetch session timeout setting:', error);
+      sessionTimeoutMinutesRef.current = 30; // Fallback default
+    }
+  }, []);
+
+  /**
+   * Handles automatic logout upon user inactivity
+   */
+  const handleIdleLogout = useCallback(() => {
+    clearTimeout(idleTimerRef.current);
+    clearTimeout(warningTimerRef.current);
+    logout();
+    window.location.href = '/login';
+  }, [logout]);
+
+  /**
+   * Resets inactivity timers whenever user interaction is detected
+   */
+  const resetIdleTimer = useCallback(() => {
+    clearTimeout(idleTimerRef.current);
+    clearTimeout(warningTimerRef.current);
+
+    const timeoutMs = sessionTimeoutMinutesRef.current * 60 * 1000;
+    const warningMs = Math.max(timeoutMs - 60000, timeoutMs * 0.9); // Warning 1 min before logout
+
+    warningTimerRef.current = setTimeout(() => {
+      console.warn('Session will expire in 1 minute due to inactivity.');
+    }, warningMs);
+
+    idleTimerRef.current = setTimeout(() => {
+      handleIdleLogout();
+    }, timeoutMs);
+  }, [handleIdleLogout]);
+
+  /**
+   * Sets up global event listeners for tracking user interactions
+   */
+  useEffect(() => {
+    if (!user) return;
+
+    fetchSessionTimeout().then(() => {
+      resetIdleTimer();
+    });
+
+    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'];
+    const handleActivity = () => resetIdleTimer();
+
+    events.forEach(evt => window.addEventListener(evt, handleActivity));
+
+    return () => {
+      events.forEach(evt => window.removeEventListener(evt, handleActivity));
+      clearTimeout(idleTimerRef.current);
+      clearTimeout(warningTimerRef.current);
+    };
+  }, [user, fetchSessionTimeout, resetIdleTimer]);
+
+  /**
+   * Sends profile mutation updates to Express API and updates local user state
    */
   const updateUser = useCallback(async (updatedProfileData) => {
     try {
-      const token = localStorage.getItem('token');
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token || localStorage.getItem('token');
+
       const response = await fetch('http://localhost:5000/api/auth/profile', { 
         method: 'PUT',
         headers: {
@@ -163,38 +282,30 @@ export function AuthProvider({ children }) {
     }
   }, [formatUserData]);
 
+  /**
+   * Checks if current user possesses a specific permission privilege
+   */
   const hasPermission = useCallback((permissionName) => {
     return permissions.includes(permissionName);
   }, [permissions]);
 
   /**
-   * Directs users outward to high-level Google integration pipelines
-   */
-/**
-   * Directs users outward to high-level Google integration pipelines
+   * Initiates Google OAuth authentication flow through Supabase Client
    */
   const loginWithGoogle = useCallback(async () => {
     try {
-      console.log("[AUTH CONTEXT] Initializing Supabase signInWithOAuth for Google...");
-      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: 'http://localhost:5173/auth/callback',
-          // Ensures the provider returns the URL cleanly if auto-redirect behaves sluggishly
           skipBrowserRedirect: false, 
         },
       });
       
       if (error) throw error;
 
-      // 🌟 CRITICAL FIX: If Supabase generated the authentication URL but didn't 
-      // automatically trigger the browser redirection, force the window to navigate there now!
       if (data?.url) {
-        console.log("[AUTH CONTEXT] Redirecting window location to Supabase OAuth destination:", data.url);
         window.location.href = data.url;
-      } else {
-        console.warn("[AUTH CONTEXT] OAuth initiated, but no redirect URL was returned in the data payload.");
       }
 
       return data;
@@ -203,6 +314,26 @@ export function AuthProvider({ children }) {
       throw err;
     }
   }, []);
+
+  // Add this function inside AuthContext.jsx
+// ============ FILE: AuthContext.jsx ============
+// LOCATION: Add this function inside your AuthContext component
+
+// Add this function to detect user type
+const detectUserType = (user) => {
+  if (!user) return { isGoogleUser: false, hasPassword: false };
+  
+  // Check if user is from Google
+  const isGoogleUser = user?.provider === 'google' || 
+                       user?.authProvider === 'google' ||
+                       user?.identities?.some?.(id => id.provider === 'google') ||
+                       user?.app_metadata?.provider === 'google';
+  
+  // Check if user has a password
+  const hasPassword = user?.hasPassword || false;
+  
+  return { isGoogleUser, hasPassword };
+};
 
   return (
     <AuthContext.Provider value={{ 
@@ -225,6 +356,9 @@ export function AuthProvider({ children }) {
   );
 }
 
+/**
+ * Custom hook to easily consume AuthContext in child components
+ */
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth hooks lifecycle runtime context access validation error');

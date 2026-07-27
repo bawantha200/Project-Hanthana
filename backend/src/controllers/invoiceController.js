@@ -42,4 +42,31 @@ async function financialReport(req, res) {
   }
 }
 
-module.exports = { listInvoices, getInvoice, generateInvoice, financialReport };
+// GET /api/invoices/pending-payments
+async function pendingPayments(req, res) {
+  try {
+    const total = await invoiceService.getPendingPaymentsTotal();
+    res.json({ pendingPayments: total });
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
+}
+
+// GET /api/invoices/monthly-revenue — from system start (May 2026) to the current month
+async function monthlyRevenue(req, res) {
+  try {
+    const data = await invoiceService.getMonthlyRevenueHistory();
+    res.json(data);
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
+}
+
+module.exports = {
+  listInvoices,
+  getInvoice,
+  generateInvoice,
+  financialReport,
+  pendingPayments,
+  monthlyRevenue,
+};

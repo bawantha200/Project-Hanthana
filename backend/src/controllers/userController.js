@@ -137,7 +137,7 @@ const createUserFromEmployee = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fullName, email, phone, address, role, status } = req.body;
+    const { fullName, email, phone, address, role, status, password } = req.body; // ✅ added password
 
     if (!fullName || !email || !role) {
       return res.status(400).json({
@@ -146,8 +146,15 @@ const updateUser = async (req, res) => {
       });
     }
 
+    if (password && password.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters.'
+      });
+    }
+
     const updated = await userService.updateUser(id, {
-      fullName, email, phone, address, role, status
+      fullName, email, phone, address, role, status, password // ✅ added password
     });
 
     return res.status(200).json({
@@ -163,6 +170,7 @@ const updateUser = async (req, res) => {
     });
   }
 };
+
 
 // ===== DELETE USER =====
 const deleteUser = async (req, res) => {
@@ -189,10 +197,10 @@ const updateUserStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!status || !['pending', 'active'].includes(status)) {
+    if (!status || !['active', 'inactive'].includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be "pending" or "active".'
+        message: 'Invalid status. Must be "active" or "inactive".'
       });
     }
 

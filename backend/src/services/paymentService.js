@@ -202,16 +202,7 @@ const verifyPaymentNotification = async (notificationData) => {
         });
     }
 
-    // Update order
-    await supabase
-      .from('orders')
-      .update({
-        payment_status: paymentStatus,
-        order_status: orderStatus,
-      })
-      .eq('id', actualOrderId);
-
-    console.log(`✅ Order #${actualOrderId} updated to:`, orderStatus);
+    
 
     if (paymentStatus === 'COMPLETED') {
       try {

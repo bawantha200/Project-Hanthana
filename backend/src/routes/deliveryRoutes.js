@@ -8,7 +8,9 @@ const {
   updateDelivery,
   getMyStats,
   assignRider,
-  getDeliveryPersonnel // Added
+  getDeliveryPersonnel,
+  updateLocation,
+  getLocation
 } = require('../controllers/deliveryController');
 const { protect } = require('../middlewares/authMiddleware');
 
@@ -16,8 +18,12 @@ const { protect } = require('../middlewares/authMiddleware');
 router.use(protect);
 
 // ========== DELIVERY PERSONNEL ROUTE ==========
-// GET /api/deliveries/personnel - Get all riders
 router.get('/personnel', getDeliveryPersonnel);
+
+// ========== LOCATION ROUTES ==========
+router.get('/location/:orderId', getLocation);
+router.post('/location', updateLocation);
+router.put('/location', updateLocation);
 
 // ========== RIDER ROUTES ==========
 router.get('/my-deliveries', getMyDeliveries);

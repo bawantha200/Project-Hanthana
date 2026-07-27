@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Search, Plus, Shield, UserPlus, Filter, ToggleLeft, ToggleRight,
   Edit, Trash2, X, AlertTriangle, Mail, Phone, MapPin, Briefcase, Calendar,
-  User, CreditCard, Heart, Camera, Image, Home, Smartphone, FileText, Circle, Clock, Lock
+  User, CreditCard, Heart, Camera, Image, Home, Smartphone, FileText, Circle, Clock, Lock,ArrowUpRight
 } from 'lucide-react';
 import RoleBadge from '../../components/RoleBadge';
 import StatusBadge from '../../components/StatusBadge';
@@ -27,7 +28,10 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-const roleFilters = ['ALL', 'ADMIN', 'MANAGER', 'EMPLOYEE', 'CUSTOMER'];
+// Delete the static roleFilters const entirely, and replace its usage with this computed value inside the component:
+
+
+
 const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE'];
 
 export default function UserManagement() {
@@ -46,9 +50,14 @@ export default function UserManagement() {
   const [employeesLoading, setEmployeesLoading] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [userStatusFilter, setUserStatusFilter] = useState("ALL");
 
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const usersPerPage = 10;
+  const [employeeCurrentPage, setEmployeeCurrentPage] = useState(1);
+  const employeesPerPage = 5;
 
   // ===== MODAL STATES =====
   const [showModal, setShowModal] = useState(false);
@@ -63,6 +72,9 @@ export default function UserManagement() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [creating, setCreating] = useState(false);
+
+  // ===== ✅ NEW STATE FOR TOGGLE CONFIRMATION =====
+  const [toggleConfirm, setToggleConfirm] = useState(null);
 
   // ===== FORM STATE FOR CREATE/EDIT USER =====
   const [formData, setFormData] = useState({
@@ -84,6 +96,8 @@ export default function UserManagement() {
   });
 
 
+  const navigate = useNavigate();
+
   const employeeRecordsRef = useRef(null);
 
   const hasAccess = ['ADMIN', 'CEO'].includes(
@@ -92,6 +106,13 @@ export default function UserManagement() {
 
   const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
 
+
+  const dynamicRoleFilters = [
+  'ALL',
+  ...roles
+    .filter((r) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(r.role_name))
+    .map((r) => r.role_name),
+];
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -200,10 +221,21 @@ const handleCreateAccount = async () => {
   }
 };
 
-  // ===== TOGGLE USER STATUS (dummy – profiles don't have status) =====
-  const toggleUserStatus = async (userId, currentStatus, e) => {
-    e?.stopPropagation();
-    toast.info("User status toggle is not applicable for profiles. Use employee status instead.");
+  // ===== ✅ TOGGLE USER STATUS (UPDATED – no event parameter) =====
+  const handleToggleClick = async (userId, currentStatus) => {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    try {
+      await axios.patch(
+        `${API_BASE}/users/${userId}/status`,
+        { status: newStatus },
+        { headers: getAuthHeaders() }
+      );
+      toast.success(`User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully`);
+      await fetchUsers();
+    } catch (err) {
+      console.error('Toggle error:', err);
+      toast.error(err.response?.data?.message || 'Failed to update status');
+    }
   };
 
   // ===== MODAL FUNCTIONS (for profiles) =====
@@ -436,7 +468,13 @@ const handleSubmit = async (e) => {
     profileImage: formData.profileImage || null,
   };
 
-  if (!editingUser) payload.password = formData.password;
+  if (!editingUser) {
+  // Creating new user — password always required
+  payload.password = formData.password;
+} else if (formData.password) {
+  // ✅ Editing existing user — only include password if admin actually typed a new one
+  payload.password = formData.password;
+}
 
   try {
     if (editingUser) {
@@ -483,14 +521,19 @@ const handleSubmit = async (e) => {
 
   // ===== FILTERS =====
   const filteredUsers = users.filter((user) => {
-    const matchesSearch =
-      user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
-      user.email?.toLowerCase().includes(userSearch.toLowerCase());
-    const matchesRole =
-      roleFilter === "ALL" ||
-      user.roles?.role_name?.toUpperCase() === roleFilter;
-    return matchesSearch && matchesRole;
-  });
+  const matchesSearch =
+    user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+    user.email?.toLowerCase().includes(userSearch.toLowerCase());
+  const matchesRole =
+    roleFilter === "ALL" ||
+    user.roles?.role_name?.toUpperCase() === roleFilter;
+  const matchesStatus =
+    userStatusFilter === "ALL" ||
+    (userStatusFilter === "ACTIVE" && user.status === "active") ||
+    (userStatusFilter === "INACTIVE" && user.status === "inactive");
+  const isNotCustomer = user.roles?.role_name?.toUpperCase() !== 'CUSTOMER'; // ✅ new
+  return matchesSearch && matchesRole && matchesStatus && isNotCustomer;
+});
 
   const filteredEmployees = employees.filter((emp) => {
     const matchesSearch =
@@ -503,6 +546,27 @@ const handleSubmit = async (e) => {
       (statusFilter === "ACTIVE" && emp.status === "active");
     return matchesSearch && matchesStatus;
   });
+
+  const totalEmployeePages = Math.ceil(filteredEmployees.length / employeesPerPage);
+  const paginatedEmployees = filteredEmployees.slice(
+    (employeeCurrentPage - 1) * employeesPerPage,
+    employeeCurrentPage * employeesPerPage
+  );
+
+
+  useEffect(() => {
+    setEmployeeCurrentPage(1);
+  }, [employeeSearch, statusFilter]);
+
+  const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * usersPerPage,
+    currentPage * usersPerPage
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [userSearch, roleFilter,userStatusFilter]);
 
   // ===== COUNTS =====
   const userCounts = {
@@ -579,16 +643,28 @@ const handleSubmit = async (e) => {
             <div><p className="text-xs text-gray-400 font-medium">Admins</p><p className="text-lg font-bold text-gray-900">{userCounts.admins}</p></div>
           </div>
         </div>
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center"><Users size={16} className="text-blue-600" /></div>
-            <div><p className="text-xs text-gray-400 font-medium">Managers</p><p className="text-lg font-bold text-gray-900">{userCounts.managers}</p></div>
-          </div>
-        </div>
+        <div
+  onClick={() => navigate('/app/customers')}
+  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+>
+  <ArrowUpRight
+    size={14}
+    className="absolute top-3 right-3 text-emerald-500"
+  />
+  <div className="flex items-center gap-3">
+    <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+      <Users size={16} className="text-blue-600" />
+    </div>
+    <div>
+      <p className="text-xs text-gray-400 font-medium">Customers</p>
+      <p className="text-lg font-bold text-gray-900">{userCounts.customers}</p>
+    </div>
+  </div>
+</div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-50 flex items-center justify-center"><Users size={16} className="text-cyan-600" /></div>
-            <div><p className="text-xs text-gray-400 font-medium">Employees</p><p className="text-lg font-bold text-gray-900">{userCounts.employees}</p></div>
+            <div><p className="text-xs text-gray-400 font-medium">Employees (Registered)</p><p className="text-lg font-bold text-gray-900">{employeeCounts.total}</p></div>
           </div>
         </div>
         <div
@@ -608,7 +684,7 @@ const handleSubmit = async (e) => {
     </div>
 
     <div>
-      <p className="text-xs text-gray-400 font-medium">Pending</p>
+      <p className="text-xs text-gray-400 font-medium">Pending Employees</p>
       <p className="text-lg font-bold text-yellow-600">
         {employeeCounts.pending}
       </p>
@@ -626,6 +702,7 @@ const handleSubmit = async (e) => {
         </div>
 
         <div className="flex items-center gap-4 flex-wrap">
+          
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -641,20 +718,42 @@ const handleSubmit = async (e) => {
             <span className="text-xs text-gray-400 font-medium">Role:</span>
           </div>
           <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
-            {roleFilters.map((role) => (
-              <button
-                key={role}
-                onClick={() => setRoleFilter(role)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-                  roleFilter === role
-                    ? 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {role === 'ALL' ? 'All' : role}
-              </button>
-            ))}
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
+            >
+              {dynamicRoleFilters.map((role) => (
+  <option key={role} value={role}>
+    {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
+  </option>
+))}
+            </select>
           </div>
+
+          <div className="flex items-center gap-1.5">
+  <Filter size={14} className="text-gray-400" />
+  <span className="text-xs text-gray-400 font-medium">Status:</span>
+</div>
+<div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
+  {['ALL', 'ACTIVE', 'INACTIVE'].map((status) => (
+    <button
+      key={status}
+      onClick={() => setUserStatusFilter(status)}
+      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+        userStatusFilter === status
+          ? status === 'ACTIVE'
+            ? 'bg-emerald-500 text-white shadow-sm'
+            : status === 'INACTIVE'
+            ? 'bg-red-500 text-white shadow-sm'
+            : 'bg-blue-600 text-white shadow-sm'
+          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+      }`}
+    >
+      {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
+    </button>
+  ))}
+</div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200">
@@ -673,6 +772,8 @@ const handleSubmit = async (e) => {
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
+                    
+
                     {canManageUsers && (
                         <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Actions
@@ -681,7 +782,7 @@ const handleSubmit = async (e) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.map((user) => (
+                  {paginatedUsers.map((user) => (
                     <tr
                       key={user.id}
                       onClick={() => openProfileModal(user)}
@@ -704,6 +805,24 @@ const handleSubmit = async (e) => {
                         <div className="flex items-center justify-end gap-1.5">
                           {canManageUsers && (
                             <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setToggleConfirm(user);
+                                }}
+                                className={`p-1.5 rounded-lg border transition-all duration-200 shadow-sm ${
+                                  user.status === 'active'
+                                    ? 'border-emerald-200 text-emerald-600 bg-emerald-50 hover:bg-emerald-100/70'
+                                    : 'border-red-200 text-red-500 bg-red-50 hover:bg-red-100/70'
+                                }`}
+                                title={user.status === 'active' ? 'Click to Deactivate' : 'Click to Activate'}
+                              >
+                                {user.status === 'active' ? (
+                                  <ToggleRight size={18} className="text-emerald-600" />
+                                ) : (
+                                  <ToggleLeft size={18} className="text-red-400" />
+                                )}
+                              </button>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -733,6 +852,34 @@ const handleSubmit = async (e) => {
               </table>
             )}
           </div>
+          {/* Pagination Controls */}
+          {!usersLoading && filteredUsers.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
+              <span className="text-xs text-gray-500">
+                Showing {(currentPage - 1) * usersPerPage + 1}–
+                {Math.min(currentPage * usersPerPage, filteredUsers.length)} of {filteredUsers.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </motion.div>
 
@@ -808,7 +955,7 @@ const handleSubmit = async (e) => {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredEmployees.map((emp) => {
+                  {paginatedEmployees.map((emp) => {
                     const isPending = emp.status === 'pending';
                     return (
                       <tr
@@ -826,6 +973,7 @@ const handleSubmit = async (e) => {
                         </td>
                         {canManageUsers && (
                         <td className="py-3 px-4 text-right">
+                          
                           {isPending ? (
                             <button
                               onClick={() => {
@@ -848,6 +996,37 @@ const handleSubmit = async (e) => {
               </table>
             )}
           </div>
+          
+
+          {/* Pagination Controls */}
+          {!employeesLoading && filteredEmployees.length > 0 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
+              <span className="text-xs text-gray-500">
+                Showing {(employeeCurrentPage - 1) * employeesPerPage + 1}–
+                {Math.min(employeeCurrentPage * employeesPerPage, filteredEmployees.length)} of {filteredEmployees.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setEmployeeCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={employeeCurrentPage === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 px-2">
+                  Page {employeeCurrentPage} of {totalEmployeePages}
+                </span>
+                <button
+                  onClick={() => setEmployeeCurrentPage((p) => Math.min(totalEmployeePages, p + 1))}
+                  disabled={employeeCurrentPage === totalEmployeePages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+       
         </div>
       </motion.div>
 
@@ -1140,8 +1319,8 @@ const handleSubmit = async (e) => {
                       <option disabled>Loading roles...</option>
                     ) : (
                       roles
-                        .filter((role) => !['CUSTOMER', 'MANAGER'].includes(role.role_name))
-                        .map((role) => <option key={role.id} value={role.id}>{role.role_name}</option>)
+  .filter((role) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(role.role_name))
+  .map((role) => <option key={role.id} value={role.id}>{role.role_name}</option>)
                     )}
                   </select>
                   {errors.roleId && <p className="text-xs text-rose-500 mt-1">{errors.roleId}</p>}
@@ -1338,6 +1517,43 @@ const handleSubmit = async (e) => {
             </form>
           </motion.div>
         </motion.div>
+      )}
+
+      {/* ===== ✅ TOGGLE CONFIRMATION MODAL ===== */}
+      {toggleConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Confirm {toggleConfirm.status === 'active' ? 'Deactivation' : 'Activation'}
+            </h3>
+            <p className="text-gray-600 text-sm mb-6">
+              Are you sure you want to {toggleConfirm.status === 'active' ? 'deactivate' : 'activate'} user{' '}
+              <strong>{toggleConfirm.full_name}</strong>?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setToggleConfirm(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // ✅ call without event parameter
+                  handleToggleClick(toggleConfirm.id, toggleConfirm.status);
+                  setToggleConfirm(null);
+                }}
+                className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
+                  toggleConfirm.status === 'active'
+                    ? 'bg-red-600 hover:bg-red-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ===== DELETE CONFIRMATION MODAL ===== */}

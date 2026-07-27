@@ -17,16 +17,24 @@ const {
   getOrderItems
 } = require('../services/ordersService');
 
-const { notifyOrderEvent } = require('../utils/notifications');   // ✅ ADD THIS
-
+const { notifyOrderEvent } = require('../utils/notifications');
 const supabase = require('../config/db');
-
-const { sendSMS } = require('../utils/smsService');
+const { isAdminLevel } = require('../config/roles');
 
 // ========== CREATE ORDER ==========
 const postOrder = async (req, res) => {
   try {
-    const { customerId, orderType, paymentMethod, deliveryLocation, items } = req.body;
+    const { customerId, orderType, paymentMethod, deliveryAddress, items } = req.body;
+    
+    console.log('[postOrder] ==========================================');
+    console.log('[postOrder] Received order data:');
+    console.log('[postOrder] customerId:', customerId);
+    console.log('[postOrder] orderType:', orderType);
+    console.log('[postOrder] paymentMethod:', paymentMethod);
+    console.log('[postOrder] deliveryAddress:', deliveryAddress);
+    console.log('[postOrder] itemsCount:', items?.length || 0);
+    console.log('[postOrder] ==========================================');
+
     if (!customerId || !items || items.length === 0) {
       return res.status(400).json({
         success: false,
@@ -34,21 +42,28 @@ const postOrder = async (req, res) => {
       });
     }
 
+    // ✅ Pass deliveryAddress to createOrder
     const newOrder = await createOrder({
       customerId,
       orderType,
       paymentMethod,
-      deliveryLocation,
+      deliveryAddress,  // ✅ This is the key fix
       items,
     });
 
-    // Staff + customer notifications — only for cash orders (already paid instantly).
-    // Online orders get notified from paymentNotify webhook once payment actually completes.
+    console.log('[postOrder] ✅ Order created successfully:', {
+      orderId: newOrder.id,
+      total: newOrder.total,
+      deliveryFee: newOrder.delivery_fee,
+      isCash: newOrder.isCash
+    });
+
+    // Staff + customer notifications for cash orders
     if (newOrder.isCash) {
       await notifyOrderEvent({
         settingsKey: 'orderAlerts',
         type: 'order',
-        message: `New order #${newOrder.id} placed (Pickup/Cash - Paid)`,
+        message: `New order #${newOrder.id} placed (${orderType} - Cash)`,
         relatedOrderId: newOrder.id,
         targetRole: 'CASHIER,ADMIN',
       });
@@ -64,23 +79,34 @@ const postOrder = async (req, res) => {
       });
     }
 
-    res.status(201).json({ success: true, order: newOrder });
+    res.status(201).json({ 
+      success: true, 
+      order: {
+        id: newOrder.id,
+        total: newOrder.total,
+        delivery_fee: newOrder.delivery_fee,
+        isCash: newOrder.isCash
+      } 
+    });
   } catch (err) {
-    console.error('[postOrder] Error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error('[postOrder] ❌ Error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: err.message || 'Failed to create order' 
+    });
   }
 };
 
-// ========== COMPLETE ORDER (After Payment) ==========
+// ========== COMPLETE ORDER PAYMENT ==========
 const completeOrderPayment = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
 
+    console.log('[completeOrderPayment] ==========================================');
     console.log('[completeOrderPayment] Completing order:', id);
-    console.log('[completeOrderPayment] Request body:', req.body);
+    console.log('[completeOrderPayment] User:', userId);
 
-    // ✅ Validate order ID
     if (!id) {
       return res.status(400).json({ 
         success: false, 
@@ -88,26 +114,10 @@ const completeOrderPayment = async (req, res) => {
       });
     }
 
-    // ✅ Get items from request body
     const { items } = req.body;
-    console.log('[completeOrderPayment] Items received:', items);
+    console.log('[completeOrderPayment] Items received:', JSON.stringify(items, null, 2));
 
-    // ✅ Validate items
-    if (!items) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Items are required' 
-      });
-    }
-
-    if (!Array.isArray(items)) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Items must be an array' 
-      });
-    }
-
-    if (items.length === 0) {
+    if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ 
         success: false, 
         message: 'At least one item is required' 
@@ -122,7 +132,7 @@ const completeOrderPayment = async (req, res) => {
       .single();
 
     if (orderError) {
-      console.error('[completeOrderPayment] Order not found:', orderError);
+      console.error('[completeOrderPayment] ❌ Order not found:', orderError);
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
@@ -140,11 +150,11 @@ const completeOrderPayment = async (req, res) => {
         .select('role_name')
         .eq('id', profile.role_id)
         .single();
-      isAdmin = role?.role_name === 'ADMIN';
+      isAdmin = isAdminLevel(role?.role_name);
     }
 
     if (order.customer_id !== userId && !isAdmin) {
-      console.warn('[completeOrderPayment] Unauthorized access attempt by user:', userId);
+      console.warn('[completeOrderPayment] ⚠️ Unauthorized access attempt by user:', userId);
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -152,17 +162,18 @@ const completeOrderPayment = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Order already completed' });
     }
 
-    // ✅ Format items for the service function
-    // The service expects items with productId and quantity
+    // Format items for the service function
     const formattedItems = items.map(item => ({
       productId: item.productId || item.product_id,
       quantity: item.quantity
     }));
 
-    console.log('[completeOrderPayment] Formatted items:', formattedItems);
+    console.log('[completeOrderPayment] Formatted items:', JSON.stringify(formattedItems, null, 2));
 
     // Complete order and deduct inventory
     const completedOrder = await completeOrder(id, formattedItems);
+
+    console.log('[completeOrderPayment] ✅ Order completed successfully');
 
     // Notification
     await notifyOrderEvent({
@@ -175,7 +186,7 @@ const completeOrderPayment = async (req, res) => {
 
     res.json({ success: true, order: completedOrder });
   } catch (err) {
-    console.error('[completeOrderPayment] Error:', err);
+    console.error('[completeOrderPayment] ❌ Error:', err);
     res.status(500).json({ 
       success: false, 
       message: err.message || 'Failed to complete order' 
@@ -189,6 +200,7 @@ const failOrderPayment = async (req, res) => {
     const { id: orderId } = req.params;
     const userId = req.user.id;
 
+    console.log('[failOrderPayment] ==========================================');
     console.log('[failOrderPayment] Marking payment failed for order:', orderId);
 
     // Verify user has access to this order
@@ -199,7 +211,7 @@ const failOrderPayment = async (req, res) => {
       .single();
 
     if (orderError) {
-      console.error('[failOrderPayment] Order not found:', orderError);
+      console.error('[failOrderPayment] ❌ Order not found:', orderError);
       return res.status(404).json({ success: false, message: 'Order not found' });
     }
 
@@ -216,11 +228,11 @@ const failOrderPayment = async (req, res) => {
         .select('role_name')
         .eq('id', profile.role_id)
         .single();
-      isAdmin = role?.role_name === 'ADMIN';
+      isAdmin = isAdminLevel(role?.role_name);
     }
 
     if (order.customer_id !== userId && !isAdmin) {
-      console.warn('[failOrderPayment] Unauthorized access attempt by user:', userId);
+      console.warn('[failOrderPayment] ⚠️ Unauthorized access attempt by user:', userId);
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
@@ -229,6 +241,8 @@ const failOrderPayment = async (req, res) => {
     }
 
     const failedOrder = await failOrder(orderId);
+
+    console.log('[failOrderPayment] ✅ Order marked as failed');
 
     // Staff notification
     await notifyOrderEvent({
@@ -252,7 +266,7 @@ const failOrderPayment = async (req, res) => {
 
     res.json({ success: true, order: failedOrder });
   } catch (err) {
-    console.error('[failOrderPayment] Error:', err);
+    console.error('[failOrderPayment] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -261,6 +275,8 @@ const failOrderPayment = async (req, res) => {
 const getOrders = async (req, res) => {
   try {
     const userId = req.user.id;
+
+    console.log('[getOrders] Fetching orders for user:', userId);
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -286,18 +302,21 @@ const getOrders = async (req, res) => {
       return res.json({ success: true, orders });
     }
 
-    const isAdmin = role?.role_name === 'ADMIN';
+    const isAdmin = isAdminLevel(role?.role_name);
 
     let orders;
     if (isAdmin) {
+      console.log('[getOrders] Admin user - fetching all orders');
       orders = await getAllOrders();
     } else {
+      console.log('[getOrders] Customer user - fetching their orders');
       orders = await getOrdersByUserId(userId);
     }
 
+    console.log(`[getOrders] Found ${orders?.length || 0} orders`);
     res.json({ success: true, orders });
   } catch (err) {
-    console.error('[getOrders] Error:', err);
+    console.error('[getOrders] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -313,6 +332,8 @@ const getOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
 
+    console.log('[getOrder] Fetching order:', orderId, 'for user:', userId);
+
     const { data: profile } = await supabase
       .from('profiles')
       .select('role_id')
@@ -326,13 +347,13 @@ const getOrder = async (req, res) => {
         .select('role_name')
         .eq('id', profile.role_id)
         .single();
-      isAdmin = role?.role_name === 'ADMIN';
+      isAdmin = isAdminLevel(role?.role_name);
     }
 
     const order = await getOrderById(orderId, userId, isAdmin);
     res.json({ success: true, order });
   } catch (err) {
-    console.error('[getOrder] Error:', err);
+    console.error('[getOrder] ❌ Error:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch order' });
   }
 };
@@ -340,10 +361,12 @@ const getOrder = async (req, res) => {
 // ========== GET USERS ==========
 const getUsers = async (req, res) => {
   try {
+    console.log('[getUsers] Fetching all users');
     const users = await getAllUsers();
+    console.log(`[getUsers] Found ${users?.length || 0} users`);
     res.json({ success: true, users });
   } catch (err) {
-    console.error('[getUsers] Error:', err);
+    console.error('[getUsers] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -351,10 +374,12 @@ const getUsers = async (req, res) => {
 // ========== GET PRODUCTS ==========
 const getProducts = async (req, res) => {
   try {
+    console.log('[getProducts] Fetching all products');
     const products = await getAllProducts();
+    console.log(`[getProducts] Found ${products?.length || 0} products`);
     res.json({ success: true, products });
   } catch (err) {
-    console.error('[getProducts] Error:', err);
+    console.error('[getProducts] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -376,6 +401,8 @@ const updateStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Status is required' });
     }
 
+    console.log('[updateStatus] Updating order:', orderId, 'to status:', status);
+
     const order = await updateOrderStatus(orderId, status, userId);
 
     if (status === 'DELIVERED') {
@@ -391,7 +418,7 @@ const updateStatus = async (req, res) => {
       targetRole: 'CASHIER,ADMIN',
     });
 
-    // ⚠️ ADD THIS — Customer ta status update notify karanna
+    // Customer notification
     await notifyOrderEvent({
       settingsKey: 'orderAlerts',
       type: 'order',
@@ -401,9 +428,10 @@ const updateStatus = async (req, res) => {
       targetRole: 'CUSTOMER',
     });
 
+    console.log('[updateStatus] ✅ Status updated successfully');
     res.json({ success: true, order });
   } catch (err) {
-    console.error('[updateStatus] Error:', err);
+    console.error('[updateStatus] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -425,6 +453,8 @@ const assignDelivery = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Delivery person ID is required' });
     }
 
+    console.log('[assignDelivery] Assigning delivery person:', deliveryPersonId, 'to order:', orderId);
+
     const result = await assignDeliveryPerson(orderId, deliveryPersonId, userId);
 
     await notifyOrderEvent({
@@ -435,9 +465,10 @@ const assignDelivery = async (req, res) => {
       targetRole: 'RIDER,ADMIN,SALES_MANAGER',
     });
 
+    console.log('[assignDelivery] ✅ Delivery assigned successfully');
     res.json({ success: true, ...result });
   } catch (err) {
-    console.error('[assignDelivery] Error:', err);
+    console.error('[assignDelivery] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -445,10 +476,12 @@ const assignDelivery = async (req, res) => {
 // ========== GET DELIVERY PERSONNEL ==========
 const getDeliveryPersonnelList = async (req, res) => {
   try {
+    console.log('[getDeliveryPersonnelList] Fetching delivery personnel');
     const personnel = await getDeliveryPersonnel();
+    console.log(`[getDeliveryPersonnelList] Found ${personnel?.length || 0} personnel`);
     res.json({ success: true, personnel });
   } catch (err) {
-    console.error('[getDeliveryPersonnelList] Error:', err);
+    console.error('[getDeliveryPersonnelList] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -464,12 +497,15 @@ const getOrderDetails = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid order ID' });
     }
 
+    console.log('[getOrderDetails] Fetching order details for:', orderId);
+
     const order = await getOrderWithDetails(orderId);
     const history = await getOrderStatusHistory(orderId);
 
+    console.log('[getOrderDetails] ✅ Order details fetched');
     res.json({ success: true, order, history });
   } catch (err) {
-    console.error('[getOrderDetails] Error:', err);
+    console.error('[getOrderDetails] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -491,10 +527,13 @@ const updateDelivery = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Status is required' });
     }
 
+    console.log('[updateDelivery] Updating delivery status for order:', orderId, 'to:', status);
+
     const delivery = await updateDeliveryStatus(orderId, status, userId);
+    console.log('[updateDelivery] ✅ Delivery status updated');
     res.json({ success: true, delivery });
   } catch (err) {
-    console.error('[updateDelivery] Error:', err);
+    console.error('[updateDelivery] ❌ Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
