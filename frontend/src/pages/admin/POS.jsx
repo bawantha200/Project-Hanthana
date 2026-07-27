@@ -376,7 +376,7 @@ export default function POS() {
   const handleCloseReceipt = () => {
     setShowReceipt(false);
     setLastOrder(null);
-    navigate('/admin/pos');
+    navigate('/app/pos');
   };
 
   const handleKeyDown = (e) => {
@@ -422,7 +422,7 @@ export default function POS() {
         <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => navigate('/admin/pos')}
+              onClick={() => navigate('/app/pos')}
               className="p-2 rounded-xl hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700"
             >
               <ShoppingCart size={20} />

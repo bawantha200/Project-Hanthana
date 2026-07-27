@@ -644,7 +644,7 @@ const handleSubmit = async (e) => {
           </div>
         </div>
         <div
-  onClick={() => navigate('/admin/customers')}
+  onClick={() => navigate('/app/customers')}
   className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
 >
   <ArrowUpRight

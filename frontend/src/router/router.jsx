@@ -78,8 +78,14 @@ function GuestRoute() {
   // using the exact same rule Login.jsx uses right after a fresh login —
   // so a CUSTOMER goes Home, but every other role stays out of Home.
   if (user) {
-    const { hasPermission } = useAuth();
-    return <Navigate to={getTargetRoute(user.role, hasPermission)} replace />;
+    const role = user.role?.toUpperCase();
+    if (role === 'ADMIN') {
+      return <Navigate to="/admin/dashboard" replace />;
+    }
+    else if(role === 'RIDER'){
+      return <Navigate to="/admin/rider-dashboard" replace />;
+    }
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;
@@ -151,6 +157,27 @@ function AdminRoutes() {
   );
 }
 
+/**
+ * Protected wrapper for customer routes that require authentication
+ */
+function CustomerProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
 function CustomerRoutes() {
   return (
     <Routes>
@@ -159,12 +186,32 @@ function CustomerRoutes() {
         <Route path="services" element={<Services />} />
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
-        <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} />
+        {/* <Route path="orders" element={<CustomerOrders />} /> */}
+        {/* <Route path="order/:id" element={<CustomerOrderDetails />} /> */}
         <Route path="tracking" element={<OrderTracking />} />
-        <Route path="profile" element={<Profile />} />
+        {/* <Route path="profile" element={<Profile />} /> */}
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
+
+        {/* Protected routes - require authentication */}
+        <Route path="orders" element={
+            <CustomerProtectedRoute>
+              <CustomerOrders />
+            </CustomerProtectedRoute>} />
+        <Route 
+          path="order/:id" 
+          element={
+            <CustomerProtectedRoute>
+              <CustomerOrderDetails />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <Profile />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <OrderTracking />
+            </CustomerProtectedRoute>} />
 
         {/* 🔒 Restricted for logged-in users */}
         <Route element={<GuestRoute />}>
@@ -186,7 +233,7 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
       <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
-      <Route path="/admin/*" element={<AdminRoutes />} />
+      <Route path="/app/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
     </Routes>
   );

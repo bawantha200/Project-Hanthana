@@ -237,7 +237,7 @@ const ContactUs = () => {
       </section>
 
       {/* Contact Form + Info Cards */}
-      <section className="py-16 sm:py-20 bg-gray-50">
+      <section id="contact-form" className="py-16 sm:py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
             {/* Contact Form */}

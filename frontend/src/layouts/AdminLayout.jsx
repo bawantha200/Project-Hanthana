@@ -40,14 +40,52 @@ import {
   Key, 
   Sliders,
   FileCheck,
-  Factory
+  Factory,
+  UsersRound
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { NAV_ITEMS } from '../config/navItems';
 
 
+// ---------- Navigation Items (each has a permission id) ----------
+const NAV_ITEMS = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/dashboard' },
+  { id: 'sales-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/sales-dashboard' },
+  { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/app/sales-analytics' },
+  { id: 'inventory-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
+  { id: 'jit-dashboard', label: 'JIT Dashboard', icon: Factory, path: '/app/jit-dashboard' },
+  { id: 'products', label: 'Products', icon: Package, path: '/app/products' },
 
+
+  { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/app/inventory' },
+  { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/app/orders' },
+  { id: 'pos', label: 'POS', icon: Clipboard, path: '/app/pos' },
+  { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/app/deliveries' },
+  { id: 'deliveryconfig', label: 'Delivery Configuration', icon: Truck, path: '/app/delivery/config' },
+  { id: 'messages', label: 'Messages', icon: Inbox, path: '/app/messages' },
+
+  { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/app/rider-dashboard' },
+
+  { id: 'customers', label: 'Customers', icon: Users, path: '/app/customers' },
+ 
+  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },
+  { id: 'employees', label: 'Employees', icon: UserCog, path: '/app/employees' },
+  { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/app/hrm' },
+
+  { id: 'finance', label: 'Finance', icon: DollarSign, path: '/app/finance' },
+  { id: 'invoice', label: 'Invoice', icon: FileText, path: '/app/finance/invoicing-reports' },
+  { id: 'expenses', label: 'Expenses', icon: BarChart3, path: '/app/finance/expenses' },
+
+  { id: 'vendors', label: 'Vendors', icon: Store, path: '/app/vendors' },
+
+  { id: 'reports', label: 'Reports', icon: BarChart3, path: '/app/reports' },
+  { id: 'user-management', label: 'User Management', icon: UsersRound, path: '/app/user-management' },
+  { id: 'settings-request', label: 'Settings Requests', icon: FileCheck, path: '/app/settings-requests' },
+  { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/app/manage-permission' },
+  { id: 'settings', label: 'Settings', icon: Settings, path: '/app/settings' },
+
+];
 
 
 

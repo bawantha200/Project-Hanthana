@@ -1078,16 +1078,16 @@ const handleConfirm = async () => {
     <>
       {/* Trigger Button */}
       <motion.button
-  onClick={() => {
-    if (!user) onLoginRequired();
-    else { setIsOpen(true); setStep(1); setSelectedPaymentMethod("CASH"); }
-  }}
-  className={`fixed right-6 z-50 flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full shadow-2xl shadow-blue-500/40 hover:scale-105 transition-all duration-300 ${
-    hasMaintenanceBanner ? 'top-32 lg:top-36' : 'top-20'
-  }`}
-  animate={{ scale: [1, 1.05, 1] }}
-  transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
->
+        onClick={() => {
+          if (!user) onLoginRequired();
+          else { setIsOpen(true); setStep(1); setSelectedPaymentMethod("CASH"); }
+        }}
+        className={`fixed right-6 z-50 flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-full shadow-2xl shadow-blue-500/40 hover:scale-105 transition-all duration-300 ${
+          hasMaintenanceBanner ? 'top-32 lg:top-36' : 'top-20'
+        }`}
+        animate={{ scale: [1, 1.05, 1] }}
+        transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+      >
         <div className="relative">
           <Droplet className="w-6 h-6 fill-white/30" />
           {itemCount > 0 && (

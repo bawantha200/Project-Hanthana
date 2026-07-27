@@ -192,7 +192,7 @@ export default function ExpenseComparison() {
       {/* Header */}
       <motion.div variants={itemVariants}>
         <button
-          onClick={() => navigate('/admin/finance/expenses')}
+          onClick={() => navigate('/app/finance/expenses')}
           className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-2"
         >
           <ArrowLeft size={14} />
