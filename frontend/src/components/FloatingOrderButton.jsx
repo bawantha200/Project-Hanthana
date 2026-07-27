@@ -12,7 +12,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../supabaseClient";
 import toast from "react-hot-toast";
 import api from '../services/api';
-import { calculateDeliveryFee } from '../services/ordersService';
+import { calculateDeliveryFee } from '../services/deliveryFeeService';
 
 // PAYHERE CONFIGURATION
 const PAYHERE_CONFIG = {
