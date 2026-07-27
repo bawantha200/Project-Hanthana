@@ -645,12 +645,12 @@ const handleSubmit = async (e) => {
         </div>
         <div
   onClick={() => navigate('/admin/customers')}
-  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer group"
 >
-  <ArrowUpRight
-    size={14}
-    className="absolute top-3 right-3 text-emerald-500"
-  />
+  <div className="absolute top-3 right-3 flex items-center gap-1 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+    <span className="text-[11px] font-medium">View all</span>
+    <ArrowUpRight size={14} />
+  </div>
   <div className="flex items-center gap-3">
     <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
       <Users size={16} className="text-blue-600" />
@@ -789,13 +789,21 @@ const handleSubmit = async (e) => {
                       className="border-b border-gray-50 last:border-0 hover:bg-blue-50/50 cursor-pointer transition-colors"
                     >
                       <td className="py-3 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-xs font-bold">
-                            {user.full_name?.split(" ").map((n) => n[0]).join("")}
-                          </div>
-                          <span className="font-medium text-gray-900">{user.full_name}</span>
-                        </div>
-                      </td>
+  <div className="flex items-center gap-2.5">
+    <div className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+      {user.profile_image ? (
+        <img
+          src={user.profile_image}
+          alt={user.full_name}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        user.full_name?.split(" ").map((n) => n[0]).join("")
+      )}
+    </div>
+    <span className="font-medium text-gray-900">{user.full_name}</span>
+  </div>
+</td>
                       <td className="py-3 px-4 text-gray-600">{user.email}</td>
                       <td className="py-3 px-4"><RoleBadge role={user.roles?.role_name} /></td>
                       <td className="py-3 px-4 text-gray-500 text-xs">
@@ -1150,9 +1158,17 @@ const handleSubmit = async (e) => {
           >
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-lg font-bold shadow-md">
-                  {profileModal.full_name?.split(" ").map((n) => n[0]).join("")}
-                </div>
+                <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-lg font-bold shadow-md flex-shrink-0">
+  {profileModal.profile_image ? (
+    <img
+      src={profileModal.profile_image}
+      alt={profileModal.full_name}
+      className="w-full h-full object-cover"
+    />
+  ) : (
+    profileModal.full_name?.split(" ").map((n) => n[0]).join("")
+  )}
+</div>
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">{profileModal.full_name}</h2>
                   <p className="text-xs text-gray-500">{profileModal.email}</p>

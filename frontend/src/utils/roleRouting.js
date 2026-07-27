@@ -13,11 +13,17 @@ import { NAV_ITEMS } from '../config/navItems';
 // CUSTOMER intentionally goes to '/' (Home) — every other role here is
 // intentionally kept OUT of '/'.
 export const FIXED_ROLE_ROUTES = {
-  ADMIN: '/admin/user-management',
+  ADMIN: '/admin/dashboard',     
   CEO: '/admin/dashboard',
-  MANAGER: '/admin/dashboard',
-  EMPLOYEE: '/admin/dashboard',
+//   MANAGER: '/admin/dashboard',
+//   EMPLOYEE: '/admin/dashboard',
   CUSTOMER: '/',
+  HR_MANAGER: '/admin/hrm-dashboard',
+  SALES_MANAGER: '/admin/sales-dashboard',
+  INVENTORY_MANAGER: '/admin/inventory-dashboard',
+  ACCOUNTANT: '/admin/finance',
+  CASHIER: '/admin/pos',
+  RIDER: '/admin/rider-dashboard',
 };
 
 /**

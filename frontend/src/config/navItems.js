@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 export const NAV_ITEMS = [
+  { id: 'admin-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/admin/dashboard' },
   { id: 'sales-dashboard', label: 'Sales Dashboard', icon: BarChart3, path: '/admin/sales-dashboard' },
   { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/admin/sales-analytics' },

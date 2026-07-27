@@ -9,6 +9,7 @@ import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import AdminDashboard from '../pages/admin/AdminDashboard';
 import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
@@ -96,8 +97,9 @@ function AdminRoutes() {
 
   // Default landing page per role, used both for the index redirect
   // and the catch-all fallback below.
+ 
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/admin/user-management';
+    if (role === 'ADMIN') return '/admin/dashboard';   
     if (role === 'SALES_MANAGER') return '/admin/sales-dashboard';
     return '/admin/dashboard';
   };
@@ -108,20 +110,18 @@ function AdminRoutes() {
         <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
 
         {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
+        
         <Route
           path="dashboard"
-          element={
-            role === 'ADMIN'
-              ? <Navigate to="/admin/user-management" replace />
-              : <Dashboard />
-          }
+          element={role === 'ADMIN' ? <AdminDashboard /> : <Dashboard />}
         />
 
+        
         <Route path="sales-dashboard" element={<SalesDashboard />} />
         <Route path="inventory-dashboard" element={<InventoryDashboard />} />
         <Route path="demandforecast-dashboard" element={<DemandForecastDashboard />} />
         <Route path="jit-dashboard" element={<JITDashboard />} />
-        <Route path="hrm-dashboard" element={<HrmDashboard />} />
+        <Route path="hrm-dashboard" element={role === 'HR_MANAGER' ? <HrmDashboard /> : <Dashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />

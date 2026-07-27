@@ -5,8 +5,12 @@ import { Shield, UserCog, Plus, Loader, Pencil, Trash2, Check, X, Save } from 'l
 
 const API_URL = 'http://localhost:5000/api';
 
-// Core system roles — cannot be renamed or deleted from this UI
-const PROTECTED_ROLES = ['ADMIN', 'CEO', 'CUSTOMER', 'MANAGER', 'EMPLOYEE'];
+// Hidden entirely from this list — not managed here at all.
+const HIDDEN_ROLES = ['MANAGER', 'EMPLOYEE', 'CUSTOMER'];
+
+// Shown in the list (so their permissions can still be toggled),
+// but rename/delete are locked — these are core system roles.
+const PROTECTED_ROLES = ['ADMIN', 'CEO'];
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -267,7 +271,8 @@ function ManagePermissions() {
     </button>
   );
 
-  const editableRoles = roles.filter((role) => !PROTECTED_ROLES.includes(role.role_name));
+  // Roles visible in this list — hide MANAGER/EMPLOYEE/CUSTOMER entirely.
+  const editableRoles = roles.filter((role) => !HIDDEN_ROLES.includes(role.role_name));
 
   return (
     <motion.div
@@ -343,7 +348,7 @@ function ManagePermissions() {
         {editableRoles.length > 0 && (
           <div className="mt-5 pt-4 border-t border-gray-100 space-y-2">
             <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Custom Roles
+              All Roles
             </h3>
             {editableRoles.map((role) => (
               <div key={role.id} className="rounded-lg border border-gray-200 overflow-hidden">
@@ -393,6 +398,11 @@ function ManagePermissions() {
                     <>
                       <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 break-words">
                         {role.role_name}
+                        {PROTECTED_ROLES.includes(role.role_name) && (
+                          <span className="ml-2 text-[10px] font-semibold text-gray-400 uppercase">
+                            System Role
+                          </span>
+                        )}
                       </p>
                       <div className="flex items-center gap-1 shrink-0">
                         <button
@@ -407,25 +417,29 @@ function ManagePermissions() {
                           <Shield size={14} />
                           Permission
                         </button>
-                        <button
-                          onClick={() => startEditRole(role)}
-                          title="Rename role"
-                          className="p-1.5 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteRole(role)}
-                          disabled={deletingRoleId === role.id}
-                          title="Delete role"
-                          className="p-1.5 text-rose-600 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50"
-                        >
-                          {deletingRoleId === role.id ? (
-                            <Loader size={14} className="animate-spin" />
-                          ) : (
-                            <Trash2 size={14} />
-                          )}
-                        </button>
+                        {!PROTECTED_ROLES.includes(role.role_name) && (
+                          <>
+                            <button
+                              onClick={() => startEditRole(role)}
+                              title="Rename role"
+                              className="p-1.5 text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteRole(role)}
+                              disabled={deletingRoleId === role.id}
+                              title="Delete role"
+                              className="p-1.5 text-rose-600 bg-rose-50 rounded-lg hover:bg-rose-100 transition-colors disabled:opacity-50"
+                            >
+                              {deletingRoleId === role.id ? (
+                                <Loader size={14} className="animate-spin" />
+                              ) : (
+                                <Trash2 size={14} />
+                              )}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </>
                   )}
