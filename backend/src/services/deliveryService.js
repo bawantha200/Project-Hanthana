@@ -461,6 +461,7 @@ const getRiderDeliveries = async (riderId, status = null) => {
 };
 
 // ============ UPDATE DELIVERY STATUS - FIXED ============
+// ============ UPDATE DELIVERY STATUS - WITH ORDER STATUS SYNC ============
 const updateDeliveryStatus = async (deliveryId, status) => {
   console.log(`🔄 [updateDeliveryStatus] Delivery ${deliveryId} -> ${status}`);
 
@@ -482,6 +483,15 @@ const updateDeliveryStatus = async (deliveryId, status) => {
 
     let emptyBottlesCollected = 0;
 
+    // ✅ Map delivery status to order status
+    const ORDER_STATUS_MAP = {
+      'PENDING': 'PLACED',
+      'ASSIGNED': 'PROCESSING',
+      'PICKED_UP': 'PROCESSING',
+      'DELIVERED': 'DELIVERED',
+      'CANCELLED': 'CANCELLED'
+    };
+
     if (status === 'DELIVERED') {
       console.log('✅ Delivery is being marked as DELIVERED');
       updateData.delivery_end_time = new Date().toISOString();
@@ -502,7 +512,9 @@ const updateDeliveryStatus = async (deliveryId, status) => {
       updateData.delivery_start_time = new Date().toISOString();
     }
 
-    // Update delivery status
+    // ============================================================
+    // ✅ STEP 1: Update delivery status
+    // ============================================================
     const { data, error } = await supabase
       .from('deliveries')
       .update(updateData)
@@ -518,14 +530,45 @@ const updateDeliveryStatus = async (deliveryId, status) => {
     console.log(`✅ Delivery updated:`, data);
 
     // ============================================================
-    // ✅ If delivery is completed, update empty_bottle_stock for 19L products ONLY
+    // ✅ STEP 2: SYNC ORDER STATUS - Update orders table
+    // ============================================================
+    if (ORDER_STATUS_MAP[status]) {
+      const orderStatus = ORDER_STATUS_MAP[status];
+      console.log(`🔄 Syncing order status to: ${orderStatus}`);
+      
+      const { data: updatedOrder, error: orderError } = await supabase
+        .from('orders')
+        .update({
+          order_status: orderStatus,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', deliveryData.order_id)
+        .select()
+        .single();
+
+      if (orderError) {
+        console.error('❌ Failed to update order status:', orderError);
+        // Don't throw - delivery is updated, order sync failure shouldn't rollback delivery
+        console.warn(`⚠️ Order status sync failed for order ${deliveryData.order_id}`);
+      } else {
+        console.log(`✅ Order ${deliveryData.order_id} status updated to ${orderStatus}`);
+        
+        // ✅ If order is DELIVERED, also update the order status via the service
+        if (orderStatus === 'DELIVERED') {
+          // Update any additional order logic here
+          console.log(`✅ Order ${deliveryData.order_id} marked as DELIVERED`);
+        }
+      }
+    }
+
+    // ============================================================
+    // ✅ STEP 3: Update empty_bottle_stock for 19L products (if DELIVERED)
     // ============================================================
     if (status === 'DELIVERED' && emptyBottlesCollected > 0) {
       try {
         console.log(`📦 Adding ${emptyBottlesCollected} empty bottles to 19L products (empty_bottle_stock ONLY)`);
         console.log(`⚠️ NOT updating current_stock!`);
         
-        // ✅ Directly call the function to update ONLY empty_bottle_stock
         await updateEmptyBottleStockFor19L(
           emptyBottlesCollected, 
           'add', 
