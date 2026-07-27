@@ -333,7 +333,7 @@ const Services = () => {
                 <ArrowRight className="w-5 h-5" />
               </Link>
               <Link
-                to="/customer/contact"
+                to="/contact"
                 className="inline-flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold px-8 py-4 rounded-xl transition-colors duration-200 text-lg"
               >
                 Contact Us

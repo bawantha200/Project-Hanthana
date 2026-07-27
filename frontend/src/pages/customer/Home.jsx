@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Headphones,
   Calendar,
+  Plus,
 } from 'lucide-react';
 
 const fadeInUp = {
@@ -288,7 +289,7 @@ export default function Home() {
               whileInView="visible"
               viewport={{ once: true, amount: 0.1 }}
               variants={staggerContainer}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6"
+              className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6"
             >
               {products.map((product) => (
                 <motion.div
@@ -301,7 +302,7 @@ export default function Home() {
                     <img
                       src={product.image_url || '/images/default-product.jpg'}
                       alt={product.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      className="w-full h-full object-cover group-hover:scale-100 transition-transform duration-300"
                     />
                     <span
                       className={`absolute top-3 right-3 text-xs font-semibold px-3 py-1 rounded-full ${
@@ -329,16 +330,16 @@ export default function Home() {
                         LKR {Number(product.unit_price).toFixed(2)}
                       </span>
                       <button
-  onClick={() =>
-    window.dispatchEvent(
-      new CustomEvent("open-order-modal", { detail: { productId: product.id } })
-    )
-  }
-  className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
->
-  Add to Order
-  <ArrowRight className="w-3.5 h-3.5" />
-</button>
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("open-order-modal", { detail: { productId: product.id } })
+                          )
+                        }
+                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
+                      >
+                        Add
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
                 </motion.div>

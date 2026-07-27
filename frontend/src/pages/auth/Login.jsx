@@ -118,7 +118,13 @@ const Login = ({ onSuccess, isModal = false }) => {
         if (isModal && onSuccess) {
           onSuccess();
         } else {
-          navigate(targetRoute, { replace: true });
+          if (targetRole === 'ADMIN') {
+            navigate('/app/dashboard', { replace: true });
+          } else if (targetRole === 'RIDER'){
+            navigate('/app/rider-dashboard', { replace: true });
+          } else {
+            navigate('/', { replace: true });
+          }
         }
         timeoutRef.current = null;
       }, 2500);

@@ -475,10 +475,12 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
           setShowSuccessModal(false);
           setIsRedirecting(false);
           
-          if (targetRole === "ADMIN" || targetRole === "STAFF") {
-            navigate("/admin/dashboard", { replace: true });
+          if (targetRole === 'ADMIN') {
+            navigate('/app/dashboard', { replace: true });
+          } else if (targetRole === 'RIDER'){
+            navigate('/app/rider-dashboard', { replace: true });
           } else {
-            navigate("/customer/dashboard", { replace: true });
+            navigate('/', { replace: true });
           }
         }, 2500);
 
@@ -623,7 +625,7 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                   <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-[100] overflow-hidden">
                     {!loadingRole && !isCustomer && (
                       <Link
-                        to="/admin/dashboard"
+                        to="/app/dashboard"
                         className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
                       >
                         <LayoutDashboard size={16} />
@@ -780,7 +782,7 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                         </div>
                         {!loadingRole && !isCustomer && (
                           <Link
-                            to="/admin/dashboard"
+                            to="/app/dashboard"
                             onClick={() => setIsMobileMenuOpen(false)}
                             className="flex items-center gap-2 px-4 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] rounded-xl transition"
                           >

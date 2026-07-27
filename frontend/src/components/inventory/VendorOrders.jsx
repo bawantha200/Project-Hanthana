@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import { 
   ShoppingCart, Plus, RefreshCw, Truck, Package, 
   CircleDollarSign, Edit, X, AlertTriangle, Search,
-  Filter, ChevronDown, FileText, Trash2, ChevronUp
+  Filter, ChevronDown, FileText, Trash2, ChevronUp,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { inventoryAPI } from '../../services/api';
@@ -16,7 +17,7 @@ import {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d'];
 
-// Vendor Order Modal Component - FIXED vendor name display
+// Vendor Order Modal Component
 const VendorOrderModal = ({ 
   isOpen, 
   onClose, 
@@ -123,7 +124,6 @@ const VendorOrderModal = ({
                 required
               >
                 <option value="">Select vendor...</option>
-                {/* FIXED: Use vendor_name instead of name */}
                 {vendors?.map(v => (
                   <option key={v.id} value={v.id}>{v.vendor_name || v.name || 'Unknown Vendor'}</option>
                 ))}
@@ -341,7 +341,95 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// Main Component - FIXED fetchOrders
+// Pagination Component
+const Pagination = ({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }) => {
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      if (currentPage > 3) {
+        pages.push('...');
+      }
+      
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      
+      for (let i = start; i <= end; i++) {
+        if (i !== 1 && i !== totalPages) {
+          pages.push(i);
+        }
+      }
+      
+      if (currentPage < totalPages - 2) {
+        pages.push('...');
+      }
+      
+      if (totalPages > 1) {
+        pages.push(totalPages);
+      }
+    }
+    
+    return pages;
+  };
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-gray-100">
+      <div className="text-xs text-gray-500 order-2 sm:order-1">
+        Showing <span className="font-medium text-gray-700">{((currentPage - 1) * itemsPerPage) + 1}</span> to{' '}
+        <span className="font-medium text-gray-700">
+          {Math.min(currentPage * itemsPerPage, totalItems)}
+        </span>{' '}
+        of <span className="font-medium text-gray-700">{totalItems}</span> orders
+      </div>
+      
+      <div className="flex items-center gap-1 order-1 sm:order-2">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        
+        {getPageNumbers().map((page, index) => (
+          <button
+            key={index}
+            onClick={() => typeof page === 'number' && onPageChange(page)}
+            className={`min-w-[32px] h-8 px-2 rounded-lg text-sm font-medium transition-colors ${
+              page === currentPage
+                ? 'bg-blue-600 text-white'
+                : page === '...'
+                ? 'text-gray-400 cursor-default'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+            disabled={page === '...'}
+          >
+            {page}
+          </button>
+        ))}
+        
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Main Component
 export default function VendorOrders({ vendors = [], products = [], onRefresh, loading: parentLoading }) {
   const [orders, setOrders] = useState([]);
   const [summary, setSummary] = useState([]);
@@ -355,12 +443,17 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
     search: ''
   });
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [paginatedOrders, setPaginatedOrders] = useState([]);
 
   const fetchOrders = async () => {
     try {
       setIsLoading(true);
       
-      // Build query params as an OBJECT (not a string)
       const params = {};
       if (filters.vendorId) params.vendorId = filters.vendorId;
       if (filters.productId) params.productId = filters.productId;
@@ -370,15 +463,20 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
       console.log('📡 Fetching orders with params:', params);
       
       const [ordersRes, summaryRes] = await Promise.all([
-        inventoryAPI.getVendorOrders(params),  // Pass as object
+        inventoryAPI.getVendorOrders(params),
         inventoryAPI.getVendorPurchaseSummary()
       ]);
       
       console.log('📦 Orders response:', ordersRes.data);
       console.log('📊 Summary response:', summaryRes.data);
       
-      setOrders(ordersRes.data?.orders || []);
+      const ordersData = ordersRes.data?.orders || [];
+      setOrders(ordersData);
+      setTotalItems(ordersData.length);
       setSummary(summaryRes.data?.summary || []);
+      
+      // Reset to first page when filters change
+      setCurrentPage(1);
     } catch (error) {
       console.error('❌ Failed to fetch vendor orders:', error);
       toast.error('Failed to load vendor orders');
@@ -386,6 +484,13 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
       setIsLoading(false);
     }
   };
+
+  // Update paginated orders when orders or page changes
+  useEffect(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    setPaginatedOrders(orders.slice(startIndex, endIndex));
+  }, [orders, currentPage, itemsPerPage]);
 
   useEffect(() => {
     fetchOrders();
@@ -448,10 +553,26 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
     setFilters({ vendorId: '', productId: '', status: '', search: '' });
   };
 
+  // Calculate vendor total when filtered
+  const getFilteredVendorTotal = () => {
+    if (!filters.vendorId) return null;
+    
+    const vendorOrders = orders.filter(order => 
+      order.vendor_id === parseInt(filters.vendorId)
+    );
+    
+    const total = vendorOrders.reduce((sum, order) => sum + (order.total || 0), 0);
+    const orderCount = vendorOrders.length;
+    const vendorName = vendorOrders[0]?.vendors?.vendor_name || 'Unknown Vendor';
+    
+    return { vendorName, total, orderCount };
+  };
+
+  const filteredVendorTotal = getFilteredVendorTotal();
+
   const totalSpent = summary.reduce((sum, v) => sum + (v.total_spent || 0), 0);
   const totalOrders = orders.length;
 
-  // Get unique vendors and products for filters
   const filterVendors = vendors || [];
   const filterProducts = products || [];
 
@@ -543,8 +664,35 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
           </div>
         </div>
 
+        {/* Vendor Total Card (shown when vendor is filtered) */}
+        {filteredVendorTotal && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl bg-blue-600/10 flex items-center justify-center">
+                  <Truck size={24} className="text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500 font-medium">Vendor Summary</p>
+                  <h3 className="text-lg font-bold text-gray-900">{filteredVendorTotal.vendorName}</h3>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-6">
+                <div>
+                  <p className="text-xs text-gray-500">Total Orders</p>
+                  <p className="text-lg font-bold text-gray-900">{filteredVendorTotal.orderCount}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Total Spent</p>
+                  <p className="text-lg font-bold text-blue-600">LKR {filteredVendorTotal.total.toFixed(2)}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Charts */}
-        {chartData.length > 0 && (
+        {chartData.length > 0 && !filters.vendorId && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-5">
               <div>
@@ -601,7 +749,6 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
               <p className="text-xs text-gray-400 mt-0.5">All orders placed with vendors</p>
             </div>
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              {/* Search */}
               <div className="relative flex-1 sm:flex-none">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
@@ -613,7 +760,6 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                 />
               </div>
 
-              {/* Filter Toggle */}
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`p-1.5 rounded-lg transition-colors ${
@@ -625,7 +771,6 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                 <Filter size={18} />
               </button>
 
-              {/* Refresh */}
               <button 
                 onClick={handleRefresh} 
                 className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
@@ -633,7 +778,6 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                 <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
               </button>
 
-              {/* Add Order */}
               <motion.button
                 whileHover={{ scale: 1.04 }}
                 whileTap={{ scale: 0.97 }}
@@ -657,7 +801,6 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                   className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                 >
                   <option value="">All Vendors</option>
-                  {/* FIXED: Use vendor_name */}
                   {filterVendors.map(v => (
                     <option key={v.id} value={v.id}>{v.vendor_name || v.name || 'Unknown Vendor'}</option>
                   ))}
@@ -701,7 +844,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
           )}
 
           <div className="overflow-x-auto">
-            {orders.length > 0 ? (
+            {paginatedOrders.length > 0 ? (
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
@@ -717,7 +860,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.map((order) => (
+                  {paginatedOrders.map((order) => (
                     <tr key={order.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                       <td className="py-3 px-4 font-medium text-gray-900">
                         {order.vendors?.vendor_name || 'Unknown Vendor'}
@@ -775,6 +918,15 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
               </div>
             )}
           </div>
+
+          {/* Pagination */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(totalItems / itemsPerPage)}
+            onPageChange={setCurrentPage}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+          />
         </div>
       </div>
     </>

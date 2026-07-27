@@ -34,6 +34,9 @@ import ExpenseComparison from '../pages/admin/ExpenseComparison';
 import POS from '../pages/admin/POS';
 import TwoFactorSetup from "../pages/admin/TwoFactorSetup";
 import TwoFactorVerify from "../pages/admin/TwoFactorVerify";
+import Attendance from "../pages/admin/Attendance";
+import SalariesOT from "../pages/admin/SalariesOT";
+import Leave from "../pages/admin/Leave";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 import InvoicingReports from "../pages/admin/InvoicingReports";
 import InventoryDashboard from "../pages/admin/InventoryDashboard";
@@ -79,8 +82,14 @@ function GuestRoute() {
   // using the exact same rule Login.jsx uses right after a fresh login —
   // so a CUSTOMER goes Home, but every other role stays out of Home.
   if (user) {
-    const { hasPermission } = useAuth();
-    return <Navigate to={getTargetRoute(user.role, hasPermission)} replace />;
+    const role = user.role?.toUpperCase();
+    if (role === 'ADMIN') {
+      return <Navigate to="/app/dashboard" replace />;
+    }
+    else if(role === 'RIDER'){
+      return <Navigate to="/app/rider-dashboard" replace />;
+    }
+    return <Navigate to="/" replace />;
   }
 
   return <Outlet />;
@@ -99,9 +108,9 @@ function AdminRoutes() {
   // and the catch-all fallback below.
  
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/admin/dashboard';   
-    if (role === 'SALES_MANAGER') return '/admin/sales-dashboard';
-    return '/admin/dashboard';
+    if (role === 'ADMIN') return '/app/user-management';
+    if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
+    return '/app/dashboard';
   };
 
   return (
@@ -113,7 +122,11 @@ function AdminRoutes() {
         
         <Route
           path="dashboard"
-          element={role === 'ADMIN' ? <AdminDashboard /> : <Dashboard />}
+          element={
+            role === 'ADMIN'
+              ? <Navigate to="/app/user-management" replace />
+              : <Dashboard />
+          }
         />
 
         
@@ -143,12 +156,39 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        
+        {/* ✅ New HRM Routes */}
+        <Route path="attendance" element={<Attendance />} />
+        <Route path="leave" element={<Leave />} />
+        <Route path="salaries-ot" element={<SalariesOT />} />
+        
         <Route path="delivery/config" element={<DeliveryConfiguration />} />
         <Route path="sales-analytics" element={<SalesAnalytics />} />
         <Route path="*" element={<Navigate to={defaultRouteForRole()} replace />} />
       </Route>
     </Routes>
   );
+}
+
+/**
+ * Protected wrapper for customer routes that require authentication
+ */
+function CustomerProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
 }
 
 function CustomerRoutes() {
@@ -159,12 +199,32 @@ function CustomerRoutes() {
         <Route path="services" element={<Services />} />
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
-        <Route path="orders" element={<CustomerOrders />} />
-        <Route path="order/:id" element={<CustomerOrderDetails />} />
+        {/* <Route path="orders" element={<CustomerOrders />} /> */}
+        {/* <Route path="order/:id" element={<CustomerOrderDetails />} /> */}
         <Route path="tracking" element={<OrderTracking />} />
-        <Route path="profile" element={<Profile />} />
+        {/* <Route path="profile" element={<Profile />} /> */}
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
+
+        {/* Protected routes - require authentication */}
+        <Route path="orders" element={
+            <CustomerProtectedRoute>
+              <CustomerOrders />
+            </CustomerProtectedRoute>} />
+        <Route 
+          path="order/:id" 
+          element={
+            <CustomerProtectedRoute>
+              <CustomerOrderDetails />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <Profile />
+            </CustomerProtectedRoute>} />
+        <Route path="profile" element={
+            <CustomerProtectedRoute>
+              <OrderTracking />
+            </CustomerProtectedRoute>} />
 
         {/* 🔒 Restricted for logged-in users */}
         <Route element={<GuestRoute />}>
@@ -186,7 +246,7 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/admin/2fa-setup" element={<TwoFactorSetup />} />
       <Route path="/admin/2fa-verify" element={<TwoFactorVerify />} />
-      <Route path="/admin/*" element={<AdminRoutes />} />
+      <Route path="/app/*" element={<AdminRoutes />} />
       <Route path="/*" element={<CustomerRoutes />} />
     </Routes>
   );

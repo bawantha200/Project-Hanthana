@@ -1,7 +1,11 @@
 // pages/Vendors.jsx
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Truck, Search, Plus, UserPlus, Phone, Mail, Package, Edit, Trash2, Loader2, AlertTriangle, X } from 'lucide-react';
+import { 
+  Truck, Search, Plus, UserPlus, Phone, Mail, Package, 
+  Edit, Trash2, Loader2, AlertTriangle, X, ChevronLeft, 
+  ChevronRight, Building2, Calendar, MapPin, Info
+} from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import VendorTable from '../../components/VendorTable';
 import StatusBadge from '../../components/StatusBadge';
@@ -21,6 +25,185 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
+// Pagination Component
+const Pagination = ({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }) => {
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxVisible = 5;
+    
+    if (totalPages <= maxVisible) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      if (currentPage > 3) {
+        pages.push('...');
+      }
+      
+      const start = Math.max(2, currentPage - 1);
+      const end = Math.min(totalPages - 1, currentPage + 1);
+      
+      for (let i = start; i <= end; i++) {
+        if (i !== 1 && i !== totalPages) {
+          pages.push(i);
+        }
+      }
+      
+      if (currentPage < totalPages - 2) {
+        pages.push('...');
+      }
+      
+      if (totalPages > 1) {
+        pages.push(totalPages);
+      }
+    }
+    
+    return pages;
+  };
+
+  if (totalPages <= 1) return null;
+
+  return (
+    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-gray-100">
+      <div className="text-xs text-gray-500 order-2 sm:order-1">
+        Showing <span className="font-medium text-gray-700">{((currentPage - 1) * itemsPerPage) + 1}</span> to{' '}
+        <span className="font-medium text-gray-700">
+          {Math.min(currentPage * itemsPerPage, totalItems)}
+        </span>{' '}
+        of <span className="font-medium text-gray-700">{totalItems}</span> vendors
+      </div>
+      
+      <div className="flex items-center gap-1 order-1 sm:order-2">
+        <button
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+          className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        
+        {getPageNumbers().map((page, index) => (
+          <button
+            key={index}
+            onClick={() => typeof page === 'number' && onPageChange(page)}
+            className={`min-w-[32px] h-8 px-2 rounded-lg text-sm font-medium transition-colors ${
+              page === currentPage
+                ? 'bg-blue-600 text-white'
+                : page === '...'
+                ? 'text-gray-400 cursor-default'
+                : 'text-gray-600 hover:bg-gray-100'
+            }`}
+            disabled={page === '...'}
+          >
+            {page}
+          </button>
+        ))}
+        
+        <button
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+          className="p-1.5 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// Vendor Details Popup Modal
+const VendorDetailsPopup = ({ vendor, isOpen, onClose, onEdit, onDelete }) => {
+  if (!isOpen || !vendor) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.95, opacity: 0, y: 20 }}
+        animate={{ scale: 1, opacity: 1, y: 0 }}
+        exit={{ scale: 0.95, opacity: 0, y: 20 }}
+        className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-lg font-bold shadow-sm flex-shrink-0">
+              {vendor.name.split(' ').map((n) => n[0]).join('')}
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900">{vendor.name}</h3>
+              <p className="text-xs text-gray-500">{vendor.contact || 'No contact person'}</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-3 mt-4">
+          <div className="flex items-center gap-3 text-sm text-gray-600 p-2 bg-gray-50 rounded-lg">
+            <Phone size={16} className="text-gray-400 flex-shrink-0" />
+            <span className="font-medium">{vendor.phone || 'No phone number'}</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-gray-600 p-2 bg-gray-50 rounded-lg">
+            <Mail size={16} className="text-gray-400 flex-shrink-0" />
+            <span className="font-medium truncate">{vendor.email || 'No email'}</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-gray-600 p-2 bg-gray-50 rounded-lg">
+            <Package size={16} className="text-gray-400 flex-shrink-0" />
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
+              {vendor.supplyType || 'Not specified'}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-gray-600 p-2 bg-gray-50 rounded-lg">
+            <Info size={16} className="text-gray-400 flex-shrink-0" />
+            <span>Status: <StatusBadge status={vendor.status} /></span>
+          </div>
+          {vendor.lastDelivery && (
+            <div className="flex items-center gap-3 text-sm text-gray-600 p-2 bg-gray-50 rounded-lg">
+              <Calendar size={16} className="text-gray-400 flex-shrink-0" />
+              <span>Registered Date: {new Date(vendor.lastDelivery).toLocaleDateString()}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-gray-100 flex gap-3">
+          <button
+            onClick={() => {
+              onClose();
+              onEdit(vendor);
+            }}
+            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <Edit size={16} />
+            Edit Vendor
+          </button>
+          <button
+            onClick={() => {
+              onClose();
+              onDelete(vendor);
+            }}
+            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+          >
+            <Trash2 size={16} />
+            Delete
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+};
+
 export default function Vendors() {
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,11 +211,21 @@ export default function Vendors() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
 
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
+  const [paginatedVendors, setPaginatedVendors] = useState([]);
+
   // Modal states
   const [showModal, setShowModal] = useState(false);
   const [editingVendor, setEditingVendor] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [vendorToDelete, setVendorToDelete] = useState(null);
+  
+  // Vendor details popup
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [showVendorDetails, setShowVendorDetails] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -54,7 +247,10 @@ export default function Vendors() {
       if (!res.ok) throw new Error('Failed to fetch vendors');
       const data = await res.json();
       setVendors(data);
+      setTotalItems(data.length);
       setError(null);
+      // Reset to first page when new data loads
+      setCurrentPage(1);
     } catch (err) {
       setError(err.message);
       toast.error('Failed to load vendors');
@@ -63,6 +259,13 @@ export default function Vendors() {
       setLoading(false);
     }
   };
+
+  // Update paginated vendors when vendors or page changes
+  useEffect(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    setPaginatedVendors(vendors.slice(startIndex, endIndex));
+  }, [vendors, currentPage, itemsPerPage]);
 
   // Initial load
   useEffect(() => {
@@ -88,7 +291,8 @@ export default function Vendors() {
     setEditingVendor(null);
     setFormData({ name: '', contact: '', phone: '', email: '', supplyType: '', status: 'active' });
     setShowModal(true);
-    setShowDeleteModal(false); // ensure delete modal is closed
+    setShowDeleteModal(false);
+    setShowVendorDetails(false);
   };
 
   // Open edit modal
@@ -103,14 +307,22 @@ export default function Vendors() {
       status: vendor.status,
     });
     setShowModal(true);
-    setShowDeleteModal(false); // ensure delete modal is closed
+    setShowDeleteModal(false);
+    setShowVendorDetails(false);
   };
 
   // Open delete modal
   const openDeleteModal = (vendor) => {
     setVendorToDelete(vendor);
     setShowDeleteModal(true);
-    setShowModal(false); // close edit/create modal if open
+    setShowModal(false);
+    setShowVendorDetails(false);
+  };
+
+  // Handle row click - show vendor details
+  const handleRowClick = (vendor) => {
+    setSelectedVendor(vendor);
+    setShowVendorDetails(true);
   };
 
   // Submit create/update
@@ -171,7 +383,19 @@ export default function Vendors() {
     <>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
 
-      {/* ===== CREATE/EDIT MODAL (FIXED OVERLAY) ===== */}
+      {/* Vendor Details Popup */}
+      <VendorDetailsPopup
+        vendor={selectedVendor}
+        isOpen={showVendorDetails}
+        onClose={() => {
+          setShowVendorDetails(false);
+          setSelectedVendor(null);
+        }}
+        onEdit={openEditModal}
+        onDelete={openDeleteModal}
+      />
+
+      {/* ===== CREATE/EDIT MODAL ===== */}
       {showModal && (
         <motion.div
           initial={{ opacity: 0 }}
@@ -355,7 +579,7 @@ export default function Vendors() {
         </motion.div>
       )}
 
-      {/* ===== MAIN CONTENT (unchanged) ===== */}
+      {/* ===== MAIN CONTENT ===== */}
       <motion.div
         variants={containerVariants}
         initial="hidden"
@@ -415,7 +639,7 @@ export default function Vendors() {
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4 flex-wrap">
             <div>
               <h2 className="text-base font-semibold text-gray-900">All Vendors</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Supplier directory and delivery partners</p>
+              <p className="text-xs text-gray-400 mt-0.5">Click on a row to view vendor details</p>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative">
@@ -439,6 +663,7 @@ export default function Vendors() {
               </motion.button>
             </div>
           </div>
+          
           <div className="relative">
             {tableLoading && (
               <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-10">
@@ -446,85 +671,21 @@ export default function Vendors() {
               </div>
             )}
             <VendorTable
-              vendors={vendors}
+              vendors={paginatedVendors}
               onEdit={openEditModal}
               onDelete={openDeleteModal}
+              onRowClick={handleRowClick}
             />
           </div>
-        </motion.div>
 
-        {/* Vendor Cards */}
-        <motion.div variants={itemVariants}>
-          <h2 className="text-base font-semibold text-gray-900 mb-4">Vendor Details</h2>
-          <div className="relative">
-            {tableLoading && (
-              <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-2xl">
-                <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-              </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-              {vendors.map((vendor) => (
-                <motion.div
-                  key={vendor.id}
-                  variants={itemVariants}
-                  whileHover={{ y: -2 }}
-                  className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-sm font-bold shadow-sm flex-shrink-0">
-                        {vendor.name.split(' ').map((n) => n[0]).join('')}
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900 text-sm">{vendor.name}</h3>
-                        <p className="text-xs text-gray-500">{vendor.contact}</p>
-                      </div>
-                    </div>
-                    <StatusBadge status={vendor.status} />
-                  </div>
-
-                  <div className="space-y-2 mt-4">
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Phone size={14} className="text-gray-400" />
-                      <span>{vendor.phone}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Mail size={14} className="text-gray-400" />
-                      <span className="truncate">{vendor.email}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-600">
-                      <Package size={14} className="text-gray-400" />
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700">
-                        {vendor.supplyType}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between">
-                    <span className="text-xs text-gray-400">Last Delivery</span>
-                    <span className="text-xs font-medium text-gray-600">
-                      {vendor.lastDelivery ? new Date(vendor.lastDelivery).toLocaleDateString() : 'N/A'}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex justify-end gap-2">
-                    <button
-                      onClick={() => openEditModal(vendor)}
-                      className="p-1.5 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    >
-                      <Edit size={16} />
-                    </button>
-                    <button
-                      onClick={() => openDeleteModal(vendor)}
-                      className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </div>
+          {/* Pagination */}
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(totalItems / itemsPerPage)}
+            onPageChange={setCurrentPage}
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+          />
         </motion.div>
       </motion.div>
     </>

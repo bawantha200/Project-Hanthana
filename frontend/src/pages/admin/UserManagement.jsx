@@ -644,8 +644,8 @@ const handleSubmit = async (e) => {
           </div>
         </div>
         <div
-  onClick={() => navigate('/admin/customers')}
-  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer group"
+  onClick={() => navigate('/app/customers')}
+  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
 >
   <div className="absolute top-3 right-3 flex items-center gap-1 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
     <span className="text-[11px] font-medium">View all</span>

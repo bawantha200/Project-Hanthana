@@ -247,7 +247,7 @@ export default function OrderDetails() {
         <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
         <p className="text-gray-500 font-medium">Order not found</p>
         <button
-          onClick={() => navigate('/admin/orders')}
+          onClick={() => navigate('/app/orders')}
           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           Back to Orders
@@ -271,7 +271,7 @@ export default function OrderDetails() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => navigate('/admin/orders')}
+            onClick={() => navigate('/app/orders')}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <ArrowLeft size={20} />
@@ -775,7 +775,7 @@ export default function OrderDetails() {
             {/* Quick Actions */}
             <div className="mt-4 pt-4 border-t border-gray-100">
               <button
-                onClick={() => navigate(`/admin/deliveries?order=${order.id}`)}
+                onClick={() => navigate(`/app/deliveries?order=${order.id}`)}
                 className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium text-center"
               >
                 {isHomeDelivery ? 'View in Deliveries' : 'View Order Details'}

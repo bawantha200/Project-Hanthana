@@ -207,7 +207,7 @@ export default function Finance() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/admin/finance/expenses')}
+          onClick={() => navigate('/app/finance/expenses')}
           className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
         >
           <Receipt size={16} />
@@ -217,7 +217,7 @@ export default function Finance() {
 
       {/* Summary Cards — each links to the page that explains it */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1">
-        <div onClick={goTo('/admin/finance/invoicing-reports')} className="cursor-pointer" title="View invoicing & revenue reports">
+        <div onClick={goTo('/app/finance/invoicing-reports')} className="cursor-pointer" title="View invoicing & revenue reports">
           <StatCard
             title="Total Income"
             value={loadingIncome ? '...' : formatCurrency(totalIncome)}
@@ -229,7 +229,7 @@ export default function Finance() {
             delay={0}
           />
         </div>
-        <div onClick={goTo('/admin/finance/expenses')} className="cursor-pointer" title="Manage expenses">
+        <div onClick={goTo('/app/finance/expenses')} className="cursor-pointer" title="Manage expenses">
           <StatCard
             title="Total Expenses"
             value={loadingExpenses ? '...' : formatCurrency(realTotalExpenses)}
@@ -241,7 +241,7 @@ export default function Finance() {
             delay={0.08}
           />
         </div>
-        <div onClick={goTo('/admin/finance/expenses/compare?dataset=all')} className="cursor-pointer" title="Compare profit trends">
+        <div onClick={goTo('/app/finance/expenses/compare?dataset=all')} className="cursor-pointer" title="Compare profit trends">
           <StatCard
             title="Net Profit"
             value={loading ? '...' : formatCurrency(netProfit)}
@@ -253,7 +253,7 @@ export default function Finance() {
             delay={0.16}
           />
         </div>
-        <div onClick={goTo('/admin/finance/invoicing-reports')} className="cursor-pointer" title="View pending invoices">
+        <div onClick={goTo('/app/finance/invoicing-reports')} className="cursor-pointer" title="View pending invoices">
           <StatCard
             title="Pending Payments"
             value={loadingIncome ? '...' : formatCurrency(pendingPayments)}
@@ -296,7 +296,7 @@ export default function Finance() {
         <motion.div
           variants={itemVariants}
           whileHover={{ y: -2 }}
-          onClick={goTo('/admin/finance/expenses/compare?dataset=other')}
+          onClick={goTo('/app/finance/expenses/compare?dataset=other')}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200 cursor-pointer"
         >
           <div className="flex items-center gap-3 mb-4">
@@ -318,7 +318,7 @@ export default function Finance() {
         <motion.div
           variants={itemVariants}
           whileHover={{ y: -2 }}
-          onClick={goTo('/admin/finance/expenses/compare?dataset=salary')}
+          onClick={goTo('/app/finance/expenses/compare?dataset=salary')}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200 cursor-pointer"
         >
           <div className="flex items-center gap-3 mb-4">
@@ -340,7 +340,7 @@ export default function Finance() {
         <motion.div
           variants={itemVariants}
           whileHover={{ y: -2 }}
-          onClick={goTo('/admin/finance/expenses/compare?dataset=vendor')}
+          onClick={goTo('/app/finance/expenses/compare?dataset=vendor')}
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-all duration-200 cursor-pointer"
         >
           <div className="flex items-center gap-3 mb-4">
