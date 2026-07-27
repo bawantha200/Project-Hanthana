@@ -28,17 +28,6 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// Default designations as fallback
-const defaultDesignations = [
-  'HR Manager',
-  'Sales Manager',
-  'Inventory Manager',
-  'Accountant',
-  'Cashier',
-  'Delivery Manager',
-  'Driver'
-];
-
 // Summary Cards
 const summaryCards = [
   {
@@ -106,7 +95,7 @@ export default function Employees() {
   });
 
   // Designation CRUD States
-  const [designations, setDesignations] = useState(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
+  const [designations, setDesignations] = useState([]);
   const [showDesignationModal, setShowDesignationModal] = useState(false);
   const [isEditingDesignation, setIsEditingDesignation] = useState(false);
   const [editingDesignationId, setEditingDesignationId] = useState(null);
@@ -141,13 +130,11 @@ export default function Employees() {
   };
 
   const validatePhone = (phone) => {
-    // Sri Lankan phone number validation (10 digits starting with 0)
     const phoneRegex = /^0[0-9]{9}$/;
     return phoneRegex.test(phone);
   };
 
   const validateNIC = (nic) => {
-    // Sri Lankan NIC validation (old: 9 digits + V/X, new: 12 digits)
     const oldNICRegex = /^[0-9]{9}[VvXx]$/;
     const newNICRegex = /^[0-9]{12}$/;
     return oldNICRegex.test(nic) || newNICRegex.test(nic);
@@ -174,7 +161,7 @@ export default function Employees() {
   };
 
   const validateBirthday = (date) => {
-    if (!date) return true; // Optional field
+    if (!date) return true;
     const today = new Date();
     const birthDate = new Date(date);
     const age = today.getFullYear() - birthDate.getFullYear();
@@ -194,13 +181,13 @@ export default function Employees() {
   };
 
   const validateSalary = (salary) => {
-    if (!salary) return true; // Optional
+    if (!salary) return true;
     const num = parseFloat(salary);
     return !isNaN(num) && num >= 0;
   };
 
   const validateBonus = (bonus) => {
-    if (!bonus) return true; // Optional
+    if (!bonus) return true;
     const num = parseFloat(bonus);
     return !isNaN(num) && num >= 0;
   };
@@ -209,7 +196,6 @@ export default function Employees() {
     return status && status !== '';
   };
 
-  // Real-time field validation
   const validateField = (fieldName, value) => {
     let error = '';
     
@@ -300,7 +286,6 @@ export default function Employees() {
     return error === '';
   };
 
-  // Validate all fields before submit
   const validateForm = () => {
     const fields = [
       'fullName', 'email', 'phoneNo', 'gender', 'designation', 
@@ -317,7 +302,6 @@ export default function Employees() {
       }
     });
 
-    // Optional fields validation
     if (formData.nic && !validateField('nic', formData.nic)) {
       isValid = false;
     }
@@ -337,6 +321,24 @@ export default function Employees() {
     return isValid;
   };
 
+  // ========== HELPER: Get designation name from employee ==========
+ const getDesignationName = (employee) => {
+  if (!employee) return '';
+  if (employee.designation && typeof employee.designation === 'object') {
+    return employee.designation.designation || '';
+  }
+  return employee.designation || '';
+};
+
+  const getDesignationId = (employee) => {
+    if (!employee) return null;
+    // If designation is an object, get the id
+    if (employee.designation && typeof employee.designation === 'object') {
+      return employee.designation.id;
+    }
+    return employee.designation_id || null;
+  };
+
   // ========== FETCH DESIGNATIONS ==========
   const fetchDesignations = async () => {
     try {
@@ -348,12 +350,10 @@ export default function Employees() {
       console.log('Designations from API:', response.data);
       if (response.data.success && response.data.data.length > 0) {
         setDesignations(response.data.data);
-      } else {
-        setDesignations(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
       }
     } catch (err) {
       console.error('Error fetching designations:', err);
-      setDesignations(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
+      setDesignations([]);
     } finally {
       setDesignationLoading(false);
     }
@@ -369,7 +369,7 @@ export default function Employees() {
     }
 
     const exists = designations.some(d => 
-      d.name.toLowerCase() === designationForm.name.trim().toLowerCase()
+      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
 
     if (exists) {
@@ -381,7 +381,7 @@ export default function Employees() {
       setSubmitting(true);
       const token = localStorage.getItem('token');
       const response = await axios.post(DESIGNATION_API_URL, 
-        { name: designationForm.name.trim() },
+        { designation: designationForm.name.trim() },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -395,7 +395,7 @@ export default function Employees() {
       console.error('Error adding designation:', err);
       const newDesignation = {
         id: Date.now() + Math.random(),
-        name: designationForm.name.trim()
+        designation: designationForm.name.trim()
       };
       setDesignations([...designations, newDesignation]);
       setDesignationForm({ name: '' });
@@ -415,7 +415,7 @@ export default function Employees() {
 
     const exists = designations.some(d => 
       d.id !== editingDesignationId && 
-      d.name.toLowerCase() === designationForm.name.trim().toLowerCase()
+      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
 
     if (exists) {
@@ -427,7 +427,7 @@ export default function Employees() {
       setSubmitting(true);
       const token = localStorage.getItem('token');
       const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
-        { name: designationForm.name.trim() },
+        { designation: designationForm.name.trim() },
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -444,7 +444,7 @@ export default function Employees() {
     } catch (err) {
       console.error('Error updating designation:', err);
       setDesignations(designations.map(d => 
-        d.id === editingDesignationId ? { ...d, name: designationForm.name.trim() } : d
+        d.id === editingDesignationId ? { ...d, designation: designationForm.name.trim() } : d
       ));
       setDesignationForm({ name: '' });
       setIsEditingDesignation(false);
@@ -460,11 +460,11 @@ export default function Employees() {
     if (!designationToDelete) return;
 
     const employeesWithDesignation = employees.filter(
-      e => e.designation === designationToDelete.name
+      e => getDesignationName(e) === designationToDelete.designation
     );
 
     if (employeesWithDesignation.length > 0) {
-      setError(`Cannot delete "${designationToDelete.name}" because ${employeesWithDesignation.length} employee(s) have this designation.`);
+      setError(`Cannot delete "${designationToDelete.designation}" because ${employeesWithDesignation.length} employee(s) have this designation.`);
       setShowDesignationDeleteConfirm(false);
       setDesignationToDelete(null);
       return;
@@ -501,7 +501,7 @@ export default function Employees() {
   };
 
   const openEditDesignationModal = (designation) => {
-    setDesignationForm({ name: designation.name });
+    setDesignationForm({ name: designation.designation });
     setIsEditingDesignation(true);
     setEditingDesignationId(designation.id);
     setShowDesignationModal(true);
@@ -522,6 +522,7 @@ export default function Employees() {
       const response = await axios.get(API_URL, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('Employees from API:', response.data);
       if (response.data.success) {
         setEmployees(response.data.data);
       }
@@ -553,26 +554,30 @@ export default function Employees() {
   const totalStaff = employees.length;
   const activeStaff = employees.filter((e) => e.status === 'active').length;
   const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
-  const managers = employees.filter((e) => e.designation?.toLowerCase().includes('manager')).length;
+  const managers = employees.filter((e) => {
+  const desName = getDesignationName(e);
+  return desName.toLowerCase().includes('manager');
+}).length;
 
   const summaryValues = {
     total: totalStaff,
     active: activeStaff,
     onLeave: onLeaveStaff,
-    managers,
+    managers : managers.length,
   };
 
-  const allDesignations = designations.map(d => d.name);
+  // Build filter tabs from designations
   const filterTabs = [
     { key: 'All', label: 'All', icon: Filter },
-    ...allDesignations.map(d => ({ key: d, label: d, icon: Briefcase }))
+    ...designations.map(d => ({ key: d.designation, label: d.designation, icon: Briefcase }))
   ];
 
   const filteredEmployees = employees.filter((employee) => {
-    const matchesPosition = activeFilter === 'All' || employee.designation === activeFilter;
+    const employeeDesignation = getDesignationName(employee);
+    const matchesPosition = activeFilter === 'All' || employeeDesignation === activeFilter;
     const matchesSearch =
       employee.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      employee.designation?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employeeDesignation.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employee.email?.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesPosition && matchesSearch;
   });
@@ -603,10 +608,8 @@ export default function Employees() {
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     
-    // Validate all fields before submission
     if (!validateForm()) {
       setError('Please fix all validation errors before submitting');
-      // Scroll to the first error
       const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
       if (firstErrorField) {
         const element = document.querySelector(`[name="${firstErrorField}"]`);
@@ -625,7 +628,7 @@ export default function Employees() {
       const employeeData = {
         name: formData.fullName,
         position: formData.designation,
-        designation: formData.designation,
+        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
         phone: formData.phoneNo,
         email: formData.email,
         hireDate: formData.hiredDate,
@@ -650,8 +653,6 @@ export default function Employees() {
           'Content-Type': 'application/json' 
         }
       });
-
-      console.log('✅ Response from server:', response.data);
       
       if (response.data.success) {
         setEmployees([...employees, response.data.data]);
@@ -660,8 +661,7 @@ export default function Employees() {
         showSuccessNotification('Employee added successfully!');
       }
     } catch (err) {
-      console.error('❌ Error adding employee:', err);
-      console.error('❌ Error response:', err.response?.data);
+      console.error('Error adding employee:', err);
       if (err.response) {
         if (err.response.status === 409) {
           setError('An employee with this email already exists. Please use a different email address.');
@@ -681,7 +681,6 @@ export default function Employees() {
   const handleEditEmployee = async (e) => {
     e.preventDefault();
     
-    // Validate all fields before submission
     if (!validateForm()) {
       setError('Please fix all validation errors before submitting');
       const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
@@ -701,7 +700,7 @@ export default function Employees() {
       
       const updateData = {
         name: formData.fullName,
-        designation: formData.designation,
+        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
         phone: formData.phoneNo,
         email: formData.email,
         hireDate: formData.hiredDate,
@@ -800,7 +799,9 @@ export default function Employees() {
 
   const openEditForm = (employee) => {
     setSelectedEmployee(employee);
-    const selectedDesignation = designations.find(d => d.name === employee.designation);
+    const desId = getDesignationId(employee);
+    const desName = getDesignationName(employee);
+    
     setFormData({
       fullName: employee.name || '',
       birthday: employee.birthday || '',
@@ -808,8 +809,8 @@ export default function Employees() {
       gender: employee.gender || '',
       nic: employee.nic || '',
       phoneNo: employee.phone || '',
-      designation: employee.designation || '',
-      designationId: selectedDesignation ? selectedDesignation.id.toString() : '',
+      designation: desName || '',
+      designationId: desId ? desId.toString() : '',
       address: employee.address || '',
       marriageStatus: employee.marriage_status || '',
       hiredDate: employee.hire_date || '',
@@ -819,7 +820,6 @@ export default function Employees() {
       bonus: employee.bonus || '',
       status: employee.status || 'active'
     });
-    // Clear validation errors when editing
     setValidationErrors({
       fullName: '',
       email: '',
@@ -1030,7 +1030,7 @@ export default function Employees() {
           </div>
         </motion.div>
 
-        {/* Employee Table */}
+        {/* Employee Table - FIXED: Use getDesignationName() for designation display */}
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full">
@@ -1070,7 +1070,8 @@ export default function Employees() {
                       </td>
                       <td className="px-5 py-4">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                          {employee.designation || 'N/A'}
+                          {/* FIXED: Use getDesignationName() instead of employee.designation directly */}
+                          {getDesignationName(employee) || 'N/A'}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-gray-600">{employee.phone}</td>
@@ -1188,7 +1189,7 @@ export default function Employees() {
                               key={d.id}
                               className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
                             >
-                              {d.name}
+                              {d.designation}
                             </span>
                           ))
                         ) : (
@@ -1249,7 +1250,7 @@ export default function Employees() {
                         key={d.id}
                         className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                       >
-                        <span className="text-sm font-medium text-gray-700">{d.name}</span>
+                        <span className="text-sm font-medium text-gray-700">{d.designation}</span>
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => openEditDesignationModal(d)}
@@ -1313,13 +1314,13 @@ export default function Employees() {
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Designation</h3>
                   <p className="text-sm text-gray-500 mb-4">
                     Are you sure you want to delete designation{' '}
-                    <span className="font-semibold text-gray-900">"{designationToDelete.name}"</span>?
+                    <span className="font-semibold text-gray-900">"{designationToDelete.designation}"</span>?
                   </p>
                   <p className="text-xs text-amber-600 bg-amber-50 p-3 rounded-lg mb-4">
                     ⚠️ This designation will be removed from the system.
-                    {employees.filter(e => e.designation === designationToDelete.name).length > 0 && (
+                    {employees.filter(e => getDesignationName(e) === designationToDelete.designation).length > 0 && (
                       <span className="block mt-1 text-red-600">
-                        Warning: {employees.filter(e => e.designation === designationToDelete.name).length} employee(s) have this designation!
+                        Warning: {employees.filter(e => getDesignationName(e) === designationToDelete.designation).length} employee(s) have this designation!
                       </span>
                     )}
                   </p>
@@ -1359,7 +1360,7 @@ export default function Employees() {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* EMPLOYEE ADD/EDIT MODAL - WITH STATUS FIELD */}
+      {/* EMPLOYEE ADD/EDIT MODAL */}
       {/* ============================================ */}
       <AnimatePresence>
         {showCreateForm && (
@@ -1614,13 +1615,13 @@ export default function Employees() {
                           setFormData({ 
                             ...formData, 
                             designationId: selectedId,
-                            designation: selectedDesignation ? selectedDesignation.name : '' 
+                            designation: selectedDesignation ? selectedDesignation.designation : '' 
                           });
-                          validateField('designation', selectedDesignation ? selectedDesignation.name : '');
+                          validateField('designation', selectedDesignation ? selectedDesignation.designation : '');
                         }}
                         onBlur={(e) => {
                           const selectedDesignation = designations.find(d => d.id.toString() === e.target.value);
-                          validateField('designation', selectedDesignation ? selectedDesignation.name : '');
+                          validateField('designation', selectedDesignation ? selectedDesignation.designation : '');
                         }}
                         className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
                           validationErrors.designation 
@@ -1633,7 +1634,7 @@ export default function Employees() {
                         <option value="">Select Designation</option>
                         {designations.map((d) => (
                           <option key={d.id} value={d.id.toString()}>
-                            {d.name}
+                            {d.designation}
                           </option>
                         ))}
                       </select>
@@ -1806,7 +1807,6 @@ export default function Employees() {
                           {validationErrors.baseSalary}
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">Monthly base salary in LKR</p>
                     </div>
 
                     {/* Bonus */}
@@ -1839,10 +1839,9 @@ export default function Employees() {
                           {validationErrors.bonus}
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">Monthly bonus or incentives</p>
                     </div>
 
-                    {/* Status - NEW FIELD WITH CORRECT OPTIONS */}
+                    {/* Status */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Circle size={14} className="inline mr-1" /> Status *
@@ -1873,7 +1872,6 @@ export default function Employees() {
                           {validationErrors.status}
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">Current employment status</p>
                     </div>
 
                     {/* Profile Image */}
@@ -1910,7 +1908,6 @@ export default function Employees() {
                     </div>
                   </div>
 
-                  {/* Validation Summary */}
                   {Object.values(validationErrors).some(error => error) && (
                     <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                       <p className="text-sm text-amber-700 flex items-center gap-2">
@@ -2002,7 +1999,7 @@ export default function Employees() {
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold">{selectedEmployee.name}</h2>
-                      <p className="text-blue-100 mt-1">{selectedEmployee.designation}</p>
+                      <p className="text-blue-100 mt-1">{getDesignationName(selectedEmployee)}</p>
                       <div className="flex items-center gap-3 mt-2">
                         <StatusBadge status={selectedEmployee.status} />
                       </div>
@@ -2045,7 +2042,7 @@ export default function Employees() {
                           <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
                             <BriefcaseIcon size={12} className="text-blue-500" /> Designation
                           </p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{selectedEmployee.designation}</p>
+                          <p className="text-sm font-semibold text-gray-900 mt-1">{getDesignationName(selectedEmployee)}</p>
                         </div>
                         <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors">
                           <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
