@@ -100,8 +100,10 @@ const getDeliveries = async (req, res) => {
       .eq('id', profile.role_id)
       .single();
 
-    if (roleError || role?.role_name !== 'ADMIN') {
-      return res.status(403).json({ success: false, message: 'Admin access required' });
+    const ALLOWED_ROLES = ['ADMIN', 'CEO'];
+
+    if (roleError || !ALLOWED_ROLES.includes(role?.role_name)) {
+      return res.status(403).json({ success: false, message: 'Admin or CEO access required' });
     }
 
     const deliveries = await getAllDeliveriesWithLocations({ status, orderId });

@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { getTargetRoute } from '../utils/roleRouting';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
@@ -74,12 +75,11 @@ function GuestRoute() {
   }
 
   // If user is already logged in, redirect them away from login/register
+  // using the exact same rule Login.jsx uses right after a fresh login —
+  // so a CUSTOMER goes Home, but every other role stays out of Home.
   if (user) {
-    const role = user.role?.toUpperCase();
-    if (role === 'ADMIN' || role === 'STAFF' || role === 'SALES_MANAGER') {
-      return <Navigate to="/admin/dashboard" replace />;
-    }
-    return <Navigate to="/" replace />;
+    const { hasPermission } = useAuth();
+    return <Navigate to={getTargetRoute(user.role, hasPermission)} replace />;
   }
 
   return <Outlet />;
@@ -92,19 +92,31 @@ function AdminRoutes() {
     return <Navigate to="/" replace />;
   }
 
+  const role = user?.role?.toUpperCase();
+
+  // Default landing page per role, used both for the index redirect
+  // and the catch-all fallback below.
+  const defaultRouteForRole = () => {
+    if (role === 'ADMIN') return '/admin/user-management';
+    if (role === 'SALES_MANAGER') return '/admin/sales-dashboard';
+    return '/admin/dashboard';
+  };
+
   return (
     <Routes>
       <Route element={<AdminLayout />}>
+        <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
+
+        {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
         <Route
-          index
+          path="dashboard"
           element={
-            <Navigate
-              to={user?.role === 'SALES_MANAGER' ? '/admin/sales-dashboard' : '/admin/dashboard'}
-              replace
-            />
+            role === 'ADMIN'
+              ? <Navigate to="/admin/user-management" replace />
+              : <Dashboard />
           }
-        /> 
-        <Route path="dashboard" element={<Dashboard />} />
+        />
+
         <Route path="sales-dashboard" element={<SalesDashboard />} />
         <Route path="inventory-dashboard" element={<InventoryDashboard />} />
         <Route path="demandforecast-dashboard" element={<DemandForecastDashboard />} />
@@ -132,8 +144,8 @@ function AdminRoutes() {
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
         <Route path="delivery/config" element={<DeliveryConfiguration />} />
-        <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
         <Route path="sales-analytics" element={<SalesAnalytics />} />
+        <Route path="*" element={<Navigate to={defaultRouteForRole()} replace />} />
       </Route>
     </Routes>
   );
