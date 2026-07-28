@@ -51,6 +51,31 @@ const registerUser = async (req, res) => {
       return res.status(400).json({ success: false, message: 'All fields are required.' });
     }
 
+    // 📱 Clean phone number - remove all non-digit characters
+    const cleanedPhone = phone.replace(/\D/g, '');
+
+    // 🔍 Check if phone number already exists in profiles
+    const { data: existingPhoneUser, error: phoneCheckError } = await supabase
+      .from('profiles')
+      .select('id, phone_number, full_name')
+      .eq('phone_number', cleanedPhone)
+      .maybeSingle();
+
+    if (phoneCheckError) {
+      console.error('[PHONE CHECK ERROR]', phoneCheckError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Error checking phone number availability.' 
+      });
+    }
+
+    if (existingPhoneUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Phone number ${cleanedPhone} is already registered to another user. Please use a different number.` 
+      });
+    }
+
     // 1️⃣ Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
@@ -58,7 +83,7 @@ const registerUser = async (req, res) => {
       options: {
         data: { 
           full_name: fullName, 
-          phone_number: phone
+          phone_number: cleanedPhone
         }
       }
     });
@@ -88,7 +113,7 @@ const registerUser = async (req, res) => {
         .from('profiles')
         .update({
           full_name: fullName,
-          phone_number: phone,
+          phone_number: cleanedPhone,
           address: address || '',
           role_id: defaultRoleId,
           email: email
@@ -105,7 +130,7 @@ const registerUser = async (req, res) => {
         .insert([{
           id: authUser.id,
           full_name: fullName,
-          phone_number: phone,
+          phone_number: cleanedPhone,
           address: address || '',
           role_id: defaultRoleId,
           email: email

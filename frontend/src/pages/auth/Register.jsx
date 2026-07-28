@@ -19,6 +19,12 @@ const Register = () => {
     password: false 
   });
   const [registrationError, setRegistrationError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState({
+    fullName: '',
+    email: '',
+    phone: '',
+    password: ''
+  });
   
   // Modal states
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -42,17 +48,100 @@ const Register = () => {
   // Handle field blur to mark as touched
   const handleFieldBlur = (fieldName) => {
     setTouchedFields(prev => ({ ...prev, [fieldName]: true }));
+    validateField(fieldName);
   };
 
-  // ✅ Handle phone number input - only allow numbers
+  // Validate individual field
+  const validateField = (fieldName) => {
+    let error = '';
+    
+    switch(fieldName) {
+      case 'fullName':
+        if (!fullName.trim()) {
+          error = 'Full name is required';
+        } else if (fullName.trim().length < 2) {
+          error = 'Name must be at least 2 characters';
+        }
+        break;
+      case 'email':
+        if (!email.trim()) {
+          error = 'Email address is required';
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          error = 'Please enter a valid email address';
+        }
+        break;
+      case 'phone':
+        if (!phone.trim()) {
+          error = 'Phone number is required';
+        } else if (phone.length < 10) {
+          error = 'Phone number must be at least 10 digits';
+        } else if (phone.length > 15) {
+          error = 'Phone number is too long';
+        }
+        break;
+      case 'password':
+        if (!password.trim()) {
+          error = 'Password is required';
+        } else if (password.length < 8) {
+          error = 'Password must be at least 8 characters';
+        } else if (!/[A-Z]/.test(password)) {
+          error = 'Password must contain at least one uppercase letter';
+        } else if (!/[a-z]/.test(password)) {
+          error = 'Password must contain at least one lowercase letter';
+        } else if (!/[0-9]/.test(password)) {
+          error = 'Password must contain at least one number';
+        } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
+          error = 'Password must contain at least one special character (!@#$%^&* etc.)';
+        }
+        break;
+      default:
+        break;
+    }
+    
+    setFieldErrors(prev => ({ ...prev, [fieldName]: error }));
+    return error === '';
+  };
+
+  // Validate all fields
+  const validateAllFields = () => {
+    const fields = ['fullName', 'email', 'phone', 'password'];
+    let isValid = true;
+    
+    fields.forEach(field => {
+      const isFieldValid = validateField(field);
+      if (!isFieldValid) isValid = false;
+    });
+    
+    return isValid;
+  };
+
+  // Handle phone number input - only allow numbers
   const handlePhoneChange = (e) => {
     const value = e.target.value;
-    // Only allow digits
     const numericValue = value.replace(/\D/g, '');
     setPhone(numericValue);
+    if (touchedFields.phone) {
+      validateField('phone');
+    }
   };
 
-  // Validate form fields
+  // Handle input changes with validation
+  const handleInputChange = (field, value) => {
+    const setters = {
+      fullName: setFullName,
+      email: setEmail,
+      password: setPassword
+    };
+    
+    if (setters[field]) {
+      setters[field](value);
+      if (touchedFields[field]) {
+        validateField(field);
+      }
+    }
+  };
+
+  // Validate form on submit
   const validateForm = () => {
     setTouchedFields({ 
       fullName: true, 
@@ -60,37 +149,16 @@ const Register = () => {
       phone: true, 
       password: true 
     });
-
-    if (!fullName.trim()) {
-      setRegistrationError('Full name is required');
-      return false;
-    }
-    if (!email.trim()) {
-      setRegistrationError('Email address is required');
-      return false;
-    }
-    if (!phone.trim()) {
-      setRegistrationError('Phone number is required');
-      return false;
-    }
-    if (phone.length < 10) {
-      setRegistrationError('Phone number must be at least 10 digits');
-      return false;
-    }
-    if (!password.trim()) {
-      setRegistrationError('Password is required');
-      return false;
-    }
-    if (password.length < 6) {
-      setRegistrationError('Password must be at least 6 characters');
+    
+    const isValid = validateAllFields();
+    
+    if (!isValid) {
+      setRegistrationError('Please fix all errors before continuing');
       return false;
     }
     return true;
   };
 
-  /**
-   * Dispatches form fields down to base backend endpoints for credentials initialization
-   */
   const handleRegister = useCallback(async (e) => {
     e.preventDefault();
     setRegistrationError('');
@@ -141,9 +209,6 @@ const Register = () => {
     }
   }, [email, password, fullName, phone, navigate]);
 
-  /**
-   * Invokes centralized OAuth workflow pipelines managed by structural context instances
-   */
   const handleGoogleSignIn = async () => {
     console.log("Initiating Google Sign-In via Context Wrapper Layer...");
     try {
@@ -153,6 +218,15 @@ const Register = () => {
       setFailureMessage('Google Sign-In failed. Please try again.');
       setShowFailureModal(true);
     }
+  };
+
+  // Get field error state
+  const getFieldErrorState = (field) => {
+    if (!touchedFields[field]) return { hasError: false, message: '' };
+    return {
+      hasError: !!fieldErrors[field],
+      message: fieldErrors[field]
+    };
   };
 
   return (
@@ -210,45 +284,56 @@ const Register = () => {
             </div>
           )}
           
-          <form onSubmit={handleRegister} className="space-y-5">
+          <form onSubmit={handleRegister} className="space-y-5" noValidate>
             {/* Full Name Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Full Name
+                  Full Name <span className="text-red-500"></span>
                 </label>
+                {getFieldErrorState('fullName').hasError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
               <div className={`relative transition-all duration-200 ${
-                touchedFields.fullName && !fullName.trim() 
+                getFieldErrorState('fullName').hasError
                   ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                  : touchedFields.fullName && !getFieldErrorState('fullName').hasError
+                  ? 'ring-2 ring-green-500 ring-offset-2 rounded-xl'
                   : ''
               }`}>
                 <User className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.fullName && !fullName.trim() ? 'text-red-500' : 'text-gray-400'
+                  getFieldErrorState('fullName').hasError ? 'text-red-500' : 'text-gray-400'
                 }`} />
                 <input 
-                  type="text" 
-                  required
+                  type="text"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => handleInputChange('fullName', e.target.value)}
                   onBlur={() => handleFieldBlur('fullName')}
                   className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.fullName && !fullName.trim() 
+                    getFieldErrorState('fullName').hasError
                       ? 'border-red-500 bg-red-50' 
+                      : touchedFields.fullName && !getFieldErrorState('fullName').hasError
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                   placeholder="Enter your full name"
                 />
-                {touchedFields.fullName && !fullName.trim() && (
+                {getFieldErrorState('fullName').hasError && (
                   <div className="absolute right-3 top-3.5">
                     <AlertTriangle size={18} className="text-red-500" />
                   </div>
                 )}
+                {touchedFields.fullName && !getFieldErrorState('fullName').hasError && fullName.trim() && (
+                  <div className="absolute right-3 top-3.5">
+                    <CheckCircle size={18} className="text-green-500" />
+                  </div>
+                )}
               </div>
-              {touchedFields.fullName && !fullName.trim() && (
+              {getFieldErrorState('fullName').hasError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Full name is required
+                  {fieldErrors.fullName}
                 </p>
               )}
             </div>
@@ -257,94 +342,109 @@ const Register = () => {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Email Address
+                  Email Address <span className="text-red-500"></span>
                 </label>
+                {getFieldErrorState('email').hasError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
               <div className={`relative transition-all duration-200 ${
-                touchedFields.email && !email.trim() 
+                getFieldErrorState('email').hasError
                   ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                  : touchedFields.email && !getFieldErrorState('email').hasError
+                  ? 'ring-2 ring-green-500 ring-offset-2 rounded-xl'
                   : ''
               }`}>
                 <Mail className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.email && !email.trim() ? 'text-red-500' : 'text-gray-400'
+                  getFieldErrorState('email').hasError ? 'text-red-500' : 'text-gray-400'
                 }`} />
                 <input 
-                  type="email" 
-                  required
+                  type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
                   onBlur={() => handleFieldBlur('email')}
                   className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.email && !email.trim() 
+                    getFieldErrorState('email').hasError
                       ? 'border-red-500 bg-red-50' 
+                      : touchedFields.email && !getFieldErrorState('email').hasError
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                   placeholder="name@example.com"
                 />
-                {touchedFields.email && !email.trim() && (
+                {getFieldErrorState('email').hasError && (
                   <div className="absolute right-3 top-3.5">
                     <AlertTriangle size={18} className="text-red-500" />
                   </div>
                 )}
+                {touchedFields.email && !getFieldErrorState('email').hasError && email.trim() && (
+                  <div className="absolute right-3 top-3.5">
+                    <CheckCircle size={18} className="text-green-500" />
+                  </div>
+                )}
               </div>
-              {touchedFields.email && !email.trim() && (
+              {getFieldErrorState('email').hasError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Email address is required
+                  {fieldErrors.email}
                 </p>
               )}
             </div>
 
-            {/* Phone Number Field - Only Numbers */}
+            {/* Phone Number Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Phone Number
+                  Phone Number <span className="text-red-500"></span>
                 </label>
+                {getFieldErrorState('phone').hasError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
               <div className={`relative transition-all duration-200 ${
-                touchedFields.phone && (!phone.trim() || phone.length < 10)
+                getFieldErrorState('phone').hasError
                   ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                  : touchedFields.phone && !getFieldErrorState('phone').hasError
+                  ? 'ring-2 ring-green-500 ring-offset-2 rounded-xl'
                   : ''
               }`}>
                 <Phone className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.phone && (!phone.trim() || phone.length < 10) ? 'text-red-500' : 'text-gray-400'
+                  getFieldErrorState('phone').hasError ? 'text-red-500' : 'text-gray-400'
                 }`} />
                 <input 
-                  type="text"
+                  type="tel"
                   inputMode="numeric"
-                  pattern="[0-9]*"
-                  required
                   value={phone}
                   onChange={handlePhoneChange}
                   onBlur={() => handleFieldBlur('phone')}
                   className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.phone && (!phone.trim() || phone.length < 10)
+                    getFieldErrorState('phone').hasError
                       ? 'border-red-500 bg-red-50' 
+                      : touchedFields.phone && !getFieldErrorState('phone').hasError
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                   placeholder="0771234567"
                   maxLength={15}
                 />
-                {touchedFields.phone && (!phone.trim() || phone.length < 10) && (
+                {getFieldErrorState('phone').hasError && (
                   <div className="absolute right-3 top-3.5">
                     <AlertTriangle size={18} className="text-red-500" />
                   </div>
                 )}
+                {touchedFields.phone && !getFieldErrorState('phone').hasError && phone.trim() && (
+                  <div className="absolute right-3 top-3.5">
+                    <CheckCircle size={18} className="text-green-500" />
+                  </div>
+                )}
               </div>
-              {touchedFields.phone && !phone.trim() && (
+              {getFieldErrorState('phone').hasError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Phone number is required
+                  {fieldErrors.phone}
                 </p>
               )}
-              {touchedFields.phone && phone.trim() && phone.length < 10 && (
-                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Phone number must be at least 10 digits
-                </p>
-              )}
-              {touchedFields.phone && phone.trim() && phone.length >= 10 && (
+              {touchedFields.phone && !getFieldErrorState('phone').hasError && phone.trim() && (
                 <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
                   <CheckCircle size={12} />
                   Valid phone number
@@ -352,30 +452,36 @@ const Register = () => {
               )}
             </div>
 
-            {/* Password Field with Eye Toggle */}
+            {/* Password Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Password
+                  Password <span className="text-red-500"></span>
                 </label>
+                {getFieldErrorState('password').hasError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
               <div className={`relative transition-all duration-200 ${
-                touchedFields.password && !password.trim() 
+                getFieldErrorState('password').hasError
                   ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                  : touchedFields.password && !getFieldErrorState('password').hasError
+                  ? 'ring-2 ring-green-500 ring-offset-2 rounded-xl'
                   : ''
               }`}>
                 <Lock className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.password && !password.trim() ? 'text-red-500' : 'text-gray-400'
+                  getFieldErrorState('password').hasError ? 'text-red-500' : 'text-gray-400'
                 }`} />
                 <input 
                   type={showPassword ? 'text' : 'password'}
-                  required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => handleInputChange('password', e.target.value)}
                   onBlur={() => handleFieldBlur('password')}
                   className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.password && !password.trim() 
+                    getFieldErrorState('password').hasError
                       ? 'border-red-500 bg-red-50' 
+                      : touchedFields.password && !getFieldErrorState('password').hasError
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                   placeholder="Min 6 characters"
@@ -387,25 +493,24 @@ const Register = () => {
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
-                {touchedFields.password && !password.trim() && (
+                {getFieldErrorState('password').hasError && (
                   <div className="absolute right-12 top-3.5">
                     <AlertTriangle size={18} className="text-red-500" />
                   </div>
                 )}
+                {touchedFields.password && !getFieldErrorState('password').hasError && password.trim() && (
+                  <div className="absolute right-12 top-3.5">
+                    <CheckCircle size={18} className="text-green-500" />
+                  </div>
+                )}
               </div>
-              {touchedFields.password && !password.trim() && (
+              {getFieldErrorState('password').hasError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Password is required
+                  {fieldErrors.password}
                 </p>
               )}
-              {touchedFields.password && password.trim() && password.length < 6 && (
-                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Password must be at least 6 characters
-                </p>
-              )}
-              {touchedFields.password && password.trim() && password.length >= 6 && (
+              {touchedFields.password && !getFieldErrorState('password').hasError && password.trim() && (
                 <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
                   <CheckCircle size={12} />
                   Password strength: Good
