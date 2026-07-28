@@ -703,7 +703,7 @@ const stockService = {
 
       console.log('ℹ️ No change needed');
       console.log('═══════════════════════════════════════════════════');
-      return { success: true, message: 'No change needed' };
+      return { message: 'No change applied' };
     } catch (error) {
       console.error('Error in updateStock:', error);
       throw error;

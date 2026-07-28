@@ -89,7 +89,7 @@ const TransactionModal = ({ isOpen, onClose, transactions }) => {
 const EmptyToStockModal = ({ isOpen, onClose, onConvert, product }) => {
   const [formData, setFormData] = useState({
     quantity: 1,
-    reason: 'production',
+    reason: 'restock',
     notes: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -97,7 +97,7 @@ const EmptyToStockModal = ({ isOpen, onClose, onConvert, product }) => {
   useEffect(() => {
     if (!isOpen) {
       setIsSubmitting(false);
-      setFormData({ quantity: 1, reason: 'production', notes: '' });
+      setFormData({ quantity: '', reason: 'restock', notes: '' });
     }
   }, [isOpen]);
 
@@ -221,7 +221,7 @@ const EmptyToStockModal = ({ isOpen, onClose, onConvert, product }) => {
 // Stock to Empty Conversion Modal
 const StockToEmptyModal = ({ isOpen, onClose, onConvert, product }) => {
   const [formData, setFormData] = useState({
-    quantity: 1,
+    quantity: 0,
     reason: 'correction',
     notes: ''
   });
@@ -230,7 +230,7 @@ const StockToEmptyModal = ({ isOpen, onClose, onConvert, product }) => {
   useEffect(() => {
     if (!isOpen) {
       setIsSubmitting(false);
-      setFormData({ quantity: 1, reason: 'correction', notes: '' });
+      setFormData({ quantity: '', reason: 'correction', notes: '' });
     }
   }, [isOpen]);
 
@@ -351,47 +351,54 @@ const StockToEmptyModal = ({ isOpen, onClose, onConvert, product }) => {
   );
 };
 
-// Stock Modal (Add/Edit/Delete)
-const StockModal = ({ isOpen, onClose, onSave, onDelete, mode, item, products }) => {
+// Stock Modal - Add Only
+// Stock Modal - Edit Only
+// Stock Modal - Add Only
+const StockModal = ({ isOpen, onClose, onSave, products }) => {
   const [formData, setFormData] = useState({
     product_id: '',
     quantity: '',
     reason: 'restock',
     notes: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const selectedProduct = products?.find(p => p.id === parseInt(formData.product_id));
-  const isRefill = selectedProduct?.type?.toLowerCase() === 'refill' || 
-                   selectedProduct?.type?.toLowerCase() === 'empty';
-  const currentStock = selectedProduct?.stock ?? 0;
-  const emptyStock = selectedProduct?.empty_bottle_stock ?? 0;
-  const isInsufficient = isRefill ? false : emptyStock < formData.quantity;
 
+  // Reset form when modal opens
   useEffect(() => {
-    if (mode === 'edit' && item) {
-      setFormData({
-        product_id: item.id || '',
-        quantity: item.stock || 0,
-        reason: 'adjustment',
-        notes: ''
-      });
-    } else if (mode === 'add' && products?.length > 0) {
+    if (isOpen && products?.length > 0) {
       setFormData({
         product_id: products[0]?.id || '',
-        quantity: 1,
+        quantity: '', // Empty - user will enter the quantity to add
         reason: 'restock',
         notes: ''
       });
     }
-  }, [mode, item, products]);
+  }, [isOpen, products]);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (formData.quantity <= 0) {
+    const qty = Number(formData.quantity);
+    if (qty <= 0) {
       toast.error('Quantity must be positive');
       return;
     }
-    onSave(formData);
+    
+    setIsSubmitting(true);
+    try {
+      await onSave({
+        product_id: formData.product_id,
+        quantity: qty,
+        reason: formData.reason,
+        notes: formData.notes
+      });
+      setIsSubmitting(false);
+      onClose();
+    } catch (error) {
+      setIsSubmitting(false);
+      toast.error('Failed to add stock');
+    }
   };
 
   if (!isOpen) return null;
@@ -400,129 +407,101 @@ const StockModal = ({ isOpen, onClose, onSave, onDelete, mode, item, products })
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {mode === 'add' ? 'Add Stock' : mode === 'edit' ? 'Edit Stock' : 'Delete Stock'}
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-900">Add Stock</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
             <X size={20} />
           </button>
         </div>
 
-        {mode === 'delete' ? (
-          <div className="space-y-4">
-            <p className="text-gray-600">Delete stock for <strong>{item?.name}</strong>?</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={onClose} className="px-4 py-2 text-sm font-medium bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>
-              <button onClick={() => onDelete(item)} className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">Delete</button>
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Product</label>
+            <select
+              value={formData.product_id}
+              onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+              required
+            >
+              <option value="">Select a product...</option>
+              {products?.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.type})
+                </option>
+              ))}
+            </select>
           </div>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Product</label>
-              <select
-                value={formData.product_id}
-                onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
-                required
-                disabled={mode === 'edit'}
-              >
-                {products?.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({p.type}) - Stock: {p.stock} | Empty: {p.empty_bottle_stock || 0}
-                  </option>
-                ))}
-              </select>
-            </div>
 
-            {selectedProduct && (
-              <div className={`p-3 rounded-lg text-xs ${isRefill ? 'bg-blue-50' : 'bg-blue-50'}`}>
-                <p className="font-medium">{isRefill ? 'Refill / Empty Bottle' : 'Sealed Bottle'}</p>
-                {isRefill ? (
-                  <p className="text-gray-600">Adding will increase empty bottle stock</p>
-                ) : (
-                  <p className="text-gray-600">Adding will increase sealed stock and deduct empty bottles</p>
-                )}
+          {selectedProduct && (
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <p className="font-medium text-gray-900">{selectedProduct.name}</p>
+              <div className="flex gap-4 mt-1 text-sm">
+                <span className="text-gray-600">Sealed: <strong>{selectedProduct.stock}</strong></span>
+                <span className="text-gray-600">Empty: <strong className="text-blue-700">{selectedProduct.empty_bottle_stock || 0}</strong></span>
               </div>
-            )}
-
-            {selectedProduct && (
-              <div className="grid grid-cols-2 gap-2 p-3 bg-gray-50 rounded-lg text-sm">
-                <div>
-                  <span className="text-gray-600">Current Stock:</span>
-                  <span className="font-semibold block">{currentStock}</span>
-                </div>
-                {!isRefill && (
-                  <div>
-                    <span className="text-gray-600">Empty Bottles:</span>
-                    <span className={`font-semibold block ${isInsufficient ? 'text-red-600' : 'text-green-600'}`}>
-                      {emptyStock}
-                      {isInsufficient && ' Insufficient!'}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Quantity</label>
-              <input
-                type="number"
-                value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
-                className={`w-full px-3 py-2 text-sm border rounded-lg ${isInsufficient ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                min="1"
-                required
-              />
-              {isInsufficient && (
-                <p className="text-xs text-red-600 mt-1">Not enough empty bottles! Available: {emptyStock}</p>
-              )}
             </div>
+          )}
 
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
-              <select
-                value={formData.reason}
-                onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
-              >
-                {isRefill ? (
-                  <>
-                    <option value="restock">Restock Empty Bottles</option>
-                    <option value="adjustment">Adjustment</option>
-                  </>
-                ) : (
-                  <>
-                    <option value="restock">Restock Sealed</option>
-                    <option value="adjustment">Adjustment</option>
-                  </>
-                )}
-              </select>
-            </div>
+          <div className="p-3 bg-blue-50 rounded-lg text-xs text-blue-800">
+            <p className="font-medium">Add sealed stock</p>
+            <p className="mt-0.5">This will increase the sealed product stock</p>
+          </div>
 
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Notes</label>
-              <textarea
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
-                rows="2"
-                placeholder="Optional notes..."
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Quantity to Add</label>
+            <input
+              type="number"
+              value={formData.quantity}
+              onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+              min="1"
+              placeholder="Enter quantity"
+              required
+            />
+          </div>
 
-            <div className="flex justify-end gap-3 pt-4 border-t">
-              <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium bg-gray-100 rounded-lg hover:bg-gray-200">Cancel</button>
-              <button 
-                type="submit" 
-                className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${isInsufficient ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                disabled={isInsufficient}
-              >
-                {mode === 'add' ? (isRefill ? 'Add Empty Bottles' : 'Add Sealed Stock') : 'Update Stock'}
-              </button>
-            </div>
-          </form>
-        )}
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Reason</label>
+            <select
+              value={formData.reason}
+              onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+            >
+              <option value="restock">Restock</option>
+              <option value="adjustment">Adjustment</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Notes (Optional)</label>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg"
+              rows="2"
+              placeholder="Optional notes..."
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <button 
+              type="button" 
+              onClick={onClose} 
+              className="px-4 py-2 text-sm font-medium bg-gray-100 rounded-lg hover:bg-gray-200"
+              disabled={isSubmitting}
+            >
+              Cancel
+            </button>
+            <button 
+              type="submit" 
+              className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${
+                isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? 'Adding...' : 'Add Stock'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -572,7 +551,7 @@ export default function StockLevels({ products = [], onRefresh, loading }) {
       if (onRefresh) {
         await onRefresh();
       }
-      toast.success('Data refreshed');
+      // toast.success('Data refreshed');
     } catch (error) {
       console.error('Refresh failed:', error);
       toast.error('Refresh failed');
@@ -585,7 +564,7 @@ export default function StockLevels({ products = [], onRefresh, loading }) {
     try {
       setSyncing(true);
       await inventoryAPI.syncEmptyStock();
-      // toast.success('Empty bottle stock synced');
+      toast.success('Empty bottle stock synced');
       await handleRefresh();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Sync failed');
@@ -912,14 +891,14 @@ export default function StockLevels({ products = [], onRefresh, loading }) {
                       <td className="py-3 px-4 text-red-600 font-bold">{item.stock}</td>
                       <td className="py-3 px-4">{item.empty_bottle_stock || 0}</td>
                       <td className="py-3 px-4 text-center">
-                        <button 
+                        {/* <button 
                           onClick={() => setConversionModal({ isOpen: true, type: 'empty_to_stock', product: item })} 
                           className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700 mr-1"
                         >
                           <ArrowRight size={12} className="inline mr-1" /> Convert
-                        </button>
+                        </button> */}
                         <button 
-                          onClick={() => setStockModal({ isOpen: true, mode: 'edit', item })} 
+                          onClick={() => setConversionModal({ isOpen: true, type: 'empty_to_stock', product: item })} 
                           className="px-3 py-1 bg-blue-600 text-white rounded-lg text-xs hover:bg-blue-700"
                         >
                           Restock
