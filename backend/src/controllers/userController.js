@@ -219,6 +219,43 @@ const updateUserStatus = async (req, res) => {
   }
 };
 
+// ===== UPDATE USER ROLE ONLY =====
+const updateUserRole = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { roleId, employeeId } = req.body;  // ✅ employeeId is optional
+
+    if (!roleId) {
+      return res.status(400).json({
+        success: false,
+        message: 'roleId is required.'
+      });
+    }
+
+    const updated = await userService.updateUserRole(id, roleId, employeeId || null);
+
+    return res.status(200).json({
+      success: true,
+      message: 'User role updated successfully',
+      data: updated
+    });
+  } catch (error) {
+    console.error('[Users] ❌ Role update error:', error);
+
+    if (error.message === 'User not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -226,5 +263,7 @@ module.exports = {
   createUserFromEmployee,
   updateUser,
   deleteUser,
-  updateUserStatus
+  updateUserStatus,
+  updateUserRole
 };
+

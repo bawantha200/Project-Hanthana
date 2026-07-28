@@ -514,6 +514,67 @@ async updateUserStatus(id, status) {
       throw error;
     }
   }
+
+// ============================================================
+  // UPDATE USER ROLE ONLY (used when linking employee -> existing account)
+  // Optionally also flips the linked employee record from 'pending' to 'active'
+  // ============================================================
+  async updateUserRole(id, roleId, employeeId = null) {
+    try {
+      console.log(`[UserService] 🔄 Updating role for user ${id} to role_id ${roleId}`);
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ role_id: roleId })
+        .eq('id', id)
+        .select(`
+          *,
+          roles (
+            id,
+            role_name
+          )
+        `)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[UserService] ❌ Role update error:', error);
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('User not found');
+      }
+
+      console.log(`[UserService] 🎯 Role updated for user ${id}`);
+
+      // ✅ NEW: if an employeeId was supplied, flip that employee to 'active'
+      // (covers the "employee already has an account, just update their role" flow)
+      if (employeeId) {
+        const { error: empError } = await supabase
+          .from('employees')
+          .update({
+            status: 'active',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', employeeId);
+
+        if (empError) {
+          // Don't fail the whole request — role update already succeeded.
+          // Log it clearly so it's visible, but return the role-update result.
+          console.error('[UserService] ⚠️ Employee status update failed after role update:', empError);
+        } else {
+          console.log(`[UserService] ✅ Employee ${employeeId} status updated to active`);
+        }
+      }
+
+      return data;
+    } catch (error) {
+      console.error('[UserService] ❌ updateUserRole error:', error);
+      throw error;
+    }
+  }
 }
+
+
 
 module.exports = new UserService();
