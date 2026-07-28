@@ -2024,7 +2024,7 @@ const handleDeleteDesignation = async () => {
                     </div>
 
                     {/* Status */}
-                    <div>
+                    {/* <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Circle size={14} className="inline mr-1" /> Status *
                       </label>
@@ -2054,7 +2054,7 @@ const handleDeleteDesignation = async () => {
                           {validationErrors.status}
                         </p>
                       )}
-                    </div>
+                    </div> */}
 
                     {/* Profile Image */}
                     <div>
