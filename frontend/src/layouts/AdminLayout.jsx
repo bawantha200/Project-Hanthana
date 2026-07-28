@@ -83,6 +83,7 @@ const NAV_ITEMS = [
 
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/app/finance' },
   { id: 'invoice', label: 'Invoice', icon: FileText, path: '/app/finance/invoicing-reports' },
+  { id: 'invoice', label: 'Profit', icon: FileText, path: '/app/finance/profit-reports' },
   { id: 'expenses', label: 'Expenses', icon: BarChart3, path: '/app/finance/expenses' },
 
   { id: 'vendors', label: 'Vendors', icon: Store, path: '/app/vendors' },

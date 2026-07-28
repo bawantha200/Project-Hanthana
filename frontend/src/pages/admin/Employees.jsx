@@ -827,9 +827,31 @@ const handleDeleteDesignation = async () => {
     return;
   }
 
-  try {
-    setSubmitting(true);
-    setError(null);
+    try {
+      setSubmitting(true);
+      setError(null);
+      
+      const updateData = {
+        name: formData.fullName,
+        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+        phone: formData.phoneNo,
+        email: formData.email,
+        hireDate: formData.hiredDate,
+        address: formData.address,
+        baseSalary: parseFloat(formData.baseSalary) || 0,
+        bonus: parseFloat(formData.bonus) || 0,
+        status: formData.status || 'active',
+        role_id: formData.role || null
+      };
+      
+      if (formData.birthday) updateData.birthday = formData.birthday;
+      if (formData.gender) updateData.gender = formData.gender;
+      if (formData.nic) updateData.nic = formData.nic;
+      if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
+      if (formData.jobType) updateData.jobType = formData.jobType;
+      if (formData.profileImage) updateData.profileImage = formData.profileImage;
+
+      console.log('Updating employee data:', updateData);
 
     // ✅ NEW: If employee was rejected and admin now assigns a role,
     // automatically move them back to 'pending' so they reappear
