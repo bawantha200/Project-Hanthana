@@ -61,6 +61,16 @@ const summaryCards = [
   },
 ];
 
+
+  const employeeStatusFilters = [
+    { key: 'ALL', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'on_leave', label: 'On Leave' },
+    { key: 'inactive', label: 'Inactive' },
+    { key: 'pending', label: 'Pending' },
+    { key: 'rejected', label: 'Rejected' },
+  ];
+
 export default function Employees() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -78,6 +88,9 @@ export default function Employees() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
+  const employeesPerPage = 10;
 
   // Validation states
   const [validationErrors, setValidationErrors] = useState({
@@ -128,6 +141,11 @@ export default function Employees() {
     role: ''
   });
 
+
+
+
+
+  
   // ========== HELPER FUNCTIONS ==========
   
   // Get role display name from employee object
@@ -192,9 +210,6 @@ export default function Employees() {
     return employee.designation_id || null;
   };
 
-
-  
-
   // Helper function to get role name by ID
   const getRoleName = (roleId) => {
     if (!roleId) return 'No Role';
@@ -202,26 +217,33 @@ export default function Employees() {
     return role ? role.role_name : 'No Role';
   };
 
-  // Validation functions
+  // ========== VALIDATION FUNCTIONS (FIXED) ==========
 
   const capitalizeWords = (str) => {
-  return str.replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+    return str.replace(/(^|\s)\S/g, (match) => match.toUpperCase());
   };
 
+  // ✅ Email: trim spaces
   const validateEmail = (email) => {
+    const trimmed = email.trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    return emailRegex.test(trimmed);
   };
 
+  // ✅ Phone: remove spaces, dashes, brackets; allow local and +94
   const validatePhone = (phone) => {
-    const phoneRegex = /^0[0-9]{9}$/;
-    return phoneRegex.test(phone);
+    const cleaned = phone.trim().replace(/[\s\-()]/g, '');
+    const localRegex = /^0[0-9]{9}$/;
+    const intlRegex = /^\+94[0-9]{9}$/;
+    return localRegex.test(cleaned) || intlRegex.test(cleaned);
   };
 
+  // ✅ NIC: trim + uppercase
   const validateNIC = (nic) => {
-    const oldNICRegex = /^[0-9]{9}[VvXx]$/;
-    const newNICRegex = /^[0-9]{12}$/;
-    return oldNICRegex.test(nic) || newNICRegex.test(nic);
+    const cleaned = nic.trim().toUpperCase();
+    const oldRegex = /^[0-9]{9}[VX]$/;
+    const newRegex = /^[0-9]{12}$/;
+    return oldRegex.test(cleaned) || newRegex.test(cleaned);
   };
 
   const validateFullName = (name) => {
@@ -379,12 +401,10 @@ export default function Employees() {
     let isValid = true;
     
     fields.forEach(field => {
-      const value = formData[field];
-      const isFieldValid = validateField(field, value);
-      if (!isFieldValid) {
-        isValid = false;
-      }
-    });
+  const value = field === 'designation' ? formData.designationId : formData[field];
+  const isFieldValid = validateField(field, value);
+  if (!isFieldValid) isValid = false;
+});
 
     if (formData.nic && !validateField('nic', formData.nic)) {
       isValid = false;
@@ -461,177 +481,171 @@ export default function Employees() {
 
   // ========== CRUD OPERATIONS FOR DESIGNATIONS ==========
 
- // ========== CRUD OPERATIONS FOR DESIGNATIONS (FIXED) ==========
+  const handleAddDesignation = async (e) => {
+    e.preventDefault();
+    if (!designationForm.name.trim()) {
+      setError('Please enter a designation name');
+      return;
+    }
 
-const handleAddDesignation = async (e) => {
-  e.preventDefault();
-  if (!designationForm.name.trim()) {
-    setError('Please enter a designation name');
-    return;
-  }
+    if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
+      setError('Please enter a valid OT rate');
+      return;
+    }
 
-  if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
-    setError('Please enter a valid OT rate');
-    return;
-  }
-
-  const exists = designations.some(d =>
-    d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
-  );
-
-  if (exists) {
-    setError(`"${designationForm.name.trim()}" already exists!`);
-    return;
-  }
-
-  try {
-    setSubmitting(true);
-    setError(null);
-    const token = localStorage.getItem('token');
-    const response = await axios.post(DESIGNATION_API_URL,
-      {
-        designation: designationForm.name.trim(),
-        ot_rate: parseFloat(designationForm.otRate)
-      },
-      { headers: { Authorization: `Bearer ${token}` } }
+    const exists = designations.some(d =>
+      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
 
-    if (response.data.success) {
-      setDesignations([...designations, response.data.data]);
-      setDesignationForm({ name: '', otRate: 500 });
-      showSuccessNotification('Designation added successfully!');
-      // NOTE: modal is left open so user can add another one / manage list
+    if (exists) {
+      setError(`"${designationForm.name.trim()}" already exists!`);
+      return;
     }
-  } catch (err) {
-    console.error('Error adding designation:', err);
-    // FIX: show the real backend error instead of silently faking success
-    if (err.response) {
-      if (err.response.status === 409) {
-        setError(err.response.data?.message || 'This designation already exists.');
-      } else {
-        setError(err.response.data?.message || 'Failed to add designation.');
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      const token = localStorage.getItem('token');
+      const response = await axios.post(DESIGNATION_API_URL,
+        {
+          designation: designationForm.name.trim(),
+          ot_rate: parseFloat(designationForm.otRate)
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data.success) {
+        setDesignations([...designations, response.data.data]);
+        setDesignationForm({ name: '', otRate: 500 });
+        showSuccessNotification('Designation added successfully!');
       }
-    } else {
-      setError('Network error. Please check if the server is running.');
+    } catch (err) {
+      console.error('Error adding designation:', err);
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError(err.response.data?.message || 'This designation already exists.');
+        } else {
+          setError(err.response.data?.message || 'Failed to add designation.');
+        }
+      } else {
+        setError('Network error. Please check if the server is running.');
+      }
+    } finally {
+      setSubmitting(false);
     }
-  } finally {
-    setSubmitting(false);
-  }
-};
+  };
 
-const handleEditDesignation = async (e) => {
-  e.preventDefault();
-  if (!designationForm.name.trim()) {
-    setError('Please enter a designation name');
-    return;
-  }
+  const handleEditDesignation = async (e) => {
+    e.preventDefault();
+    if (!designationForm.name.trim()) {
+      setError('Please enter a designation name');
+      return;
+    }
 
-  if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
-    setError('Please enter a valid OT rate');
-    return;
-  }
+    if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
+      setError('Please enter a valid OT rate');
+      return;
+    }
 
-  const exists = designations.some(d =>
-    d.id !== editingDesignationId &&
-    d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
-  );
-
-  if (exists) {
-    setError(`"${designationForm.name.trim()}" already exists!`);
-    return;
-  }
-
-  try {
-    setSubmitting(true);
-    setError(null);
-    const token = localStorage.getItem('token');
-    const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
-      {
-        designation: designationForm.name.trim(),
-        ot_rate: parseFloat(designationForm.otRate)
-      },
-      { headers: { Authorization: `Bearer ${token}` } }
+    const exists = designations.some(d =>
+      d.id !== editingDesignationId &&
+      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
 
-    if (response.data.success) {
-      setDesignations(designations.map(d =>
-        d.id === editingDesignationId ? response.data.data : d
-      ));
-      setDesignationForm({ name: '', otRate: 500 });
-      setIsEditingDesignation(false);
-      setEditingDesignationId(null);
-      showSuccessNotification('Designation updated successfully!');
-      // FIX: refresh employees so the table shows the new designation name/rate immediately
-      fetchEmployees();
+    if (exists) {
+      setError(`"${designationForm.name.trim()}" already exists!`);
+      return;
     }
-  } catch (err) {
-    console.error('Error updating designation:', err);
-    if (err.response) {
-      if (err.response.status === 409) {
-        setError(err.response.data?.message || 'This designation name already exists.');
-      } else if (err.response.status === 404) {
-        setError('Designation not found. It may have been deleted already.');
-      } else {
-        setError(err.response.data?.message || 'Failed to update designation.');
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
+        {
+          designation: designationForm.name.trim(),
+          ot_rate: parseFloat(designationForm.otRate)
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (response.data.success) {
+        setDesignations(designations.map(d =>
+          d.id === editingDesignationId ? response.data.data : d
+        ));
+        setDesignationForm({ name: '', otRate: 500 });
+        setIsEditingDesignation(false);
+        setEditingDesignationId(null);
+        showSuccessNotification('Designation updated successfully!');
+        fetchEmployees();
       }
-    } else {
-      setError('Network error. Please check if the server is running.');
+    } catch (err) {
+      console.error('Error updating designation:', err);
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError(err.response.data?.message || 'This designation name already exists.');
+        } else if (err.response.status === 404) {
+          setError('Designation not found. It may have been deleted already.');
+        } else {
+          setError(err.response.data?.message || 'Failed to update designation.');
+        }
+      } else {
+        setError('Network error. Please check if the server is running.');
+      }
+    } finally {
+      setSubmitting(false);
     }
-  } finally {
-    setSubmitting(false);
-  }
-};
+  };
 
-const handleDeleteDesignation = async () => {
-  if (!designationToDelete) return;
+  const handleDeleteDesignation = async () => {
+    if (!designationToDelete) return;
 
-  try {
-    setSubmitting(true);
-    setError(null);
-    const token = localStorage.getItem('token');
-    const response = await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    try {
+      setSubmitting(true);
+      setError(null);
+      const token = localStorage.getItem('token');
+      const response = await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
 
-    if (response.data.success) {
-      setDesignations(designations.filter(d => d.id !== designationToDelete.id));
+      if (response.data.success) {
+        setDesignations(designations.filter(d => d.id !== designationToDelete.id));
+        setShowDesignationDeleteConfirm(false);
+        setDesignationToDelete(null);
+        showSuccessNotification('Designation deleted successfully!');
+      }
+    } catch (err) {
+      console.error('Error deleting designation:', err);
       setShowDesignationDeleteConfirm(false);
+      if (err.response) {
+        setError(err.response.data?.message || 'Failed to delete designation.');
+      } else {
+        setError('Network error. Please check if the server is running.');
+      }
       setDesignationToDelete(null);
-      showSuccessNotification('Designation deleted successfully!');
+    } finally {
+      setSubmitting(false);
     }
-  } catch (err) {
-    console.error('Error deleting designation:', err);
-    setShowDesignationDeleteConfirm(false);
-    // FIX: don't fake-delete locally when the backend actually blocked it
-    // (e.g. 409 = employees are still assigned to this designation)
-    if (err.response) {
-      setError(err.response.data?.message || 'Failed to delete designation.');
-    } else {
-      setError('Network error. Please check if the server is running.');
-    }
-    setDesignationToDelete(null);
-  } finally {
-    setSubmitting(false);
-  }
-};
+  };
+
   const openAddDesignationModal = () => {
-  setDesignationForm({ name: '', otRate: 500 });
-  setIsEditingDesignation(false);
-  setEditingDesignationId(null);
-  setShowDesignationModal(true);
-  setError(null);
-};
+    setDesignationForm({ name: '', otRate: 500 });
+    setIsEditingDesignation(false);
+    setEditingDesignationId(null);
+    setShowDesignationModal(true);
+    setError(null);
+  };
 
   const openEditDesignationModal = (designation) => {
-  setDesignationForm({ 
-    name: designation.designation,
-    otRate: designation.ot_rate || 500
-  });
-  setIsEditingDesignation(true);
-  setEditingDesignationId(designation.id);
-  setShowDesignationModal(true);
-  setError(null);
-};
+    setDesignationForm({ 
+      name: designation.designation,
+      otRate: designation.ot_rate || 500
+    });
+    setIsEditingDesignation(true);
+    setEditingDesignationId(designation.id);
+    setShowDesignationModal(true);
+    setError(null);
+  };
 
   const openDeleteDesignationConfirm = (designation) => {
     setDesignationToDelete(designation);
@@ -681,10 +695,8 @@ const handleDeleteDesignation = async () => {
   const activeStaff = employees.filter((e) => e.status === 'active').length;
   const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
   
-  // FIXED: managers count with proper null checking
   const managers = employees.filter((e) => {
     const desName = getDesignationName(e);
-    // Check if employee has manager role or designation contains manager
     const roleName = e.role && typeof e.role === 'object' ? e.role.role_name : e.role || '';
     return desName.toLowerCase().includes('manager') || 
            roleName.toLowerCase().includes('manager') ||
@@ -707,12 +719,24 @@ const handleDeleteDesignation = async () => {
   const filteredEmployees = employees.filter((employee) => {
     const employeeDesignation = getDesignationName(employee);
     const matchesPosition = activeFilter === 'All' || employeeDesignation === activeFilter;
+    const matchesStatus = statusFilter === 'ALL' || employee.status === statusFilter;   // ✅ add this
     const matchesSearch =
       employee.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employeeDesignation.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employee.email?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesPosition && matchesSearch;
+    return matchesPosition && matchesStatus && matchesSearch;   
   });
+
+  // Pagination
+  const totalPages = Math.ceil(filteredEmployees.length / employeesPerPage);
+  const paginatedEmployees = filteredEmployees.slice(
+    (currentPage - 1) * employeesPerPage,
+    currentPage * employeesPerPage
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeFilter, statusFilter]);
 
   const handleDelete = async () => {
     if (employeeToDelete) {
@@ -812,24 +836,39 @@ const handleDeleteDesignation = async () => {
   };
 
   const handleEditEmployee = async (e) => {
-  e.preventDefault();
-  
-  if (!validateForm()) {
-    setError('Please fix all validation errors before submitting');
-    const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
-    if (firstErrorField) {
-      const element = document.querySelector(`[name="${firstErrorField}"]`);
-      if (element) {
-        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        element.focus();
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
       }
+      return;
     }
-    return;
-  }
 
     try {
       setSubmitting(true);
       setError(null);
+
+      let statusToSend = formData.status;
+
+// original role_id eka gannawa (join karapu object ekak nam id eka gannawa)
+const originalRoleId = selectedEmployee?.role_id 
+  ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
+        ? selectedEmployee.role.id 
+        : null);
+
+const newRoleId = formData.role ? parseInt(formData.role) : null;
+
+// role eka wenas unoth witharak pending karanna (rejected wenas nathuwa, ANY role change ekata)
+if (newRoleId && newRoleId !== originalRoleId) {
+  statusToSend = 'pending';
+}
       
       const updateData = {
         name: formData.fullName,
@@ -840,7 +879,7 @@ const handleDeleteDesignation = async () => {
         address: formData.address,
         baseSalary: parseFloat(formData.baseSalary) || 0,
         bonus: parseFloat(formData.bonus) || 0,
-        status: formData.status || 'active',
+        status: statusToSend,
         role_id: formData.role || null
       };
       
@@ -853,74 +892,44 @@ const handleDeleteDesignation = async () => {
 
       console.log('Updating employee data:', updateData);
 
-    // ✅ NEW: If employee was rejected and admin now assigns a role,
-    // automatically move them back to 'pending' so they reappear
-    // in the pending list for account creation.
-    let statusToSend = formData.status;
-    if (selectedEmployee?.status === 'rejected' && formData.role) {
-      statusToSend = 'pending';
-    }
-    
-    const updateData = {
-      name: formData.fullName,
-      designation_id: formData.designationId ? parseInt(formData.designationId) : null,
-      phone: formData.phoneNo,
-      email: formData.email,
-      hireDate: formData.hiredDate,
-      address: formData.address,
-      baseSalary: parseFloat(formData.baseSalary) || 0,
-      bonus: parseFloat(formData.bonus) || 0,
-      status: statusToSend,          // ✅ use the resolved status
-      role_id: formData.role || null
-    };
-    
-    if (formData.birthday) updateData.birthday = formData.birthday;
-    if (formData.gender) updateData.gender = formData.gender;
-    if (formData.nic) updateData.nic = formData.nic;
-    if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
-    if (formData.jobType) updateData.jobType = formData.jobType;
-    if (formData.profileImage) updateData.profileImage = formData.profileImage;
-
-    console.log('Updating employee data:', updateData);
-
-    const token = localStorage.getItem('token');
-    const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    
-    if (response.data.success) {
-      setEmployees(employees.map(emp => 
-        emp.id === selectedEmployee.id ? response.data.data : emp
-      ));
-      setShowCreateForm(false);
-      setShowDetailModal(false);
-      setSelectedEmployee(response.data.data);
-      resetForm();
-      showSuccessNotification(
-        statusToSend === 'pending' && selectedEmployee?.status === 'rejected'
-          ? 'Employee re-activated — pending account creation!'
-          : 'Employee updated successfully!'
-      );
-    }
-  } catch (err) {
-    console.error('Error updating employee:', err);
-    if (err.response) {
-      if (err.response.status === 409) {
-        setError('Email already in use by another employee.');
-      } else if (err.response.status === 404) {
-        setError('Employee not found.');
-      } else if (err.response.status === 400) {
-        setError(err.response.data?.message || 'Please check all required fields.');
-      } else {
-        setError(err.response.data?.message || 'Failed to update employee. Please try again.');
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setEmployees(employees.map(emp => 
+          emp.id === selectedEmployee.id ? response.data.data : emp
+        ));
+        setShowCreateForm(false);
+        setShowDetailModal(false);
+        setSelectedEmployee(response.data.data);
+        resetForm();
+        showSuccessNotification(
+          statusToSend === 'pending' && selectedEmployee?.status === 'rejected'
+            ? 'Employee re-activated — pending account creation!'
+            : 'Employee updated successfully!'
+        );
       }
-    } else {
-      setError('Network error. Please check your connection.');
+    } catch (err) {
+      console.error('Error updating employee:', err);
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError('Email already in use by another employee.');
+        } else if (err.response.status === 404) {
+          setError('Employee not found.');
+        } else if (err.response.status === 400) {
+          setError(err.response.data?.message || 'Please check all required fields.');
+        } else {
+          setError(err.response.data?.message || 'Failed to update employee. Please try again.');
+        }
+      } else {
+        setError('Network error. Please check your connection.');
+      }
+    } finally {
+      setSubmitting(false);
     }
-  } finally {
-    setSubmitting(false);
-  }
-};
+  };
 
   const resetForm = () => {
     setFormData({
@@ -1032,6 +1041,9 @@ const handleDeleteDesignation = async () => {
   const currentTab = filterTabs.find(tab => tab.key === activeFilter) || filterTabs[0];
   const CurrentIcon = currentTab.icon;
 
+  // ✅ Check if designations are loaded
+  const isDesignationsLoaded = designations.length > 0;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -1125,6 +1137,7 @@ const handleDeleteDesignation = async () => {
         {/* Filter Dropdown & Search */}
         <motion.div variants={itemVariants} className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
+            
             <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
               <Briefcase size={16} className="text-gray-400" />
               <span>Designation:</span>
@@ -1188,7 +1201,41 @@ const handleDeleteDesignation = async () => {
                 </>
               )}
             </div>
+
           </div>
+
+          {/* Status Filter Buttons */}
+        <motion.div variants={itemVariants} className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+            <Filter size={16} className="text-gray-400" />
+            <span>Status:</span>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1 flex-wrap">
+            {employeeStatusFilters.map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setStatusFilter(s.key)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  statusFilter === s.key
+                    ? s.key === 'active'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : s.key === 'pending'
+                      ? 'bg-yellow-500 text-white shadow-sm'
+                      : s.key === 'rejected'
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : s.key === 'inactive'
+                      ? 'bg-red-500 text-white shadow-sm'
+                      : s.key === 'on_leave'
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </motion.div>
 
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -1220,8 +1267,8 @@ const handleDeleteDesignation = async () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredEmployees.length > 0 ? (
-                  filteredEmployees.map((employee) => (
+                {paginatedEmployees.length > 0 ? (
+                  paginatedEmployees.map((employee) => (
                     <tr
                       key={employee.id}
                       onClick={() => openDetailModal(employee)}
@@ -1277,197 +1324,222 @@ const handleDeleteDesignation = async () => {
               </tbody>
             </table>
           </div>
+          {/* Pagination Controls */}
+          {filteredEmployees.length > 0 && (
+            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/30">
+              <span className="text-xs text-gray-500">
+                Showing {(currentPage - 1) * employeesPerPage + 1}–
+                {Math.min(currentPage * employeesPerPage, filteredEmployees.length)} of {filteredEmployees.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                <span className="text-xs text-gray-500 px-2">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       </motion.div>
 
       {/* ============================================ */}
       {/* DESIGNATION CRUD MODAL - Add/Edit Designation */}
-
-
-{/* ============================================ */}
-{/* DESIGNATION CRUD MODAL - Add/Edit Designation with OT Rate */}
-{/* ============================================ */}
-<AnimatePresence>
-  {showDesignationModal && (
-    <>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
-        onClick={() => {
-          if (!submitting) {
-            setShowDesignationModal(false);
-            setDesignationForm({ name: '', otRate: 500 });
-            setIsEditingDesignation(false);
-            setEditingDesignationId(null);
-            setError(null);
-          }
-        }}
-      />
-      
-      <motion.div
-        initial={{ opacity: 0, scale: 0.9, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="fixed inset-4 md:inset-20 lg:inset-28 xl:inset-32 bg-white rounded-3xl shadow-2xl z-50 overflow-y-auto"
-      >
-        <div className="relative p-6 md:p-8">
-          <button
-            onClick={() => {
-              if (!submitting) {
-                setShowDesignationModal(false);
-                setDesignationForm({ name: '', otRate: 500 });
-                setIsEditingDesignation(false);
-                setEditingDesignationId(null);
-                setError(null);
-              }
-            }}
-            className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
-            disabled={submitting}
-          >
-            <X size={24} className="text-gray-400" />
-          </button>
-
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
-              <List size={20} className="text-emerald-600" />
-            </div>
-            <h2 className="text-xl font-semibold text-gray-900">
-              {isEditingDesignation ? 'Edit Designation' : 'Add New Designation'}
-            </h2>
-          </div>
-
-          <form onSubmit={isEditingDesignation ? handleEditDesignation : handleAddDesignation}>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  <Briefcase size={14} className="inline mr-1" /> Designation Name *
-                </label>
-                <input
-                  type="text"
-                  value={designationForm.name}
-                  onChange={(e) => setDesignationForm({ ...designationForm, name: e.target.value })}
-                  placeholder="Enter designation name"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
-                  required
+      {/* ============================================ */}
+      <AnimatePresence>
+        {showDesignationModal && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
+              onClick={() => {
+                if (!submitting) {
+                  setShowDesignationModal(false);
+                  setDesignationForm({ name: '', otRate: 500 });
+                  setIsEditingDesignation(false);
+                  setEditingDesignationId(null);
+                  setError(null);
+                }
+              }}
+            />
+            
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="fixed inset-4 md:inset-20 lg:inset-28 xl:inset-32 bg-white rounded-3xl shadow-2xl z-50 overflow-y-auto"
+            >
+              <div className="relative p-6 md:p-8">
+                <button
+                  onClick={() => {
+                    if (!submitting) {
+                      setShowDesignationModal(false);
+                      setDesignationForm({ name: '', otRate: 500 });
+                      setIsEditingDesignation(false);
+                      setEditingDesignationId(null);
+                      setError(null);
+                    }
+                  }}
+                  className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
                   disabled={submitting}
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  {isEditingDesignation ? 'Update the designation name' : 'Add a new designation for employees'}
-                </p>
-              </div>
+                >
+                  <X size={24} className="text-gray-400" />
+                </button>
 
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                  <Clock size={14} className="inline mr-1" /> OT Rate (LKR/hour) *
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={designationForm.otRate}
-                  onChange={(e) => setDesignationForm({ ...designationForm, otRate: e.target.value })}
-                  placeholder="Enter OT rate per hour"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
-                  required
-                  disabled={submitting}
-                />
-                <p className="text-xs text-gray-400 mt-1">
-                  This rate will be used for OT calculations for employees with this designation
-                </p>
-              </div>
-
-              {/* Display existing designations with OT rates */}
-              <div className="mt-4">
-                <label className="block text-xs font-medium text-gray-600 mb-2">
-                  <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
-                </label>
-                <div className="max-h-48 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
-                  {designations.length > 0 ? (
-                    designations.map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex items-center justify-between p-2 bg-white rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
-                      >
-                        <div className="flex-1">
-                          <span className="text-sm font-medium text-gray-700">{d.designation}</span>
-                          <span className="ml-3 text-xs text-blue-600 font-medium">
-                            OT: {d.ot_rate ? `Rs. ${parseFloat(d.ot_rate).toFixed(2)}/hr` : 'Rs. 500.00/hr'}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openEditDesignationModal(d)}
-                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit Designation"
-                            disabled={submitting}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDeleteDesignationConfirm(d)}
-                            className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete Designation"
-                            disabled={submitting}
-                          >
-                            <Trash size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-gray-400 text-center py-2">No designations added yet</p>
-                  )}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <List size={20} className="text-emerald-600" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-gray-900">
+                    {isEditingDesignation ? 'Edit Designation' : 'Add New Designation'}
+                  </h2>
                 </div>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => {
-                  if (!submitting) {
-                    setShowDesignationModal(false);
-                    setDesignationForm({ name: '', otRate: 500 });
-                    setIsEditingDesignation(false);
-                    setEditingDesignationId(null);
-                    setError(null);
-                  }
-                }}
-                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                disabled={submitting}
-              >
-                Cancel
-              </button>
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                type="submit"
-                className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={submitting}
-              >
-                {submitting ? (
-                  <>
-                    <Loader size={16} className="animate-spin" />
-                    {isEditingDesignation ? 'Updating...' : 'Adding...'}
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    {isEditingDesignation ? 'Update Designation' : 'Add Designation'}
-                  </>
-                )}
-              </motion.button>
-            </div>
-          </form>
-        </div>
-      </motion.div>
-    </>
-  )}
-</AnimatePresence>
+                <form onSubmit={isEditingDesignation ? handleEditDesignation : handleAddDesignation}>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Briefcase size={14} className="inline mr-1" /> Designation Name *
+                      </label>
+                      <input
+                        type="text"
+                        value={designationForm.name}
+                        onChange={(e) => setDesignationForm({ ...designationForm, name: e.target.value })}
+                        placeholder="Enter designation name"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                        required
+                        disabled={submitting}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        {isEditingDesignation ? 'Update the designation name' : 'Add a new designation for employees'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Clock size={14} className="inline mr-1" /> OT Rate (LKR/hour) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={designationForm.otRate}
+                        onChange={(e) => setDesignationForm({ ...designationForm, otRate: e.target.value })}
+                        placeholder="Enter OT rate per hour"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                        required
+                        disabled={submitting}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        This rate will be used for OT calculations for employees with this designation
+                      </p>
+                    </div>
+
+                    {/* Display existing designations with OT rates */}
+                    <div className="mt-4">
+                      <label className="block text-xs font-medium text-gray-600 mb-2">
+                        <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
+                      </label>
+                      <div className="max-h-48 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                        {designations.length > 0 ? (
+                          designations.map((d) => (
+                            <div
+                              key={d.id}
+                              className="flex items-center justify-between p-2 bg-white rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
+                            >
+                              <div className="flex-1">
+                                <span className="text-sm font-medium text-gray-700">{d.designation}</span>
+                                <span className="ml-3 text-xs text-blue-600 font-medium">
+                                  OT: {d.ot_rate ? `Rs. ${parseFloat(d.ot_rate).toFixed(2)}/hr` : 'Rs. 500.00/hr'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditDesignationModal(d)}
+                                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Edit Designation"
+                                  disabled={submitting}
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDeleteDesignationConfirm(d)}
+                                  className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Delete Designation"
+                                  disabled={submitting}
+                                >
+                                  <Trash size={14} />
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-gray-400 text-center py-2">No designations added yet</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!submitting) {
+                          setShowDesignationModal(false);
+                          setDesignationForm({ name: '', otRate: 500 });
+                          setIsEditingDesignation(false);
+                          setEditingDesignationId(null);
+                          setError(null);
+                        }
+                      }}
+                      className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                      disabled={submitting}
+                    >
+                      Cancel
+                    </button>
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.97 }}
+                      type="submit"
+                      className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={submitting}
+                    >
+                      {submitting ? (
+                        <>
+                          <Loader size={16} className="animate-spin" />
+                          {isEditingDesignation ? 'Updating...' : 'Adding...'}
+                        </>
+                      ) : (
+                        <>
+                          <Save size={16} />
+                          {isEditingDesignation ? 'Update Designation' : 'Add Designation'}
+                        </>
+                      )}
+                    </motion.button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
       {/* ============================================ */}
       {/* DESIGNATION DELETE CONFIRMATION MODAL */}
       {/* ============================================ */}
@@ -1603,24 +1675,24 @@ const handleDeleteDesignation = async () => {
                         <User size={14} className="inline mr-1" /> Full Name *
                       </label>
                       <input
-  type="text"
-  name="fullName"
-  value={formData.fullName}
-  onChange={(e) => {
-    const capitalized = capitalizeWords(e.target.value);
-    setFormData({ ...formData, fullName: capitalized });
-    validateField('fullName', capitalized);
-  }}
-  onBlur={(e) => validateField('fullName', e.target.value)}
-  placeholder="Enter full name"
-  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-    validationErrors.fullName 
-      ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
-      : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
-  }`}
-  required
-  disabled={submitting}
-/>
+                        type="text"
+                        name="fullName"
+                        value={formData.fullName}
+                        onChange={(e) => {
+                          const capitalized = capitalizeWords(e.target.value);
+                          setFormData({ ...formData, fullName: capitalized });
+                          validateField('fullName', capitalized);
+                        }}
+                        onBlur={(e) => validateField('fullName', e.target.value)}
+                        placeholder="Enter full name"
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                          validationErrors.fullName 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        required
+                        disabled={submitting}
+                      />
                       {validationErrors.fullName && (
                         <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                           <AlertCircle size={12} />
@@ -1670,8 +1742,9 @@ const handleDeleteDesignation = async () => {
                         name="email"
                         value={formData.email}
                         onChange={(e) => {
-                          setFormData({ ...formData, email: e.target.value });
-                          validateField('email', e.target.value);
+                          const val = e.target.value;
+                          setFormData({ ...formData, email: val });
+                          validateField('email', val);
                         }}
                         onBlur={(e) => validateField('email', e.target.value)}
                         placeholder="Enter email"
@@ -1735,8 +1808,9 @@ const handleDeleteDesignation = async () => {
                         name="nic"
                         value={formData.nic}
                         onChange={(e) => {
-                          setFormData({ ...formData, nic: e.target.value });
-                          if (e.target.value) validateField('nic', e.target.value);
+                          const val = e.target.value.toUpperCase().trim();
+                          setFormData({ ...formData, nic: val });
+                          if (val) validateField('nic', val);
                         }}
                         onBlur={(e) => {
                           if (e.target.value) validateField('nic', e.target.value);
@@ -1767,8 +1841,9 @@ const handleDeleteDesignation = async () => {
                         name="phoneNo"
                         value={formData.phoneNo}
                         onChange={(e) => {
-                          setFormData({ ...formData, phoneNo: e.target.value });
-                          validateField('phoneNo', e.target.value);
+                          const val = e.target.value.replace(/\s/g, '');
+                          setFormData({ ...formData, phoneNo: val });
+                          validateField('phoneNo', val);
                         }}
                         onBlur={(e) => validateField('phoneNo', e.target.value)}
                         placeholder="Enter phone number (e.g., 0712345678)"
@@ -2162,7 +2237,7 @@ const handleDeleteDesignation = async () => {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
+                      disabled={submitting || !isDesignationsLoaded}
                     >
                       {submitting ? (
                         <>

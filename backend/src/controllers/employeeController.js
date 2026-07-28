@@ -243,13 +243,18 @@ exports.createEmployee = async (req, res) => {
       .from('employees')
       .insert([employeeData])
       .select(`
-        *,
-        role:role_id (
-          id,
-          role_name,
-          description
-        )
-      `);
+  *,
+  designation:designation_id (
+    id,
+    designation,
+    ot_rate
+  ),
+  role:role_id (
+    id,
+    role_name,
+    description
+  )
+`);
     
     if (error) {
       console.error('Supabase error:', error);
@@ -382,13 +387,18 @@ exports.updateEmployee = async (req, res) => {
       .update(updateData)
       .eq('id', id)
       .select(`
-        *,
-        role:role_id (
-          id,
-          role_name,
-          description
-        )
-      `);
+  *,
+  designation:designation_id (
+    id,
+    designation,
+    ot_rate
+  ),
+  role:role_id (
+    id,
+    role_name,
+    description
+  )
+`);
     
     if (error) {
       console.error('Supabase update error:', error);

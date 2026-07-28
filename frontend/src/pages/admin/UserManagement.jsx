@@ -81,6 +81,14 @@ export default function UserManagement() {
   const [toggleConfirm, setToggleConfirm] = useState(null);
 
 
+  // component eke top level ekaka danna
+const existingAccountForEmployee = selectedEmployee
+  ? users.find(
+      (u) => u.email?.toLowerCase() === selectedEmployee.email?.toLowerCase()
+    )
+  : null;
+
+
    // Employee's position matched against roles list (auto-resolved, same logic as backend)
 const resolvedRoleName = selectedEmployee?.position
   ? roles.find(
@@ -229,6 +237,31 @@ const handleCreateAccount = async () => {
     toast.error("This employee's position has no matching role. Please fix the position/role mapping first.");
     return;
   }
+
+  if (existingAccountForEmployee) {
+    setCreating(true);
+    try {
+      const newRoleId = roles.find((r) => r.role_name === resolvedRoleName)?.id;
+      await axios.patch(
+        `${API_BASE}/users/${existingAccountForEmployee.id}/role`,
+        { roleId: newRoleId, employeeId: selectedEmployee.id },  // ✅ pass employeeId too
+        { headers: getAuthHeaders() }
+      );
+      toast.success(`${selectedEmployee.name}'s role updated to ${resolvedRoleName}`);
+      setShowCreateModal(false);
+      setSelectedEmployee(null);
+      await fetchUsers();
+      await fetchEmployees();
+    } catch (err) {
+      console.error("Update role error:", err);
+      toast.error(err.response?.data?.message || "Failed to update role");
+    } finally {
+      setCreating(false);
+    }
+    return;
+  }
+
+  // ===== OLD FLOW — aluth employee kenek, password illanawa =====
   if (!password || password.length < 6) {
     toast.error("Password must be at least 6 characters.");
     return;
@@ -241,10 +274,10 @@ const handleCreateAccount = async () => {
   setCreating(true);
   try {
     await axios.post(
-  `${API_BASE}/users/from-employee`,
-  { employeeId: selectedEmployee.id, password },
-  { headers: getAuthHeaders() }
-);
+      `${API_BASE}/users/from-employee`,
+      { employeeId: selectedEmployee.id, password },
+      { headers: getAuthHeaders() }
+    );
     toast.success(`Account created for ${selectedEmployee.name}`);
     setShowCreateModal(false);
     setSelectedEmployee(null);
@@ -255,14 +288,11 @@ const handleCreateAccount = async () => {
   } catch (err) {
     console.error("Create account error:", err);
     const message = err.response?.data?.message || "Failed to create account";
-
-    // Show specific error if email is already taken, otherwise general
     if (message.toLowerCase().includes('email already exists')) {
       toast.error('This employee email is already registered as a user.');
     } else {
       toast.error(message);
     }
-    // Modal stays open, password fields keep their values
   } finally {
     setCreating(false);
   }
@@ -1167,36 +1197,47 @@ const handleSubmit = async (e) => {
   </p>
 </div>
 
-                {/* Password fields */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                      placeholder="Enter password"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-                      placeholder="Confirm password"
-                      required
-                    />
-                  </div>
-                </div>
+                {/* Password fields — witharak aluth account ekak nam */}
+{existingAccountForEmployee ? (
+  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-start gap-2">
+    <Lock size={14} className="mt-0.5 flex-shrink-0" />
+    <span>
+      This employee already has an account (created previously). 
+      Their role will be updated to <strong>{resolvedRoleName}</strong> — existing password stays unchanged.
+    </span>
+  </div>
+) : (
+  <>
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+      <div className="relative">
+        <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+          placeholder="Enter password"
+          required
+        />
+      </div>
+    </div>
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+      <div className="relative">
+        <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+        <input
+          type="password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+          placeholder="Confirm password"
+          required
+        />
+      </div>
+    </div>
+  </>
+)}
 
                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                   <button
@@ -1212,8 +1253,13 @@ const handleSubmit = async (e) => {
                       creating ? 'cursor-not-allowed' : ''
                     }`}
                   >
-                    {creating ? 'Creating...' : 'Create Account'}
+                    {creating
+    ? 'Saving...'
+    : existingAccountForEmployee
+    ? 'Update Role'
+    : 'Create Account'}
                   </button>
+                  
                 </div>
               </div>
             </motion.div>
