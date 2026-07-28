@@ -16,8 +16,9 @@ import {
   voidExpense,
 } from '../../services/expenseService';
 import { getVendorOrders } from '../../services/vendorOrdersService';
-import { getSalaries } from '../../services/salaryService';
+import { getSalaries, markSalaryAsPaid } from '../../services/salaryService';
 import { getPeriodRange, getMonthLabelsInRange } from '../../services/reportService';
+import MarkPaidConfirmModal from '../../components/MarkPaidConfirmModal';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -138,6 +139,25 @@ export default function ExpenseManagement() {
     loadVendorOrders();
     loadSalaries();
   }, [loadExpenses, loadVendorOrders, loadSalaries]);
+
+  const [confirmingSalary, setConfirmingSalary] = useState(null);
+
+  const requestMarkSalaryPaid = (id) => {
+    const record = salaries.find((s) => s.id === id);
+    setConfirmingSalary(record || { id });
+  };
+
+  const confirmMarkSalaryPaid = async () => {
+    if (!confirmingSalary) return;
+    try {
+      const updated = await markSalaryAsPaid(confirmingSalary.id);
+      setSalaries((prev) => prev.map((s) => (s.id === confirmingSalary.id ? updated : s)));
+    } catch (error) {
+      console.error('Failed to mark salary as paid:', error);
+    } finally {
+      setConfirmingSalary(null);
+    }
+  };
 
   // --- Filtered datasets ---
   const filteredExpenses = useMemo(() => {
@@ -278,7 +298,7 @@ export default function ExpenseManagement() {
       className="space-y-6"
     >
       {/* Sticky header: page title + nav tabs + global period control, all pinned together */}
-      <div className="sticky -top-6 z-10 -mx-6 -mt-6 px-6 pt-6 pb-4 bg-white border-b border-gray-200 shadow-sm space-y-4">
+      <motion.div variants={itemVariants} className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <button
@@ -393,7 +413,7 @@ export default function ExpenseManagement() {
             Compare & Trends
           </button>
         </div>
-      </div>
+      </motion.div>
 
       {/* Direct Expenses (editable) */}
       <motion.div id="own-expenses-section" variants={itemVariants} className="scroll-mt-6">
@@ -456,6 +476,7 @@ export default function ExpenseManagement() {
             salaries={filteredSalaries}
             filters={salaryFilters}
             onFilterChange={setSalaryFilters}
+            onMarkPaid={requestMarkSalaryPaid}
           />
         )}
       </motion.div>
@@ -480,6 +501,13 @@ export default function ExpenseManagement() {
         onConfirm={handleVoidConfirm}
         expenseId={voidingExpenseId}
       />
+      
+      <MarkPaidConfirmModal
+        isOpen={!!confirmingSalary}
+        onClose={() => setConfirmingSalary(null)}
+        onConfirm={confirmMarkSalaryPaid}
+        employeeName={confirmingSalary?.employeeName}
+      />
 
       <GenerateReportModal
         reportType={activeReportType}
@@ -488,6 +516,31 @@ export default function ExpenseManagement() {
         vendorOrders={vendorOrders}
         salaries={salaries}
       />
+
+      {/* Floating scroll shortcuts — replaces the old sticky header */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2">
+        <button
+          onClick={() => scrollToSection('own-expenses-section')}
+          className="w-11 h-11 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition"
+          title="Other Expenses"
+        >
+          <Receipt size={18} />
+        </button>
+        <button
+          onClick={() => scrollToSection('vendor-expenses-section')}
+          className="w-11 h-11 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition"
+          title="Vendor Orders"
+        >
+          <Truck size={18} />
+        </button>
+        <button
+          onClick={() => scrollToSection('salary-expenses-section')}
+          className="w-11 h-11 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition"
+          title="Salary Expenses"
+        >
+          <Users size={18} />
+        </button>
+      </div>
     </motion.div>
   );
 }

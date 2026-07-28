@@ -1,8 +1,70 @@
 const supabase = require('../config/db');
 
+// Gets today's date as Sri Lanka calendar values (UTC+5:30), regardless of
+// what timezone the server itself is running in.
+function getSriLankaToday() {
+  const now = new Date();
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+  const sl = new Date(utcMs + 5.5 * 60 * 60000);
+  return { year: sl.getFullYear(), month: sl.getMonth(), day: sl.getDate() };
+}
+
+// Parses a "July 2026" style label into { year, month } (month is 0-indexed).
+function parseMonthLabel(label) {
+  const parts = (label || '').trim().split(/\s+/);
+  if (parts.length !== 2) return null;
+  const [monthName, yearStr] = parts;
+  const year = parseInt(yearStr, 10);
+  if (isNaN(year)) return null;
+  const parsed = new Date(`${monthName} 1, ${year}`);
+  if (isNaN(parsed.getTime())) return null;
+  return { year, month: parsed.getMonth() };
+}
+
+// Checks every unpaid salary record and marks any whose month has already
+// reached the 24th (in Sri Lanka time) as paid. Runs lazily on each fetch.
+async function autoUpdatePaidSalaries() {
+  try {
+    const { data: unpaid, error } = await supabase
+      .from('salaries')
+      .select('id, month')
+      .eq('paid', false);
+
+    if (error || !unpaid || unpaid.length === 0) return;
+
+    const today = getSriLankaToday();
+    const idsToMarkPaid = [];
+
+    for (const record of unpaid) {
+      const parsed = parseMonthLabel(record.month);
+      if (!parsed) continue;
+
+      const isDue =
+        today.year > parsed.year ||
+        (today.year === parsed.year && today.month > parsed.month) ||
+        (today.year === parsed.year && today.month === parsed.month && today.day >= 24);
+
+      if (isDue) {
+        idsToMarkPaid.push(record.id);
+      }
+    }
+
+    if (idsToMarkPaid.length > 0) {
+      await supabase
+        .from('salaries')
+        .update({ paid: true, updated_at: new Date().toISOString() })
+        .in('id', idsToMarkPaid);
+    }
+  } catch (err) {
+    console.error('Auto-pay salary check failed:', err);
+  }
+}
+
 // GET all salary records
 exports.getAllSalaries = async (req, res) => {
   try {
+    await autoUpdatePaidSalaries();
+
     const { employeeId, month, paid } = req.query;
     
     let query = supabase

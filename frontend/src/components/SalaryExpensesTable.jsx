@@ -1,7 +1,9 @@
 import { formatCurrency } from '../utils/helpers';
 import PeriodSelector from './PeriodSelector';
+import { CheckCircle2 } from 'lucide-react';
+import LiveClock from './LiveClock';
 
-export default function SalaryExpensesTable({ salaries, filters, onFilterChange }) {
+export default function SalaryExpensesTable({ salaries, filters, onFilterChange, onMarkPaid }) {
   const updateFilter = (partial) => {
     onFilterChange((prev) => ({ ...prev, ...partial }));
   };
@@ -9,6 +11,8 @@ export default function SalaryExpensesTable({ salaries, filters, onFilterChange 
   const total = salaries.reduce((sum, s) => sum + s.totalSalary, 0);
 
   return (
+    <>
+      <LiveClock />
     <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
       <div className="p-4 border-b border-gray-100 flex flex-wrap items-center gap-3">
         <PeriodSelector
@@ -53,6 +57,7 @@ export default function SalaryExpensesTable({ salaries, filters, onFilterChange 
                 <th className="text-right py-3 px-4 font-semibold text-gray-600">Bonus</th>
                 <th className="text-right py-3 px-4 font-semibold text-gray-600">Total</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -69,6 +74,18 @@ export default function SalaryExpensesTable({ salaries, filters, onFilterChange 
                       {s.paid ? 'Paid' : 'Pending'}
                     </span>
                   </td>
+                  <td className="py-3 px-4 text-right">
+                    {!s.paid && onMarkPaid && (
+                      <button
+                        onClick={() => onMarkPaid(s.id)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition"
+                        title="Mark as paid"
+                      >
+                        <CheckCircle2 size={12} />
+                        Mark Paid
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -81,5 +98,6 @@ export default function SalaryExpensesTable({ salaries, filters, onFilterChange 
         <span className="text-sm font-semibold text-gray-900">Total: {formatCurrency(total)}</span>
       </div>
     </div>
+      </>
   );
 }
