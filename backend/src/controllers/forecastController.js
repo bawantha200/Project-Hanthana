@@ -2,6 +2,8 @@
 const { getWeeklyHybridForecast, calculateAndUpdateReorderLevel } = require('../services/forecastService');
 const supabase = require('../config/db');
 
+
+
 exports.getForecast = async (req, res) => {
   try {
     console.log('[DEBUG] getForecast called for product:', req.params.productId);

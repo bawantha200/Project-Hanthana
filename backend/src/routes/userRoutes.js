@@ -8,7 +8,8 @@ const {
   createUserFromEmployee,
   updateUser,
   deleteUser,
-  updateUserStatus
+  updateUserStatus,
+  updateUserRole
 } = require("../controllers/userController");
 
 const { protect } = require("../middlewares/authMiddleware");
@@ -23,5 +24,6 @@ router.post("/from-employee", createUserFromEmployee);
 router.put("/:id", updateUser);
 router.delete("/:id", deleteUser);
 router.patch("/:id/status", updateUserStatus);
+router.patch("/:id/role", updateUserRole);
 
 module.exports = router;

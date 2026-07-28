@@ -169,7 +169,8 @@ class UserService {
         email: employee.email,
         position: employee.position,
         phone: employee.phone,
-        address: employee.address
+        address: employee.address,
+        
       });
 
       // 2️⃣ Check if user already exists in profiles
@@ -215,7 +216,9 @@ class UserService {
         email_confirm: true,
         user_metadata: {
           full_name: employee.name,
-          phone_number: employee.phone
+          phone_number: employee.phone,
+          role_id: resolvedRoleId,   // ✅ dynamic, no more hardcoded 3
+          profile_image: employee.profile_image || null
         }
       });
 
@@ -283,7 +286,7 @@ class UserService {
   try {
     console.log(`[UserService] ✏️ Updating user: ${id}`);
 
-    const { fullName, email, phone, address, role, status, password } = userData; // ✅ added password
+    const { fullName, email, phone, address, role, status, password, profileImage } = userData; // ✅ added profileImage
 
     // Update profiles
     const { error: profileError } = await supabase
@@ -293,7 +296,8 @@ class UserService {
         email,
         phone_number: phone,
         address,
-        role_id: role
+        role_id: role,
+        ...(profileImage !== undefined && { profile_image: profileImage }) // ✅ only update if provided
       })
       .eq('id', id);
 
@@ -510,6 +514,67 @@ async updateUserStatus(id, status) {
       throw error;
     }
   }
+
+// ============================================================
+  // UPDATE USER ROLE ONLY (used when linking employee -> existing account)
+  // Optionally also flips the linked employee record from 'pending' to 'active'
+  // ============================================================
+  async updateUserRole(id, roleId, employeeId = null) {
+    try {
+      console.log(`[UserService] 🔄 Updating role for user ${id} to role_id ${roleId}`);
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ role_id: roleId })
+        .eq('id', id)
+        .select(`
+          *,
+          roles (
+            id,
+            role_name
+          )
+        `)
+        .maybeSingle();
+
+      if (error) {
+        console.error('[UserService] ❌ Role update error:', error);
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('User not found');
+      }
+
+      console.log(`[UserService] 🎯 Role updated for user ${id}`);
+
+      // ✅ NEW: if an employeeId was supplied, flip that employee to 'active'
+      // (covers the "employee already has an account, just update their role" flow)
+      if (employeeId) {
+        const { error: empError } = await supabase
+          .from('employees')
+          .update({
+            status: 'active',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', employeeId);
+
+        if (empError) {
+          // Don't fail the whole request — role update already succeeded.
+          // Log it clearly so it's visible, but return the role-update result.
+          console.error('[UserService] ⚠️ Employee status update failed after role update:', empError);
+        } else {
+          console.log(`[UserService] ✅ Employee ${employeeId} status updated to active`);
+        }
+      }
+
+      return data;
+    } catch (error) {
+      console.error('[UserService] ❌ updateUserRole error:', error);
+      throw error;
+    }
+  }
 }
+
+
 
 module.exports = new UserService();

@@ -508,8 +508,7 @@ export default function InvoicingReports() {
               <select
                 value={preset}
                 onChange={(e) => setPreset(e.target.value)}
-                className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
+                className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500">
                 <option value="daily">Daily (today)</option>
                 <option value="weekly">Weekly (last 7 days)</option>
                 <option value="monthly">Monthly (last 30 days)</option>

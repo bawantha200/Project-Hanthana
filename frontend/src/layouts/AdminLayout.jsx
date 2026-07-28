@@ -53,6 +53,7 @@ import { supabase } from '../supabaseClient';
 // ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/dashboard' },
+  
   { id: 'sales-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/sales-dashboard' },
   { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/app/sales-analytics' },
   { id: 'inventory-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
@@ -82,6 +83,7 @@ const NAV_ITEMS = [
 
   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/app/finance' },
   { id: 'invoice', label: 'Invoice', icon: FileText, path: '/app/finance/invoicing-reports' },
+  { id: 'invoice', label: 'Profit', icon: FileText, path: '/app/finance/profit-reports' },
   { id: 'expenses', label: 'Expenses', icon: BarChart3, path: '/app/finance/expenses' },
 
   { id: 'vendors', label: 'Vendors', icon: Store, path: '/app/vendors' },
@@ -900,17 +902,20 @@ export default function AdminLayout() {
 
   // Fetch current user's permissions
   const fetchPermissions = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:5000/api/auth/permissions', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.ok) setPermissions(data.permissions || []);
-    } catch (err) {
-      console.error('Failed to fetch permissions', err);
+  try {
+    const token = localStorage.getItem('token');
+    const res = await fetch('http://localhost:5000/api/auth/permissions', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (res.ok) {
+      console.log('✅ Permissions from API:', data.permissions);
+      setPermissions(data.permissions || []);
     }
-  }, []);
+  } catch (err) {
+    console.error('❌ Fetch permissions error:', err);
+  }
+}, []);
 
   const fetchPendingSettingsCount = useCallback(async () => {
   try {
