@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Truck, Users, FileText, Receipt, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Plus, Truck, Users, FileText, Receipt, BarChart3, ClipboardList } from 'lucide-react';
 import ExpenseTable from '../../components/ExpenseTable';
 import ExpenseFormModal from '../../components/ExpenseFormModal';
 import VoidConfirmationModal from '../../components/VoidConfirmationModal';
@@ -16,8 +16,9 @@ import {
   voidExpense,
 } from '../../services/expenseService';
 import { getVendorOrders } from '../../services/vendorOrdersService';
-import { getSalaries } from '../../services/salaryService';
+import { getSalaries, markSalaryAsPaid } from '../../services/salaryService';
 import { getPeriodRange, getMonthLabelsInRange } from '../../services/reportService';
+import MarkPaidConfirmModal from '../../components/MarkPaidConfirmModal';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -65,7 +66,7 @@ export default function ExpenseManagement() {
   const [salaryLoading, setSalaryLoading] = useState(false);
 
   // --- Per-table filters ---
-  const [expenseFilters, setExpenseFilters] = useState({ ...DEFAULT_FILTERS, category: '', search: '' });
+  const [expenseFilters, setExpenseFilters] = useState({ ...DEFAULT_FILTERS, category: '', search: '', status: 'active' });
   const [vendorFilters, setVendorFilters] = useState({ ...DEFAULT_FILTERS, status: '', search: '' });
   const [salaryFilters, setSalaryFilters] = useState({ ...DEFAULT_FILTERS, paid: '', search: '' });
   const [sort, setSort] = useState({ field: 'date', direction: 'desc' });
@@ -85,7 +86,7 @@ export default function ExpenseManagement() {
   // --- Modal states ---
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [activeReportType, setActiveReportType] = useState(null); // null | 'summary' | 'other' | 'vendor' | 'salary' | 'full'
   const [editingExpense, setEditingExpense] = useState(null);
   const [voidingExpenseId, setVoidingExpenseId] = useState(null);
 
@@ -139,6 +140,25 @@ export default function ExpenseManagement() {
     loadSalaries();
   }, [loadExpenses, loadVendorOrders, loadSalaries]);
 
+  const [confirmingSalary, setConfirmingSalary] = useState(null);
+
+  const requestMarkSalaryPaid = (id) => {
+    const record = salaries.find((s) => s.id === id);
+    setConfirmingSalary(record || { id });
+  };
+
+  const confirmMarkSalaryPaid = async () => {
+    if (!confirmingSalary) return;
+    try {
+      const updated = await markSalaryAsPaid(confirmingSalary.id);
+      setSalaries((prev) => prev.map((s) => (s.id === confirmingSalary.id ? updated : s)));
+    } catch (error) {
+      console.error('Failed to mark salary as paid:', error);
+    } finally {
+      setConfirmingSalary(null);
+    }
+  };
+
   // --- Filtered datasets ---
   const filteredExpenses = useMemo(() => {
     let result = [...expenses];
@@ -149,6 +169,11 @@ export default function ExpenseManagement() {
     if (expenseFilters.search) {
       const q = expenseFilters.search.toLowerCase();
       result = result.filter((exp) => exp.description.toLowerCase().includes(q));
+    }
+    if (expenseFilters.status === 'active') {
+      result = result.filter((exp) => exp.status !== 'voided');
+    } else if (expenseFilters.status === 'voided') {
+      result = result.filter((exp) => exp.status === 'voided');
     }
     const range = getEffectiveRange(expenseFilters);
     if (range) {
@@ -273,8 +298,8 @@ export default function ExpenseManagement() {
       className="space-y-6"
     >
       {/* Sticky header: page title + nav tabs + global period control, all pinned together */}
-      <div className="sticky -top-6 z-30 -mx-6 -mt-6 px-6 pt-6 pb-4 bg-white border-b border-gray-200 shadow-sm space-y-4">
-        <div className="flex items-center justify-between">
+      <motion.div variants={itemVariants} className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <button
               onClick={() => navigate('/app/finance')}
@@ -283,7 +308,7 @@ export default function ExpenseManagement() {
               <ArrowLeft size={14} />
               Back to Finance
             </button>
-            <h1 className="text-2xl font-bold text-gray-900">Expense Management</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Expense Management</h1>
             <p className="text-sm text-gray-500 mt-1">
               Record and track business expenses by category
             </p>
@@ -293,39 +318,39 @@ export default function ExpenseManagement() {
               setEditingExpense(null);
               setIsFormModalOpen(true);
             }}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+            className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition w-full sm:w-auto"
           >
             <Plus size={16} />
             Add Expense
           </button>
         </div>
 
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-1 bg-gray-50 rounded-2xl p-1.5 border border-gray-100 w-fit flex-wrap">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="flex items-center gap-1 bg-gray-50 rounded-2xl p-1.5 border border-gray-100 w-full lg:w-fit overflow-x-auto">
             <button
               onClick={() => scrollToSection('own-expenses-section')}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all duration-200"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all duration-200 whitespace-nowrap"
             >
               <Receipt size={16} />
               Other Expenses
             </button>
             <button
               onClick={() => scrollToSection('vendor-expenses-section')}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all duration-200"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all duration-200 whitespace-nowrap"
             >
               <Truck size={16} />
               Vendor Orders
             </button>
             <button
               onClick={() => scrollToSection('salary-expenses-section')}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all duration-200"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-white hover:shadow-sm transition-all duration-200 whitespace-nowrap"
             >
               <Users size={16} />
               Salary Expenses
             </button>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap w-full lg:w-auto">
             <span className="text-xs text-gray-400 whitespace-nowrap">Apply to all tables:</span>
             <PeriodSelector
               period={globalPeriod}
@@ -341,23 +366,54 @@ export default function ExpenseManagement() {
             >
               Apply
             </button>
-            <button
-              onClick={() => setIsReportModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition"
-            >
-              <FileText size={16} />
-              Generate Report
-            </button>
-            <button
-              onClick={() => navigate('/admin/finance/expenses/compare')}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
-            >
-              <BarChart3 size={16} />
-              Compare & Trends
-            </button>
           </div>
         </div>
-      </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => setActiveReportType('summary')}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition"
+          >
+            <FileText size={16} />
+            Generate Report
+          </button>
+          <button
+            onClick={() => setActiveReportType('other')}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-blue-500 rounded-lg hover:bg-blue-600 transition"
+          >
+            <ClipboardList size={16} />
+            Other Expenses Report
+          </button>
+          <button
+            onClick={() => setActiveReportType('vendor')}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition"
+          >
+            <ClipboardList size={16} />
+            Vendor Orders Report
+          </button>
+          <button
+            onClick={() => setActiveReportType('salary')}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-500 rounded-lg hover:bg-indigo-600 transition"
+          >
+            <ClipboardList size={16} />
+            Salary Report
+          </button>
+          <button
+            onClick={() => setActiveReportType('full')}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition"
+          >
+            <FileText size={16} />
+            Generate Detailed Report
+          </button>
+          <button
+            onClick={() => navigate('/app/finance/expenses/compare')}
+            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
+          >
+            <BarChart3 size={16} />
+            Compare & Trends
+          </button>
+        </div>
+      </motion.div>
 
       {/* Direct Expenses (editable) */}
       <motion.div id="own-expenses-section" variants={itemVariants} className="scroll-mt-6">
@@ -420,6 +476,7 @@ export default function ExpenseManagement() {
             salaries={filteredSalaries}
             filters={salaryFilters}
             onFilterChange={setSalaryFilters}
+            onMarkPaid={requestMarkSalaryPaid}
           />
         )}
       </motion.div>
@@ -444,11 +501,46 @@ export default function ExpenseManagement() {
         onConfirm={handleVoidConfirm}
         expenseId={voidingExpenseId}
       />
+      
+      <MarkPaidConfirmModal
+        isOpen={!!confirmingSalary}
+        onClose={() => setConfirmingSalary(null)}
+        onConfirm={confirmMarkSalaryPaid}
+        employeeName={confirmingSalary?.employeeName}
+      />
 
       <GenerateReportModal
-        isOpen={isReportModalOpen}
-        onClose={() => setIsReportModalOpen(false)}
+        reportType={activeReportType}
+        onClose={() => setActiveReportType(null)}
+        expenses={expenses}
+        vendorOrders={vendorOrders}
+        salaries={salaries}
       />
+
+      {/* Floating scroll shortcuts — replaces the old sticky header */}
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col gap-2">
+        <button
+          onClick={() => scrollToSection('own-expenses-section')}
+          className="w-11 h-11 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition"
+          title="Other Expenses"
+        >
+          <Receipt size={18} />
+        </button>
+        <button
+          onClick={() => scrollToSection('vendor-expenses-section')}
+          className="w-11 h-11 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition"
+          title="Vendor Orders"
+        >
+          <Truck size={18} />
+        </button>
+        <button
+          onClick={() => scrollToSection('salary-expenses-section')}
+          className="w-11 h-11 rounded-full bg-white shadow-lg border border-gray-100 flex items-center justify-center text-gray-600 hover:bg-blue-50 hover:text-blue-600 transition"
+          title="Salary Expenses"
+        >
+          <Users size={18} />
+        </button>
+      </div>
     </motion.div>
   );
 }

@@ -1,38 +1,56 @@
 import { motion } from 'framer-motion';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 
-export default function StatCard({ title, value, subtitle, icon: Icon, trend, trendValue, color = 'blue', delay = 0 }) {
-  const gradients = {
-    blue: 'from-blue-500 to-blue-600',
-    emerald: 'from-emerald-500 to-emerald-600',
-    amber: 'from-amber-500 to-amber-600',
-    cyan: 'from-cyan-500 to-cyan-600',
-    rose: 'from-rose-500 to-rose-600',
-    indigo: 'from-indigo-500 to-indigo-600',
-  };
+const COLOR_MAP = {
+  blue: { bg: 'bg-blue-50', text: 'text-blue-600' },
+  amber: { bg: 'bg-amber-50', text: 'text-amber-600' },
+  emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600' },
+  rose: { bg: 'bg-rose-50', text: 'text-rose-600' },
+  indigo: { bg: 'bg-indigo-50', text: 'text-indigo-600' },
+  cyan: { bg: 'bg-cyan-50', text: 'text-cyan-600' },
+};
+
+export default function StatCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  trend,
+  trendValue,
+  color = 'blue',
+  delay = 0,
+}) {
+  const palette = COLOR_MAP[color] || COLOR_MAP.blue;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay }}
-      className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200"
+      className="h-full flex flex-col justify-between gap-3 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 sm:p-5 hover:shadow-md transition-shadow duration-200 min-h-[128px]"
     >
-      <div className="flex items-start justify-between">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-500 truncate">{title}</p>
-          <p className="text-xl font-bold text-gray-900 mt-1">{value}</p>
-          {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
-          {trend && (
-            <div className={`flex items-center gap-1 mt-2 text-xs font-medium ${trend === 'up' ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {trend === 'up' ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-              <span>{trendValue}</span>
-            </div>
-          )}
+      <div className="flex items-start justify-between gap-2">
+        <div className={`w-9 h-9 shrink-0 rounded-xl ${palette.bg} flex items-center justify-center`}>
+          {Icon && <Icon size={18} className={palette.text} />}
         </div>
-        <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradients[color]} flex items-center justify-center shadow-sm flex-shrink-0`}>
-          <Icon size={22} className="text-white" />
-        </div>
+        {trend && trendValue && (
+          <span
+            className={`inline-flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${
+              trend === 'up' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'
+            }`}
+          >
+            {trend === 'up' ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+            {trendValue}
+          </span>
+        )}
+      </div>
+
+      <div className="min-w-0">
+        <p className="text-xl sm:text-2xl font-bold text-gray-900 leading-tight break-words">
+          {value}
+        </p>
+        <p className="text-xs sm:text-sm font-medium text-gray-500 mt-1 truncate">{title}</p>
+        {subtitle && <p className="text-[11px] text-gray-400 mt-0.5 truncate">{subtitle}</p>}
       </div>
     </motion.div>
   );

@@ -1,6 +1,11 @@
 // frontend/src/services/salaryService.js
 import api from './api';
 
+export async function markSalaryAsPaid(id) {
+  const response = await api.patch(`/salaries/${id}/pay`);
+  return normalizeSalary(response.data.data);
+}
+
 export async function getSalaries(filters = {}) {
   const params = {};
   if (filters.employeeId) params.employeeId = filters.employeeId;
