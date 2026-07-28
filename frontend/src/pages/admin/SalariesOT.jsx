@@ -26,18 +26,6 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// ========== OT RATES BASED ON DESIGNATION ==========
-const OT_RATES = {
-  'HR Manager': 750,
-  'Sales Manager': 800,
-  'Inventory Manager': 700,
-  'Accountant': 600,
-  'Cashier': 500,
-  'Delivery Manager': 650,
-  'Driver': 550,
-  'default': 500
-};
-
 // ========== HELPER FUNCTION FOR AUTH ==========
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -49,12 +37,26 @@ const getAuthHeaders = () => {
 };
 
 // ========== GET OT RATE BY DESIGNATION ==========
-const getOTRate = (designation) => {
-  if (!designation) return OT_RATES.default;
-  const matchedKey = Object.keys(OT_RATES).find(key => 
-    designation.toLowerCase().includes(key.toLowerCase())
-  );
-  return matchedKey ? OT_RATES[matchedKey] : OT_RATES.default;
+const getOTRate = (designation, designations = []) => {
+  if (!designation) return 500;
+  
+  // First try to find in designations list
+  if (designations && designations.length > 0) {
+    const found = designations.find(d => 
+      d.designation && designation.toLowerCase().includes(d.designation.toLowerCase())
+    );
+    if (found && found.ot_rate) {
+      return parseFloat(found.ot_rate);
+    }
+  }
+  
+  // Fallback: if designation object has ot_rate
+  if (designation.ot_rate) {
+    return parseFloat(designation.ot_rate);
+  }
+  
+  // Default fallback
+  return 500;
 };
 
 // ========== CALCULATE FINAL SALARY ==========
@@ -70,6 +72,7 @@ export default function SalariesOT() {
   // ========== STATE ==========
   const [searchQuery, setSearchQuery] = useState('');
   const [employees, setEmployees] = useState([]);
+  const [designations, setDesignations] = useState([]);
   const [salaryData, setSalaryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -106,6 +109,18 @@ export default function SalariesOT() {
 
   // ========== FETCH FUNCTIONS ==========
   
+  const fetchDesignations = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/designations', getAuthHeaders());
+      if (response.data.success) {
+        setDesignations(response.data.data);
+        console.log('✅ Designations loaded:', response.data.data.length);
+      }
+    } catch (err) {
+      console.error('❌ Error fetching designations:', err);
+    }
+  };
+
   const fetchEmployees = async () => {
     try {
       const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
@@ -188,6 +203,7 @@ export default function SalariesOT() {
       try {
         await Promise.all([
           fetchEmployees(),
+          fetchDesignations(),
           fetchSalaries()
         ]);
       } catch (err) {
@@ -214,7 +230,7 @@ export default function SalariesOT() {
   // Auto-calculate final salary with OT rate based on designation
   useEffect(() => {
     if (salaryForm.baseSalary || salaryForm.otHours || salaryForm.bonus) {
-      const otRate = getOTRate(salaryForm.designation);
+      const otRate = getOTRate(salaryForm.designation, designations);
       const final = calculateFinalSalary(
         salaryForm.baseSalary,
         salaryForm.otHours,
@@ -227,15 +243,15 @@ export default function SalariesOT() {
         otRate: otRate 
       }));
     }
-  }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus, salaryForm.designation]);
+  }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus, salaryForm.designation, designations]);
 
   // Update OT rate when designation changes
   useEffect(() => {
     if (salaryForm.designation) {
-      const otRate = getOTRate(salaryForm.designation);
+      const otRate = getOTRate(salaryForm.designation, designations);
       setSalaryForm(prev => ({ ...prev, otRate: otRate }));
     }
-  }, [salaryForm.designation]);
+  }, [salaryForm.designation, designations]);
 
   // ========== SALARY CRUD OPERATIONS ==========
 
@@ -245,7 +261,7 @@ export default function SalariesOT() {
     setError(null);
     
     try {
-      const otRate = getOTRate(salaryForm.designation);
+      const otRate = getOTRate(salaryForm.designation, designations);
       
       const data = {
         employeeId: parseInt(salaryForm.employeeId),
@@ -321,10 +337,11 @@ export default function SalariesOT() {
     if (!designation) {
       const employee = employees.find(emp => emp.id === record.employee_id || emp.id === record.employeeId);
       if (employee) {
-        designation = employee.designation || '';
+        // Get designation name from employee.designation object or string
+        designation = employee.designation?.designation || employee.designation || '';
       }
     }
-    const otRate = record.ot_rate || getOTRate(designation) || 500;
+    const otRate = record.ot_rate || getOTRate(designation, designations) || 500;
     
     setSalaryForm({
       employeeId: record.employee_id || record.employeeId || '',
@@ -365,11 +382,19 @@ export default function SalariesOT() {
 
   const openSalaryForm = (employee = null) => {
     if (employee) {
-      const otRate = getOTRate(employee.designation);
+      // Get designation name from employee.designation object or string
+      let designation = '';
+      if (employee.designation && typeof employee.designation === 'object') {
+        designation = employee.designation.designation || '';
+      } else {
+        designation = employee.designation || '';
+      }
+      
+      const otRate = getOTRate(designation, designations);
       setSalaryForm({
         employeeId: employee.id,
         employeeName: employee.name,
-        designation: employee.designation || '',
+        designation: designation,
         baseSalary: employee.base_salary || employee.baseSalary || '',
         otHours: '',
         bonus: employee.bonus || '',
@@ -450,8 +475,14 @@ export default function SalariesOT() {
   const totalBonus = currentMonthSalaries.reduce((sum, s) => sum + (s.bonus || 0), 0);
   const totalPayout = currentMonthSalaries.reduce((sum, s) => sum + (s.total_salary || s.total || 0), 0);
   const totalOTAmount = currentMonthSalaries.reduce((sum, s) => {
-    const designation = s.designation || employees.find(emp => emp.id === s.employee_id || emp.id === s.employeeId)?.designation || '';
-    const rate = s.ot_rate || getOTRate(designation) || 500;
+    let designation = s.designation || '';
+    if (!designation) {
+      const employee = employees.find(emp => emp.id === s.employee_id || emp.id === s.employeeId);
+      if (employee) {
+        designation = employee.designation?.designation || employee.designation || '';
+      }
+    }
+    const rate = s.ot_rate || getOTRate(designation, designations) || 500;
     return sum + ((s.ot_hours || s.otHours || 0) * rate);
   }, 0);
 
@@ -690,15 +721,16 @@ export default function SalariesOT() {
                   {filteredSalary.map((salary) => {
                     // Get designation from salary record or from employee data
                     let designation = salary.designation || 'N/A';
+                    let otRate = salary.ot_rate || 500;
                     
                     if (!salary.designation) {
                       const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
                       if (employee) {
-                        designation = employee.designation || 'N/A';
+                        designation = employee.designation?.designation || employee.designation || 'N/A';
+                        otRate = getOTRate(designation, designations);
                       }
                     }
                     
-                    const otRate = salary.ot_rate || getOTRate(designation) || 500;
                     const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
                     const totalSalary = salary.total_salary || salary.total || 0;
                     
@@ -751,8 +783,14 @@ export default function SalariesOT() {
                     <td className="py-3 px-6"></td>
                     <td className="py-3 px-6 text-right font-semibold text-gray-900">
                       {formatCurrency(filteredSalary.reduce((s, r) => {
-                        const designation = r.designation || employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId)?.designation || '';
-                        const rate = r.ot_rate || getOTRate(designation) || 500;
+                        let designation = r.designation || '';
+                        if (!designation) {
+                          const employee = employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId);
+                          if (employee) {
+                            designation = employee.designation?.designation || employee.designation || '';
+                          }
+                        }
+                        const rate = r.ot_rate || getOTRate(designation, designations) || 500;
                         return s + ((r.ot_hours || r.otHours || 0) * rate);
                       }, 0))}
                     </td>
@@ -877,15 +915,16 @@ export default function SalariesOT() {
                         <tbody>
                           {filteredPreviousSalary.map((salary) => {
                             let designation = salary.designation || 'N/A';
+                            let otRate = salary.ot_rate || 500;
                             
                             if (!salary.designation) {
                               const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
                               if (employee) {
-                                designation = employee.designation || 'N/A';
+                                designation = employee.designation?.designation || employee.designation || 'N/A';
+                                otRate = getOTRate(designation, designations);
                               }
                             }
                             
-                            const otRate = salary.ot_rate || getOTRate(designation) || 500;
                             const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
                             
                             return (
@@ -1004,12 +1043,20 @@ export default function SalariesOT() {
                         onChange={(e) => {
                           const emp = employees.find(emp => emp.id === parseInt(e.target.value));
                           if (emp) {
-                            const otRate = getOTRate(emp.designation);
+                            // Get designation name from employee.designation object or string
+                            let designation = '';
+                            if (emp.designation && typeof emp.designation === 'object') {
+                              designation = emp.designation.designation || '';
+                            } else {
+                              designation = emp.designation || '';
+                            }
+                            
+                            const otRate = getOTRate(designation, designations);
                             setSalaryForm({
                               ...salaryForm,
                               employeeId: e.target.value,
                               employeeName: emp.name,
-                              designation: emp.designation || '',
+                              designation: designation,
                               baseSalary: emp.base_salary || emp.baseSalary || '',
                               bonus: emp.bonus || '',
                               otRate: otRate
@@ -1031,11 +1078,14 @@ export default function SalariesOT() {
                         disabled={submitting || isEditingSalary}
                       >
                         <option value="">Select Employee</option>
-                        {employees.map((emp) => (
-                          <option key={emp.id} value={emp.id}>
-                            {emp.name} {emp.designation ? `- ${emp.designation}` : ''}
-                          </option>
-                        ))}
+                        {employees.map((emp) => {
+                          const des = emp.designation?.designation || emp.designation || '';
+                          return (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name} {des ? `- ${des}` : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                       {isEditingSalary && (
                         <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
@@ -1098,7 +1148,7 @@ export default function SalariesOT() {
                         disabled={submitting}
                       />
                       <p className="text-xs text-gray-400 mt-1">
-                        OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr (based on designation)
+                        OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr (from designation)
                       </p>
                     </div>
 
@@ -1112,7 +1162,7 @@ export default function SalariesOT() {
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 cursor-not-allowed"
                         disabled
                       />
-                      <p className="text-xs text-purple-600 mt-1">✓ Auto-set based on designation</p>
+                      <p className="text-xs text-purple-600 mt-1">✓ Auto-set from designation OT rate</p>
                     </div>
 
                     <div className="md:col-span-2">
@@ -1127,7 +1177,7 @@ export default function SalariesOT() {
                           Base Salary + (OT Hours × {formatCurrency(salaryForm.otRate || 500)}/hr) + Bonus
                         </p>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr based on designation
+                          OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr from designation
                         </p>
                       </div>
                     </div>

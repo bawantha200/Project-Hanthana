@@ -7,13 +7,14 @@ import {
   UserPlus, FileText, Camera, Image, Building, Clock, DollarSign,
   Circle, CheckCircle, AlertCircle, Loader, Shield, BarChart, Package, 
   Calculator, Truck, Bike, Headphones, Crown, ChevronDown, Wallet, Coins,
-  Settings, List, PlusCircle, Pencil, Trash, Save
+  Settings, List, PlusCircle, Pencil, Trash, Save, Users as UsersIcon
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
 
 const API_URL = 'http://localhost:5000/api/employees';
 const DESIGNATION_API_URL = 'http://localhost:5000/api/designations';
+const ROLES_API_URL = 'http://localhost:5000/api/roles';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -75,6 +76,8 @@ export default function Employees() {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [roles, setRoles] = useState([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
 
   // Validation states
   const [validationErrors, setValidationErrors] = useState({
@@ -91,7 +94,8 @@ export default function Employees() {
     jobType: '',
     baseSalary: '',
     bonus: '',
-    status: ''
+    status: '',
+    role: ''
   });
 
   // Designation CRUD States
@@ -99,7 +103,7 @@ export default function Employees() {
   const [showDesignationModal, setShowDesignationModal] = useState(false);
   const [isEditingDesignation, setIsEditingDesignation] = useState(false);
   const [editingDesignationId, setEditingDesignationId] = useState(null);
-  const [designationForm, setDesignationForm] = useState({ name: '' });
+  const [designationForm, setDesignationForm] = useState({ name: '', otRate: 500 });
   const [showDesignationDeleteConfirm, setShowDesignationDeleteConfirm] = useState(false);
   const [designationToDelete, setDesignationToDelete] = useState(null);
   const [designationLoading, setDesignationLoading] = useState(false);
@@ -120,8 +124,80 @@ export default function Employees() {
     profileImage: null,
     baseSalary: '',
     bonus: '',
-    status: 'active'
+    status: 'active',
+    role: ''
   });
+
+  // ========== HELPER FUNCTIONS ==========
+  
+  // Get role display name from employee object
+  const getRoleDisplay = (employee) => {
+    if (!employee) return 'No Role';
+    
+    // If role is an object with role_name property (from join)
+    if (employee.role && typeof employee.role === 'object') {
+      return employee.role.role_name || 'No Role';
+    }
+    // If role is a string
+    if (employee.role && typeof employee.role === 'string') {
+      return employee.role;
+    }
+    // If role_id exists but role object doesn't
+    if (employee.role_id) {
+      const foundRole = roles.find(r => r.id === employee.role_id);
+      return foundRole ? foundRole.role_name : 'No Role';
+    }
+    return 'No Role';
+  };
+
+  // Get role color based on role name
+  const getRoleColor = (employee) => {
+    let roleName = '';
+    
+    if (!employee) return 'bg-gray-50 text-gray-400';
+    
+    if (employee.role && typeof employee.role === 'object') {
+      roleName = employee.role.role_name || '';
+    } else if (employee.role && typeof employee.role === 'string') {
+      roleName = employee.role;
+    } else if (employee.role_id) {
+      const foundRole = roles.find(r => r.id === employee.role_id);
+      roleName = foundRole ? foundRole.role_name : '';
+    }
+    
+    if (!roleName) return 'bg-gray-50 text-gray-400';
+    
+    const lowerRole = roleName.toLowerCase();
+    if (lowerRole === 'admin') return 'bg-purple-50 text-purple-700';
+    if (lowerRole === 'manager') return 'bg-indigo-50 text-indigo-700';
+    if (lowerRole === 'hr') return 'bg-pink-50 text-pink-700';
+    if (lowerRole === 'employee') return 'bg-gray-50 text-gray-700';
+    return 'bg-gray-50 text-gray-700';
+  };
+
+  // Get designation name from employee
+  const getDesignationName = (employee) => {
+    if (!employee) return '';
+    if (employee.designation && typeof employee.designation === 'object') {
+      return employee.designation.designation || '';
+    }
+    return employee.designation || '';
+  };
+
+  const getDesignationId = (employee) => {
+    if (!employee) return null;
+    if (employee.designation && typeof employee.designation === 'object') {
+      return employee.designation.id;
+    }
+    return employee.designation_id || null;
+  };
+
+  // Helper function to get role name by ID
+  const getRoleName = (roleId) => {
+    if (!roleId) return 'No Role';
+    const role = roles.find(r => r.id === roleId);
+    return role ? role.role_name : 'No Role';
+  };
 
   // Validation functions
   const validateEmail = (email) => {
@@ -321,22 +397,38 @@ export default function Employees() {
     return isValid;
   };
 
-  // ========== HELPER: Get designation name from employee ==========
- const getDesignationName = (employee) => {
-  if (!employee) return '';
-  if (employee.designation && typeof employee.designation === 'object') {
-    return employee.designation.designation || '';
-  }
-  return employee.designation || '';
-};
-
-  const getDesignationId = (employee) => {
-    if (!employee) return null;
-    // If designation is an object, get the id
-    if (employee.designation && typeof employee.designation === 'object') {
-      return employee.designation.id;
+  // ========== FETCH ROLES ==========
+  const fetchRoles = async () => {
+    try {
+      setRolesLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(ROLES_API_URL, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      console.log('Roles from API:', response.data);
+      if (response.data.success && response.data.data) {
+        setRoles(response.data.data);
+      } else {
+        // Fallback to default roles if API fails
+        setRoles([
+          { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
+          { id: 2, role_name: 'MANAGER', description: 'Manager role' },
+          { id: 3, role_name: 'ADMIN', description: 'Administrator' },
+          { id: 4, role_name: 'HR', description: 'Human Resources' }
+        ]);
+      }
+    } catch (err) {
+      console.error('Error fetching roles:', err);
+      // Set default roles as fallback
+      setRoles([
+        { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
+        { id: 2, role_name: 'MANAGER', description: 'Manager role' },
+        { id: 3, role_name: 'ADMIN', description: 'Administrator' },
+        { id: 4, role_name: 'HR', description: 'Human Resources' }
+      ]);
+    } finally {
+      setRolesLoading(false);
     }
-    return employee.designation_id || null;
   };
 
   // ========== FETCH DESIGNATIONS ==========
@@ -361,152 +453,177 @@ export default function Employees() {
 
   // ========== CRUD OPERATIONS FOR DESIGNATIONS ==========
 
-  const handleAddDesignation = async (e) => {
-    e.preventDefault();
-    if (!designationForm.name.trim()) {
-      setError('Please enter a designation name');
-      return;
-    }
+ // ========== CRUD OPERATIONS FOR DESIGNATIONS (FIXED) ==========
 
-    const exists = designations.some(d => 
-      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
+const handleAddDesignation = async (e) => {
+  e.preventDefault();
+  if (!designationForm.name.trim()) {
+    setError('Please enter a designation name');
+    return;
+  }
+
+  if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
+    setError('Please enter a valid OT rate');
+    return;
+  }
+
+  const exists = designations.some(d =>
+    d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
+  );
+
+  if (exists) {
+    setError(`"${designationForm.name.trim()}" already exists!`);
+    return;
+  }
+
+  try {
+    setSubmitting(true);
+    setError(null);
+    const token = localStorage.getItem('token');
+    const response = await axios.post(DESIGNATION_API_URL,
+      {
+        designation: designationForm.name.trim(),
+        ot_rate: parseFloat(designationForm.otRate)
+      },
+      { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    if (exists) {
-      setError(`"${designationForm.name.trim()}" already exists!`);
-      return;
-    }
-
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.post(DESIGNATION_API_URL, 
-        { designation: designationForm.name.trim() },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      if (response.data.success) {
-        setDesignations([...designations, response.data.data]);
-        setDesignationForm({ name: '' });
-        setShowDesignationModal(false);
-        showSuccessNotification('Designation added successfully!');
-      }
-    } catch (err) {
-      console.error('Error adding designation:', err);
-      const newDesignation = {
-        id: Date.now() + Math.random(),
-        designation: designationForm.name.trim()
-      };
-      setDesignations([...designations, newDesignation]);
-      setDesignationForm({ name: '' });
-      setShowDesignationModal(false);
+    if (response.data.success) {
+      setDesignations([...designations, response.data.data]);
+      setDesignationForm({ name: '', otRate: 500 });
       showSuccessNotification('Designation added successfully!');
-    } finally {
-      setSubmitting(false);
+      // NOTE: modal is left open so user can add another one / manage list
     }
-  };
-
-  const handleEditDesignation = async (e) => {
-    e.preventDefault();
-    if (!designationForm.name.trim()) {
-      setError('Please enter a designation name');
-      return;
+  } catch (err) {
+    console.error('Error adding designation:', err);
+    // FIX: show the real backend error instead of silently faking success
+    if (err.response) {
+      if (err.response.status === 409) {
+        setError(err.response.data?.message || 'This designation already exists.');
+      } else {
+        setError(err.response.data?.message || 'Failed to add designation.');
+      }
+    } else {
+      setError('Network error. Please check if the server is running.');
     }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
-    const exists = designations.some(d => 
-      d.id !== editingDesignationId && 
-      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
+const handleEditDesignation = async (e) => {
+  e.preventDefault();
+  if (!designationForm.name.trim()) {
+    setError('Please enter a designation name');
+    return;
+  }
+
+  if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
+    setError('Please enter a valid OT rate');
+    return;
+  }
+
+  const exists = designations.some(d =>
+    d.id !== editingDesignationId &&
+    d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
+  );
+
+  if (exists) {
+    setError(`"${designationForm.name.trim()}" already exists!`);
+    return;
+  }
+
+  try {
+    setSubmitting(true);
+    setError(null);
+    const token = localStorage.getItem('token');
+    const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
+      {
+        designation: designationForm.name.trim(),
+        ot_rate: parseFloat(designationForm.otRate)
+      },
+      { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    if (exists) {
-      setError(`"${designationForm.name.trim()}" already exists!`);
-      return;
-    }
-
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
-        { designation: designationForm.name.trim() },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      
-      if (response.data.success) {
-        setDesignations(designations.map(d => 
-          d.id === editingDesignationId ? response.data.data : d
-        ));
-        setDesignationForm({ name: '' });
-        setIsEditingDesignation(false);
-        setEditingDesignationId(null);
-        setShowDesignationModal(false);
-        showSuccessNotification('Designation updated successfully!');
-      }
-    } catch (err) {
-      console.error('Error updating designation:', err);
-      setDesignations(designations.map(d => 
-        d.id === editingDesignationId ? { ...d, designation: designationForm.name.trim() } : d
+    if (response.data.success) {
+      setDesignations(designations.map(d =>
+        d.id === editingDesignationId ? response.data.data : d
       ));
-      setDesignationForm({ name: '' });
+      setDesignationForm({ name: '', otRate: 500 });
       setIsEditingDesignation(false);
       setEditingDesignationId(null);
-      setShowDesignationModal(false);
       showSuccessNotification('Designation updated successfully!');
-    } finally {
-      setSubmitting(false);
+      // FIX: refresh employees so the table shows the new designation name/rate immediately
+      fetchEmployees();
     }
-  };
-
-  const handleDeleteDesignation = async () => {
-    if (!designationToDelete) return;
-
-    const employeesWithDesignation = employees.filter(
-      e => getDesignationName(e) === designationToDelete.designation
-    );
-
-    if (employeesWithDesignation.length > 0) {
-      setError(`Cannot delete "${designationToDelete.designation}" because ${employeesWithDesignation.length} employee(s) have this designation.`);
-      setShowDesignationDeleteConfirm(false);
-      setDesignationToDelete(null);
-      return;
+  } catch (err) {
+    console.error('Error updating designation:', err);
+    if (err.response) {
+      if (err.response.status === 409) {
+        setError(err.response.data?.message || 'This designation name already exists.');
+      } else if (err.response.status === 404) {
+        setError('Designation not found. It may have been deleted already.');
+      } else {
+        setError(err.response.data?.message || 'Failed to update designation.');
+      }
+    } else {
+      setError('Network error. Please check if the server is running.');
     }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem('token');
-      await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      setDesignations(designations.filter(d => d.id !== designationToDelete.id));
-      setShowDesignationDeleteConfirm(false);
-      setDesignationToDelete(null);
-      showSuccessNotification('Designation deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting designation:', err);
-      setDesignations(designations.filter(d => d.id !== designationToDelete.id));
-      setShowDesignationDeleteConfirm(false);
-      setDesignationToDelete(null);
-      showSuccessNotification('Designation deleted successfully!');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+const handleDeleteDesignation = async () => {
+  if (!designationToDelete) return;
 
-  const openAddDesignationModal = () => {
-    setDesignationForm({ name: '' });
-    setIsEditingDesignation(false);
-    setEditingDesignationId(null);
-    setShowDesignationModal(true);
+  try {
+    setSubmitting(true);
     setError(null);
-  };
+    const token = localStorage.getItem('token');
+    const response = await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (response.data.success) {
+      setDesignations(designations.filter(d => d.id !== designationToDelete.id));
+      setShowDesignationDeleteConfirm(false);
+      setDesignationToDelete(null);
+      showSuccessNotification('Designation deleted successfully!');
+    }
+  } catch (err) {
+    console.error('Error deleting designation:', err);
+    setShowDesignationDeleteConfirm(false);
+    // FIX: don't fake-delete locally when the backend actually blocked it
+    // (e.g. 409 = employees are still assigned to this designation)
+    if (err.response) {
+      setError(err.response.data?.message || 'Failed to delete designation.');
+    } else {
+      setError('Network error. Please check if the server is running.');
+    }
+    setDesignationToDelete(null);
+  } finally {
+    setSubmitting(false);
+  }
+};
+  const openAddDesignationModal = () => {
+  setDesignationForm({ name: '', otRate: 500 });
+  setIsEditingDesignation(false);
+  setEditingDesignationId(null);
+  setShowDesignationModal(true);
+  setError(null);
+};
 
   const openEditDesignationModal = (designation) => {
-    setDesignationForm({ name: designation.designation });
-    setIsEditingDesignation(true);
-    setEditingDesignationId(designation.id);
-    setShowDesignationModal(true);
-    setError(null);
-  };
+  setDesignationForm({ 
+    name: designation.designation,
+    otRate: designation.ot_rate || 500
+  });
+  setIsEditingDesignation(true);
+  setEditingDesignationId(designation.id);
+  setShowDesignationModal(true);
+  setError(null);
+};
 
   const openDeleteDesignationConfirm = (designation) => {
     setDesignationToDelete(designation);
@@ -540,6 +657,7 @@ export default function Employees() {
     setFormData(prev => ({ ...prev, hiredDate: today }));
     fetchEmployees();
     fetchDesignations();
+    fetchRoles();
   }, []);
 
   useEffect(() => {
@@ -554,16 +672,22 @@ export default function Employees() {
   const totalStaff = employees.length;
   const activeStaff = employees.filter((e) => e.status === 'active').length;
   const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
+  
+  // FIXED: managers count with proper null checking
   const managers = employees.filter((e) => {
-  const desName = getDesignationName(e);
-  return desName.toLowerCase().includes('manager');
-}).length;
+    const desName = getDesignationName(e);
+    // Check if employee has manager role or designation contains manager
+    const roleName = e.role && typeof e.role === 'object' ? e.role.role_name : e.role || '';
+    return desName.toLowerCase().includes('manager') || 
+           roleName.toLowerCase().includes('manager') ||
+           e.role_id === 2;
+  }).length;
 
   const summaryValues = {
     total: totalStaff,
     active: activeStaff,
     onLeave: onLeaveStaff,
-    managers : managers.length,
+    managers: managers,
   };
 
   // Build filter tabs from designations
@@ -641,7 +765,8 @@ export default function Employees() {
         profileImage: formData.profileImage || null,
         baseSalary: parseFloat(formData.baseSalary) || 0,
         bonus: parseFloat(formData.bonus) || 0,
-        status: formData.status || 'active'
+        status: formData.status || 'active',
+        role_id: formData.role || null
       };
 
       console.log('Sending employee data:', JSON.stringify(employeeData, null, 2));
@@ -707,7 +832,8 @@ export default function Employees() {
         address: formData.address,
         baseSalary: parseFloat(formData.baseSalary) || 0,
         bonus: parseFloat(formData.bonus) || 0,
-        status: formData.status || 'active'
+        status: formData.status || 'active',
+        role_id: formData.role || null
       };
       
       if (formData.birthday) updateData.birthday = formData.birthday;
@@ -771,7 +897,8 @@ export default function Employees() {
       profileImage: null,
       baseSalary: '',
       bonus: '',
-      status: 'active'
+      status: 'active',
+      role: ''
     });
     setValidationErrors({
       fullName: '',
@@ -787,7 +914,8 @@ export default function Employees() {
       jobType: '',
       baseSalary: '',
       bonus: '',
-      status: ''
+      status: '',
+      role: ''
     });
     setError(null);
   };
@@ -818,7 +946,8 @@ export default function Employees() {
       profileImage: employee.profile_image || null,
       baseSalary: employee.base_salary || employee.baseSalary || '',
       bonus: employee.bonus || '',
-      status: employee.status || 'active'
+      status: employee.status || 'active',
+      role: employee.role_id || ''
     });
     setValidationErrors({
       fullName: '',
@@ -834,7 +963,8 @@ export default function Employees() {
       jobType: '',
       baseSalary: '',
       bonus: '',
-      status: ''
+      status: '',
+      role: ''
     });
     setShowCreateForm(true);
     setShowDetailModal(false);
@@ -1030,7 +1160,7 @@ export default function Employees() {
           </div>
         </motion.div>
 
-        {/* Employee Table - FIXED: Use getDesignationName() for designation display */}
+        {/* Employee Table */}
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full">
@@ -1038,6 +1168,7 @@ export default function Employees() {
                 <tr>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Employee</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Designation</th>
+                  <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Role</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Phone</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Email</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Hire Date</th>
@@ -1070,8 +1201,12 @@ export default function Employees() {
                       </td>
                       <td className="px-5 py-4">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                          {/* FIXED: Use getDesignationName() instead of employee.designation directly */}
                           {getDesignationName(employee) || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getRoleColor(employee)}`}>
+                          {getRoleDisplay(employee)}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-gray-600">{employee.phone}</td>
@@ -1090,7 +1225,7 @@ export default function Employees() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="8" className="text-center py-10 text-gray-500">
+                    <td colSpan="9" className="text-center py-10 text-gray-500">
                       <Users size={36} className="mx-auto mb-3 text-gray-300" />
                       <p className="font-medium text-gray-400">No employees found</p>
                       <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filter criteria</p>
@@ -1105,154 +1240,123 @@ export default function Employees() {
 
       {/* ============================================ */}
       {/* DESIGNATION CRUD MODAL - Add/Edit Designation */}
-      {/* ============================================ */}
-      <AnimatePresence>
-        {showDesignationModal && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
-              onClick={() => {
-                if (!submitting) {
-                  setShowDesignationModal(false);
-                  setDesignationForm({ name: '' });
-                  setIsEditingDesignation(false);
-                  setEditingDesignationId(null);
-                  setError(null);
-                }
-              }}
-            />
-            
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="fixed inset-4 md:inset-20 lg:inset-28 xl:inset-32 bg-white rounded-3xl shadow-2xl z-50 overflow-y-auto"
-            >
-              <div className="relative p-6 md:p-8">
-                <button
-                  onClick={() => {
-                    if (!submitting) {
-                      setShowDesignationModal(false);
-                      setDesignationForm({ name: '' });
-                      setIsEditingDesignation(false);
-                      setEditingDesignationId(null);
-                      setError(null);
-                    }
-                  }}
-                  className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
+
+
+{/* ============================================ */}
+{/* DESIGNATION CRUD MODAL - Add/Edit Designation with OT Rate */}
+{/* ============================================ */}
+<AnimatePresence>
+  {showDesignationModal && (
+    <>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
+        onClick={() => {
+          if (!submitting) {
+            setShowDesignationModal(false);
+            setDesignationForm({ name: '', otRate: 500 });
+            setIsEditingDesignation(false);
+            setEditingDesignationId(null);
+            setError(null);
+          }
+        }}
+      />
+      
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 20 }}
+        className="fixed inset-4 md:inset-20 lg:inset-28 xl:inset-32 bg-white rounded-3xl shadow-2xl z-50 overflow-y-auto"
+      >
+        <div className="relative p-6 md:p-8">
+          <button
+            onClick={() => {
+              if (!submitting) {
+                setShowDesignationModal(false);
+                setDesignationForm({ name: '', otRate: 500 });
+                setIsEditingDesignation(false);
+                setEditingDesignationId(null);
+                setError(null);
+              }
+            }}
+            className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
+            disabled={submitting}
+          >
+            <X size={24} className="text-gray-400" />
+          </button>
+
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
+              <List size={20} className="text-emerald-600" />
+            </div>
+            <h2 className="text-xl font-semibold text-gray-900">
+              {isEditingDesignation ? 'Edit Designation' : 'Add New Designation'}
+            </h2>
+          </div>
+
+          <form onSubmit={isEditingDesignation ? handleEditDesignation : handleAddDesignation}>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  <Briefcase size={14} className="inline mr-1" /> Designation Name *
+                </label>
+                <input
+                  type="text"
+                  value={designationForm.name}
+                  onChange={(e) => setDesignationForm({ ...designationForm, name: e.target.value })}
+                  placeholder="Enter designation name"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                  required
                   disabled={submitting}
-                >
-                  <X size={24} className="text-gray-400" />
-                </button>
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  {isEditingDesignation ? 'Update the designation name' : 'Add a new designation for employees'}
+                </p>
+              </div>
 
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center">
-                    <List size={20} className="text-emerald-600" />
-                  </div>
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {isEditingDesignation ? 'Edit Designation' : 'Add New Designation'}
-                  </h2>
-                </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  <Clock size={14} className="inline mr-1" /> OT Rate (LKR/hour) *
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={designationForm.otRate}
+                  onChange={(e) => setDesignationForm({ ...designationForm, otRate: e.target.value })}
+                  placeholder="Enter OT rate per hour"
+                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                  required
+                  disabled={submitting}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  This rate will be used for OT calculations for employees with this designation
+                </p>
+              </div>
 
-                <form onSubmit={isEditingDesignation ? handleEditDesignation : handleAddDesignation}>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Briefcase size={14} className="inline mr-1" /> Designation Name *
-                      </label>
-                      <input
-                        type="text"
-                        value={designationForm.name}
-                        onChange={(e) => setDesignationForm({ name: e.target.value })}
-                        placeholder="Enter designation name"
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
-                        required
-                        disabled={submitting}
-                      />
-                      <p className="text-xs text-gray-400 mt-1">
-                        {isEditingDesignation ? 'Update the designation name' : 'Add a new designation for employees'}
-                      </p>
-                    </div>
-
-                    {/* Display existing designations */}
-                    <div className="mt-4">
-                      <label className="block text-xs font-medium text-gray-600 mb-2">
-                        <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
-                      </label>
-                      <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-gray-50 rounded-lg border border-gray-200">
-                        {designations.length > 0 ? (
-                          designations.map((d) => (
-                            <span
-                              key={d.id}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
-                            >
-                              {d.designation}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-xs text-gray-400">No designations available</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!submitting) {
-                          setShowDesignationModal(false);
-                          setDesignationForm({ name: '' });
-                          setIsEditingDesignation(false);
-                          setEditingDesignationId(null);
-                          setError(null);
-                        }
-                      }}
-                      className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
-                    >
-                      Cancel
-                    </button>
-                    <motion.button
-                      whileHover={{ scale: 1.04 }}
-                      whileTap={{ scale: 0.97 }}
-                      type="submit"
-                      className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
-                    >
-                      {submitting ? (
-                        <>
-                          <Loader size={16} className="animate-spin" />
-                          {isEditingDesignation ? 'Updating...' : 'Adding...'}
-                        </>
-                      ) : (
-                        <>
-                          <Save size={16} />
-                          {isEditingDesignation ? 'Update Designation' : 'Add Designation'}
-                        </>
-                      )}
-                    </motion.button>
-                  </div>
-                </form>
-
-                {/* Designation List with Edit/Delete */}
-                <div className="mt-6 pt-4 border-t border-gray-100">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <List size={16} className="text-gray-400" />
-                    Manage Designations
-                  </h3>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {designations.map((d) => (
+              {/* Display existing designations with OT rates */}
+              <div className="mt-4">
+                <label className="block text-xs font-medium text-gray-600 mb-2">
+                  <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
+                </label>
+                <div className="max-h-48 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
+                  {designations.length > 0 ? (
+                    designations.map((d) => (
                       <div
                         key={d.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                        className="flex items-center justify-between p-2 bg-white rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
                       >
-                        <span className="text-sm font-medium text-gray-700">{d.designation}</span>
+                        <div className="flex-1">
+                          <span className="text-sm font-medium text-gray-700">{d.designation}</span>
+                          <span className="ml-3 text-xs text-blue-600 font-medium">
+                            OT: {d.ot_rate ? `Rs. ${parseFloat(d.ot_rate).toFixed(2)}/hr` : 'Rs. 500.00/hr'}
+                          </span>
+                        </div>
                         <div className="flex items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => openEditDesignationModal(d)}
                             className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
                             title="Edit Designation"
@@ -1261,6 +1365,7 @@ export default function Employees() {
                             <Pencil size={14} />
                           </button>
                           <button
+                            type="button"
                             onClick={() => openDeleteDesignationConfirm(d)}
                             className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
                             title="Delete Designation"
@@ -1270,18 +1375,57 @@ export default function Employees() {
                           </button>
                         </div>
                       </div>
-                    ))}
-                    {designations.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-4">No designations added yet</p>
-                    )}
-                  </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-gray-400 text-center py-2">No designations added yet</p>
+                  )}
                 </div>
               </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+            </div>
 
+            <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!submitting) {
+                    setShowDesignationModal(false);
+                    setDesignationForm({ name: '', otRate: 500 });
+                    setIsEditingDesignation(false);
+                    setEditingDesignationId(null);
+                    setError(null);
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                disabled={submitting}
+              >
+                Cancel
+              </button>
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.97 }}
+                type="submit"
+                className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <>
+                    <Loader size={16} className="animate-spin" />
+                    {isEditingDesignation ? 'Updating...' : 'Adding...'}
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    {isEditingDesignation ? 'Update Designation' : 'Add Designation'}
+                  </>
+                )}
+              </motion.button>
+            </div>
+          </form>
+        </div>
+      </motion.div>
+    </>
+  )}
+</AnimatePresence>
       {/* ============================================ */}
       {/* DESIGNATION DELETE CONFIRMATION MODAL */}
       {/* ============================================ */}
@@ -1777,6 +1921,44 @@ export default function Employees() {
                       )}
                     </div>
 
+                    {/* Role Type - Fetched from Database */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Shield size={14} className="inline mr-1" /> Role Type
+                      </label>
+                      <select
+                        name="role"
+                        value={formData.role}
+                        onChange={(e) => {
+                          setFormData({ ...formData, role: e.target.value });
+                          validateField('role', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('role', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.role 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        disabled={submitting || rolesLoading}
+                      >
+                        <option value="">No Role</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.role_name}
+                          </option>
+                        ))}
+                      </select>
+                      {validationErrors.role && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.role}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">
+                        {rolesLoading ? 'Loading roles...' : 'Select a role for the employee (optional)'}
+                      </p>
+                    </div>
+
                     {/* Base Salary */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
@@ -2002,6 +2184,9 @@ export default function Employees() {
                       <p className="text-blue-100 mt-1">{getDesignationName(selectedEmployee)}</p>
                       <div className="flex items-center gap-3 mt-2">
                         <StatusBadge status={selectedEmployee.status} />
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/20 backdrop-blur-sm text-white">
+                          {getRoleDisplay(selectedEmployee)}
+                        </span>
                       </div>
                     </div>
                     <div className="ml-auto flex gap-3">
@@ -2043,6 +2228,14 @@ export default function Employees() {
                             <BriefcaseIcon size={12} className="text-blue-500" /> Designation
                           </p>
                           <p className="text-sm font-semibold text-gray-900 mt-1">{getDesignationName(selectedEmployee)}</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors">
+                          <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
+                            <Shield size={12} className="text-blue-500" /> Role
+                          </p>
+                          <p className="text-sm font-semibold text-gray-900 mt-1">
+                            {getRoleDisplay(selectedEmployee)}
+                          </p>
                         </div>
                         <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors">
                           <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
