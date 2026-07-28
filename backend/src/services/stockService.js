@@ -960,6 +960,219 @@ const stockService = {
       console.error('Error in initializeInventory:', error);
       throw error;
     }
+  },
+
+  // ============ NEW: Convert Stock (Two-Way) ============
+  async convertStock(productId, quantity, conversionDirection, reason = 'correction', notes = '') {
+    try {
+      console.log('═══════════════════════════════════════════════════');
+      console.log('🔄 Converting stock');
+      console.log(`   Product ID: ${productId}`);
+      console.log(`   Quantity: ${quantity}`);
+      console.log(`   Direction: ${conversionDirection}`);
+      console.log('═══════════════════════════════════════════════════');
+
+      const qty = Number(quantity);
+      if (!Number.isInteger(qty) || qty <= 0) {
+        throw new Error('Quantity must be a positive whole number');
+      }
+
+      // Get product details
+      const { data: product, error: productError } = await supabase
+        .from('products')
+        .select('id, name, type')
+        .eq('id', productId)
+        .maybeSingle();
+
+      if (productError) throw productError;
+      if (!product) throw new Error('Product not found');
+
+      const isRefill = product.type?.toLowerCase() === 'refill' || 
+                        product.type?.toLowerCase() === 'empty';
+      const is19L = product.name?.toLowerCase().includes('19l');
+
+      console.log(`📊 Product: ${product.name}`);
+      console.log(`📊 Type: ${product.type}`);
+      console.log(`📊 Is Refill: ${isRefill}`);
+      console.log(`📊 Is 19L: ${is19L}`);
+
+      // Get current inventory
+      const { data: existingInventory, error: fetchError } = await supabase
+        .from('inventory')
+        .select('id, current_stock, empty_bottle_stock')
+        .eq('product_id', productId)
+        .maybeSingle();
+
+      if (fetchError) throw fetchError;
+
+      const currentStock = existingInventory?.current_stock || 0;
+      const currentEmpty = existingInventory?.empty_bottle_stock || 0;
+
+      if (conversionDirection === 'empty_to_stock') {
+        // ============================================================
+        // EMPTY → STOCK (Production/Restock)
+        // ============================================================
+        console.log('🔄 Direction: Empty → Stock');
+
+        if (currentEmpty < qty) {
+          throw new Error(`Insufficient empty bottles. Available: ${currentEmpty}, Required: ${qty}`);
+        }
+
+        // For 19L products, use shared empty stock
+        if (is19L) {
+          console.log('🔄 19L product - using SHARED empty stock');
+          // Decrease empty stock from ALL 19L products
+          await updateEmptyBottleStockFor19L(qty, 'subtract', 
+            `Converted ${qty} shared empty bottles to sealed stock for ${product.name} (${reason})`);
+        } else {
+          console.log('🔄 Non-19L product - using its OWN empty stock');
+          // Decrease empty stock from this specific product
+          await updateProductEmptyBottleStock(productId, qty, 'subtract', 
+            `Converted ${qty} empty bottles to sealed stock for ${product.name} (${reason})`);
+        }
+
+        // Increase sealed stock
+        const newStock = currentStock + qty;
+
+        let updatedInventory;
+        if (existingInventory) {
+          const { data, error } = await supabase
+            .from('inventory')
+            .update({
+              current_stock: newStock,
+              last_updated: new Date().toISOString()
+            })
+            .eq('id', existingInventory.id)
+            .select()
+            .single();
+
+          if (error) throw error;
+          updatedInventory = data;
+        } else {
+          const { data, error } = await supabase
+            .from('inventory')
+            .insert({
+              product_id: productId,
+              current_stock: qty,
+              empty_bottle_stock: 0,
+              reorder_level: 50,
+              last_updated: new Date().toISOString(),
+              last_empty_updated: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+          updatedInventory = data;
+        }
+
+        // Record transaction
+        await supabase
+          .from('inventory_transactions')
+          .insert([{
+            product_id: productId,
+            quantity: qty,
+            type: 'conversion_empty_to_stock',
+            reason: reason || 'conversion',
+            notes: notes || `Converted ${qty} empty bottles to sealed stock (${product.name})`
+          }]);
+
+        console.log(`✅ Converted ${qty} empty bottles to sealed stock for ${product.name}`);
+        console.log(`   New Stock: ${currentStock} → ${newStock}`);
+        console.log(`   New Empty: ${currentEmpty} → ${currentEmpty - qty}`);
+
+        return {
+          success: true,
+          message: `Converted ${qty} empty bottles to sealed stock for ${product.name}`,
+          inventory: updatedInventory
+        };
+
+      } else if (conversionDirection === 'stock_to_empty') {
+        // ============================================================
+        // STOCK → EMPTY (Reverse/Undo)
+        // ============================================================
+        console.log('🔄 Direction: Stock → Empty');
+
+        if (currentStock < qty) {
+          throw new Error(`Insufficient sealed stock. Available: ${currentStock}, Required: ${qty}`);
+        }
+
+        // Decrease sealed stock
+        const newStock = currentStock - qty;
+
+        let updatedInventory;
+        if (existingInventory) {
+          const { data, error } = await supabase
+            .from('inventory')
+            .update({
+              current_stock: newStock,
+              last_updated: new Date().toISOString()
+            })
+            .eq('id', existingInventory.id)
+            .select()
+            .single();
+
+          if (error) throw error;
+          updatedInventory = data;
+        } else {
+          // Should not happen if we have stock, but handle anyway
+          const { data, error } = await supabase
+            .from('inventory')
+            .insert({
+              product_id: productId,
+              current_stock: 0,
+              empty_bottle_stock: 0,
+              reorder_level: 50,
+              last_updated: new Date().toISOString(),
+              last_empty_updated: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+          if (error) throw error;
+          updatedInventory = data;
+        }
+
+        // Increase empty stock for 19L or specific product
+        if (is19L) {
+          console.log('🔄 19L product - adding to SHARED empty stock');
+          await updateEmptyBottleStockFor19L(qty, 'add', 
+            `Converted ${qty} sealed stock to empty bottles for ${product.name} (${reason})`);
+        } else {
+          console.log('🔄 Non-19L product - adding to its OWN empty stock');
+          await updateProductEmptyBottleStock(productId, qty, 'add', 
+            `Converted ${qty} sealed stock to empty bottles for ${product.name} (${reason})`);
+        }
+
+        // Record transaction
+        await supabase
+          .from('inventory_transactions')
+          .insert([{
+            product_id: productId,
+            quantity: -qty,
+            type: 'conversion_stock_to_empty',
+            reason: reason || 'reverse_conversion',
+            notes: notes || `Converted ${qty} sealed stock to empty bottles (${product.name})`
+          }]);
+
+        console.log(`✅ Converted ${qty} sealed stock to empty bottles for ${product.name}`);
+        console.log(`   New Stock: ${currentStock} → ${newStock}`);
+        console.log(`   New Empty: ${currentEmpty} → ${currentEmpty + qty}`);
+
+        return {
+          success: true,
+          message: `Converted ${qty} sealed stock to empty bottles for ${product.name}`,
+          inventory: updatedInventory
+        };
+
+      } else {
+        throw new Error('Invalid conversion direction. Use "empty_to_stock" or "stock_to_empty"');
+      }
+
+    } catch (error) {
+      console.error('❌ Error in convertStock:', error);
+      throw error;
+    }
   }
 };
 
