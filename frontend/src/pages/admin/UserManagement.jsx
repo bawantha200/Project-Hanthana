@@ -45,6 +45,8 @@ export default function UserManagement() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
+  const [createRoleId, setCreateRoleId] = useState('');
+  const [createRoleError, setCreateRoleError] = useState('');
 
   const [employees, setEmployees] = useState([]);       // from employees
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -647,8 +649,8 @@ const handleSubmit = async (e) => {
   onClick={() => navigate('/app/customers')}
   className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
 >
-  <div className="absolute top-3 right-3 flex items-center gap-1 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-    <span className="text-[11px] font-medium">View all</span>
+  <div className="absolute top-3 right-3 flex items-center gap-1 text-emerald-500">
+    <span className="text-[11px] font-medium">View </span>
     <ArrowUpRight size={14} />
   </div>
   <div className="flex items-center gap-3">
@@ -1086,6 +1088,32 @@ const handleSubmit = async (e) => {
                   </div>
                 </div>
 
+
+                {/* Role selection */}
+<div>
+  <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+  <select
+    value={createRoleId}
+    onChange={(e) => {
+      setCreateRoleId(e.target.value);
+      if (createRoleError) setCreateRoleError('');
+    }}
+    className={`w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white ${
+      createRoleError
+        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
+        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+    }`}
+  >
+    <option value="">Select Role</option>
+    {roles
+      .filter((role) => !['CUSTOMER'].includes(role.role_name))
+      .map((role) => (
+        <option key={role.id} value={role.id}>{role.role_name}</option>
+      ))}
+  </select>
+  {createRoleError && <p className="text-xs text-rose-500 mt-1">{createRoleError}</p>}
+</div>
+
                 {/* Password fields */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
@@ -1159,14 +1187,21 @@ const handleSubmit = async (e) => {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-lg font-bold shadow-md flex-shrink-0">
-  {profileModal.profile_image ? (
+  {profileModal.profile_image &&
+  profileModal.profile_image !== "{}" ? (
     <img
       src={profileModal.profile_image}
       alt={profileModal.full_name}
       className="w-full h-full object-cover"
+      onError={(e) => {
+        e.currentTarget.style.display = "none";
+      }}
     />
   ) : (
-    profileModal.full_name?.split(" ").map((n) => n[0]).join("")
+    profileModal.full_name
+      ?.split(" ")
+      .map((n) => n[0])
+      .join("")
   )}
 </div>
                 <div>

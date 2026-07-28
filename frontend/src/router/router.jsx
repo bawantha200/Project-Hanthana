@@ -2,7 +2,6 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { getTargetRoute } from '../utils/roleRouting';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
@@ -106,9 +105,8 @@ function AdminRoutes() {
 
   // Default landing page per role, used both for the index redirect
   // and the catch-all fallback below.
- 
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/app/user-management';
+    if (role === 'ADMIN') return '/app/dashboard';
     if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
     return '/app/dashboard';
   };
@@ -120,21 +118,21 @@ function AdminRoutes() {
 
         {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
         
+
         <Route
           path="dashboard"
           element={
             role === 'ADMIN'
-              ? <Navigate to="/app/user-management" replace />
+              ? <AdminDashboard />   
               : <Dashboard />
           }
         />
 
-        
         <Route path="sales-dashboard" element={<SalesDashboard />} />
         <Route path="inventory-dashboard" element={<InventoryDashboard />} />
         <Route path="demandforecast-dashboard" element={<DemandForecastDashboard />} />
         <Route path="jit-dashboard" element={<JITDashboard />} />
-        <Route path="hrm-dashboard" element={role === 'HR_MANAGER' ? <HrmDashboard /> : <Dashboard />} />
+        <Route path="hrm-dashboard" element={<HrmDashboard />} />
         <Route path="pos" element={<POS />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="orders" element={<Orders />} />

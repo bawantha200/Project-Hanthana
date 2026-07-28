@@ -19,8 +19,10 @@ const {
 
 const { notifyOrderEvent } = require('../utils/notifications');
 const supabase = require('../config/db');
-const { isAdminLevel } = require('../config/roles');
 
+// Roles considered "admin-level" for authorization checks
+const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN', 'MANAGER']; // adjust to match your actual role_name values
+const isAdminLevel = (roleName) => ADMIN_ROLES.includes(roleName);
 // ========== CREATE ORDER ==========
 const postOrder = async (req, res) => {
   try {
