@@ -45,7 +45,6 @@ export default function UserManagement() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
-  const [createRoleId, setCreateRoleId] = useState('');
   const [createRoleError, setCreateRoleError] = useState('');
 
   const [employees, setEmployees] = useState([]);       // from employees
@@ -53,6 +52,9 @@ export default function UserManagement() {
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [userStatusFilter, setUserStatusFilter] = useState("ALL");
+  const [rejectConfirm, setRejectConfirm] = useState(null);
+  const [rejectNote, setRejectNote] = useState('');
+  const [rejecting, setRejecting] = useState(false);
 
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
@@ -77,6 +79,14 @@ export default function UserManagement() {
 
   // ===== ✅ NEW STATE FOR TOGGLE CONFIRMATION =====
   const [toggleConfirm, setToggleConfirm] = useState(null);
+
+
+   // Employee's position matched against roles list (auto-resolved, same logic as backend)
+const resolvedRoleName = selectedEmployee?.position
+  ? roles.find(
+      (r) => r.role_name?.toUpperCase() === selectedEmployee.position.trim().toUpperCase()
+    )?.role_name
+  : null;
 
   // ===== FORM STATE FOR CREATE/EDIT USER =====
   const [formData, setFormData] = useState({
@@ -182,8 +192,43 @@ export default function UserManagement() {
     fetchRoles();
   }, []);
 
+
+  const handleRejectEmployee = async () => {
+  if (!rejectNote.trim()) {
+    toast.error("Please add a reason for rejection.");
+    return;
+  }
+  setRejecting(true);
+  try {
+    await axios.patch(
+      `${API_BASE}/employees/${rejectConfirm.id}/reject`,
+      { reason: rejectNote },
+      { headers: getAuthHeaders() }
+    );
+    toast.success(`${rejectConfirm.name} marked as rejected`);
+    setRejectConfirm(null);
+    setRejectNote('');
+    await fetchEmployees();
+  } catch (err) {
+    console.error("Reject error:", err);
+    toast.error(err.response?.data?.message || "Failed to reject employee");
+  } finally {
+    setRejecting(false);
+  }
+};
+
+
+const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE', 'REJECTED'];
+
+
+
+
   // ===== CREATE ACCOUNT FROM PENDING EMPLOYEE =====
 const handleCreateAccount = async () => {
+  if (!resolvedRoleName) {
+    toast.error("This employee's position has no matching role. Please fix the position/role mapping first.");
+    return;
+  }
   if (!password || password.length < 6) {
     toast.error("Password must be at least 6 characters.");
     return;
@@ -196,10 +241,10 @@ const handleCreateAccount = async () => {
   setCreating(true);
   try {
     await axios.post(
-      `${API_BASE}/users/from-employee`,
-      { employeeId: selectedEmployee.id, password },
-      { headers: getAuthHeaders() }
-    );
+  `${API_BASE}/users/from-employee`,
+  { employeeId: selectedEmployee.id, password },
+  { headers: getAuthHeaders() }
+);
     toast.success(`Account created for ${selectedEmployee.name}`);
     setShowCreateModal(false);
     setSelectedEmployee(null);
@@ -543,9 +588,10 @@ const handleSubmit = async (e) => {
       emp.email?.toLowerCase().includes(employeeSearch.toLowerCase()) ||
       emp.position?.toLowerCase().includes(employeeSearch.toLowerCase());
     const matchesStatus =
-      statusFilter === "ALL" ||
-      (statusFilter === "PENDING" && emp.status === "pending") ||
-      (statusFilter === "ACTIVE" && emp.status === "active");
+  statusFilter === "ALL" ||
+  (statusFilter === "PENDING" && emp.status === "pending") ||
+  (statusFilter === "ACTIVE" && emp.status === "active") ||
+  (statusFilter === "REJECTED" && emp.status === "rejected");
     return matchesSearch && matchesStatus;
   });
 
@@ -923,22 +969,24 @@ const handleSubmit = async (e) => {
           </div>
           <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
             {employeeStatusFilters.map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-                  statusFilter === status
-                    ? status === 'PENDING'
-                      ? 'bg-yellow-500 text-white shadow-sm'
-                      : status === 'ACTIVE'
-                      ? 'bg-emerald-500 text-white shadow-sm'
-                      : 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {status === 'ALL' ? 'All' : status}
-              </button>
-            ))}
+  <button
+    key={status}
+    onClick={() => setStatusFilter(status)}
+    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+      statusFilter === status
+        ? status === 'PENDING'
+          ? 'bg-yellow-500 text-white shadow-sm'
+          : status === 'ACTIVE'
+          ? 'bg-emerald-500 text-white shadow-sm'
+          : status === 'REJECTED'
+          ? 'bg-rose-500 text-white shadow-sm'
+          : 'bg-blue-600 text-white shadow-sm'
+        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+    }`}
+  >
+    {status === 'ALL' ? 'All' : status}
+  </button>
+))}
           </div>
         </div>
 
@@ -982,23 +1030,37 @@ const handleSubmit = async (e) => {
                           <StatusBadge status={emp.status} />
                         </td>
                         {canManageUsers && (
-                        <td className="py-3 px-4 text-right">
-                          
-                          {isPending ? (
-                            <button
-                              onClick={() => {
-                                setSelectedEmployee(emp);
-                                setShowCreateModal(true);
-                              }}
-                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
-                            >
-                              Create Account
-                            </button>
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">Active</span>
-                          )}
-                        </td>
-                        )}
+  <td className="py-3 px-4 text-right">
+    {isPending ? (
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={() => {
+            setSelectedEmployee(emp);
+            setShowCreateModal(true);
+          }}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
+        >
+          Create Account
+        </button>
+        <button
+          onClick={() => setRejectConfirm(emp)}
+          className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+        >
+          Reject
+        </button>
+      </div>
+    ) : emp.status === 'rejected' ? (
+      <span
+        className="text-xs text-rose-500 italic cursor-help"
+        title={emp.rejection_reason || 'No reason provided'}
+      >
+        Rejected
+      </span>
+    ) : (
+      <span className="text-xs text-gray-400 italic">Active</span>
+    )}
+  </td>
+)}
                       </tr>
                     );
                   })}
@@ -1091,27 +1153,18 @@ const handleSubmit = async (e) => {
 
                 {/* Role selection */}
 <div>
-  <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
-  <select
-    value={createRoleId}
-    onChange={(e) => {
-      setCreateRoleId(e.target.value);
-      if (createRoleError) setCreateRoleError('');
-    }}
-    className={`w-full px-3 py-2.5 text-sm border rounded-xl focus:outline-none focus:ring-2 transition-all bg-white ${
-      createRoleError
-        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+  <input
+    type="text"
+    value={resolvedRoleName || 'No matching role found for this position'}
+    disabled
+    className={`w-full px-3 py-2.5 text-sm border rounded-xl bg-gray-100 cursor-not-allowed ${
+      resolvedRoleName ? 'text-gray-600 border-gray-200' : 'text-rose-500 border-rose-200'
     }`}
-  >
-    <option value="">Select Role</option>
-    {roles
-      .filter((role) => !['CUSTOMER'].includes(role.role_name))
-      .map((role) => (
-        <option key={role.id} value={role.id}>{role.role_name}</option>
-      ))}
-  </select>
-  {createRoleError && <p className="text-xs text-rose-500 mt-1">{createRoleError}</p>}
+  />
+  <p className="text-xs text-gray-400 mt-1">
+    Role is automatically assigned based on the employee's position and cannot be changed here.
+  </p>
 </div>
 
                 {/* Password fields */}
@@ -1636,6 +1689,70 @@ const handleSubmit = async (e) => {
           </motion.div>
         </motion.div>
       )}
+
+
+      {rejectConfirm && (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+    onClick={(e) => {
+      if (e.target === e.currentTarget && !rejecting) {
+        setRejectConfirm(null);
+        setRejectNote('');
+      }
+    }}
+  >
+    <motion.div
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      exit={{ scale: 0.95, opacity: 0 }}
+      className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
+          <AlertTriangle size={20} />
+        </div>
+        <h2 className="text-lg font-semibold text-gray-900">Reject Employee</h2>
+        <button
+          onClick={() => { setRejectConfirm(null); setRejectNote(''); }}
+          className="ml-auto text-gray-400 hover:text-gray-600"
+        >
+          <X size={20} />
+        </button>
+      </div>
+      <p className="text-sm text-gray-500 mb-3">
+        Are you sure you want to reject <strong>{rejectConfirm.name}</strong>? Please give a reason below.
+      </p>
+      <textarea
+        value={rejectNote}
+        onChange={(e) => setRejectNote(e.target.value)}
+        rows={3}
+        placeholder="Reason for rejection..."
+        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400 transition-all resize-none"
+      />
+      <div className="flex items-center justify-end gap-3 mt-4">
+        <button
+          onClick={() => { setRejectConfirm(null); setRejectNote(''); }}
+          className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <motion.button
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={handleRejectEmployee}
+          disabled={rejecting}
+          className="px-4 py-2 text-sm font-medium text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors shadow-sm disabled:opacity-50"
+        >
+          {rejecting ? 'Rejecting...' : 'Reject'}
+        </motion.button>
+      </div>
+    </motion.div>
+  </motion.div>
+)}
     </motion.div>
   );
 }

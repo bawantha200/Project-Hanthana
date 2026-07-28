@@ -9,6 +9,12 @@ router.use(protect);
 // GET all employees
 router.get('/', employeeController.getAllEmployees);
 
+router.get('/roles', employeeController.getAllRoles);
+
+router.patch('/:id/reject', employeeController.rejectEmployee);
+
+
+
 // ✅ GET pending employees
 router.get('/pending', employeeController.getPendingEmployees);
 

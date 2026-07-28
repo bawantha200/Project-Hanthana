@@ -73,7 +73,7 @@ exports.getDesignationById = async (req, res) => {
 // ===== CREATE a new designation =====
 exports.createDesignation = async (req, res) => {
   try {
-    const { designation } = req.body;
+    const { designation, ot_rate } = req.body;
 
     // Validate input
     if (!designation || designation.trim() === '') {
@@ -99,11 +99,17 @@ exports.createDesignation = async (req, res) => {
       });
     }
 
-    // Insert new designation
+    // Set OT rate - default to 500 if not provided
+    const otRate = ot_rate !== undefined && ot_rate !== null && ot_rate !== '' 
+      ? parseFloat(ot_rate) 
+      : 500;
+
+    // Insert new designation with OT rate
     const { data, error } = await supabase
       .from('designation')
       .insert([{
         designation: trimmedDesignation,
+        ot_rate: otRate,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       }])
@@ -118,7 +124,7 @@ exports.createDesignation = async (req, res) => {
       });
     }
 
-    console.log(`[Designation] Created: "${trimmedDesignation}"`);
+    console.log(`[Designation] Created: "${trimmedDesignation}" with OT rate: ${otRate}`);
 
     res.status(201).json({
       success: true,
@@ -139,7 +145,7 @@ exports.createDesignation = async (req, res) => {
 exports.updateDesignation = async (req, res) => {
   try {
     const { id } = req.params;
-    const { designation } = req.body;
+    const { designation, ot_rate } = req.body;
 
     if (!designation || designation.trim() === '') {
       return res.status(400).json({
@@ -179,11 +185,17 @@ exports.updateDesignation = async (req, res) => {
       });
     }
 
-    // Update designation
+    // Set OT rate - default to 500 if not provided
+    const otRate = ot_rate !== undefined && ot_rate !== null && ot_rate !== '' 
+      ? parseFloat(ot_rate) 
+      : 500;
+
+    // Update designation with OT rate
     const { data, error } = await supabase
       .from('designation')
       .update({
         designation: trimmedDesignation,
+        ot_rate: otRate,
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
@@ -198,7 +210,7 @@ exports.updateDesignation = async (req, res) => {
       });
     }
 
-    console.log(`[Designation] Updated: "${trimmedDesignation}" (ID: ${id})`);
+    console.log(`[Designation] Updated: "${trimmedDesignation}" (ID: ${id}) with OT rate: ${otRate}`);
 
     res.status(200).json({
       success: true,
@@ -295,6 +307,7 @@ exports.getDesignationStats = async (req, res) => {
       .select(`
         id,
         designation,
+        ot_rate,
         created_at,
         employees:employees_count
       `);
@@ -308,14 +321,7 @@ exports.getDesignationStats = async (req, res) => {
       });
     }
 
-    // Get employee count per designation
-    const { data: employeeCounts, error: countError } = await supabase
-      .from('employees')
-      .select('designation_id, count')
-      .eq('status', 'active')
-      .group('designation_id');
-
-    // Alternative approach: Count employees per designation
+    // Count employees per designation
     const { data: allEmployees } = await supabase
       .from('employees')
       .select('designation_id, status');
