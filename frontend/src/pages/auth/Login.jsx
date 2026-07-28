@@ -7,9 +7,6 @@ import { Mail, Lock, LogIn, AlertCircle, CheckCircle, Eye, EyeOff, X, AlertTrian
 import { useAuth } from '../../context/AuthContext';
 import { getTargetRoute } from '../../utils/roleRouting';
 
-
-
-
 const Login = ({ onSuccess, isModal = false }) => {
   const { login, loginWithGoogle } = useAuth();
 
@@ -20,15 +17,66 @@ const Login = ({ onSuccess, isModal = false }) => {
   const [isLocked, setIsLocked] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [touchedFields, setTouchedFields] = useState({ email: false, password: false });
+  const [fieldErrors, setFieldErrors] = useState({ email: '', password: '' });
   
   // Modal states
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailureModal, setShowFailureModal] = useState(false);
   const [failureMessage, setFailureMessage] = useState('');
-  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const navigate = useNavigate();
   const timeoutRef = useRef(null);
+
+  // Validate email
+  const validateEmail = (value) => {
+    if (!value.trim()) {
+      return { isValid: false, message: 'Email address is required' };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return { isValid: false, message: 'Please enter a valid email address' };
+    }
+    return { isValid: true, message: '' };
+  };
+
+  // Validate password
+  const validatePassword = (value) => {
+    if (!value.trim()) {
+      return { isValid: false, message: 'Password is required' };
+    }
+    if (value.length < 6) {
+      return { isValid: false, message: 'Password must be at least 6 characters' };
+    }
+    return { isValid: true, message: '' };
+  };
+
+  // Validate field on blur
+  const validateField = (fieldName) => {
+    if (fieldName === 'email') {
+      const result = validateEmail(email);
+      setFieldErrors(prev => ({ ...prev, email: result.message }));
+      return result.isValid;
+    } else if (fieldName === 'password') {
+      const result = validatePassword(password);
+      setFieldErrors(prev => ({ ...prev, password: result.message }));
+      return result.isValid;
+    }
+    return true;
+  };
+
+  // Handle field change with validation
+  const handleFieldChange = (fieldName, value) => {
+    if (fieldName === 'email') {
+      setEmail(value);
+      if (touchedFields.email) {
+        validateField('email');
+      }
+    } else if (fieldName === 'password') {
+      setPassword(value);
+      if (touchedFields.password) {
+        validateField('password');
+      }
+    }
+  };
 
   /**
    * Handles traditional Email/Password authentication
@@ -39,13 +87,19 @@ const Login = ({ onSuccess, isModal = false }) => {
     // Mark both fields as touched for validation
     setTouchedFields({ email: true, password: true });
     
-    // Validate required fields
-    if (!email.trim()) {
-      setError('Email address is required');
+    // Validate email
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.isValid) {
+      setFieldErrors(prev => ({ ...prev, email: emailValidation.message }));
+      setError(emailValidation.message);
       return;
     }
-    if (!password.trim()) {
-      setError('Password is required');
+
+    // Validate password
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.isValid) {
+      setFieldErrors(prev => ({ ...prev, password: passwordValidation.message }));
+      setError(passwordValidation.message);
       return;
     }
 
@@ -94,40 +148,36 @@ const Login = ({ onSuccess, isModal = false }) => {
       // Login successful
       login(data.user, data.session.access_token, data.permissions || []);
 
-      
+      // Show success modal
       setShowSuccessModal(true);
-      setIsRedirecting(true);
-      
-      // Guaranteed landing page for the fixed system roles — these always win,
-// regardless of what order their permissions happen to be granted in.
-
-
-      const targetRole = data.user.role || data.user.role_name;
-      const targetRoute = getTargetRoute(targetRole, data.permissions || []);
       
       // Clear any existing timeout
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
       
-      // Set timeout for navigation - wait 2.5 seconds
+      // Set timeout for navigation
       timeoutRef.current = setTimeout(() => {
         setShowSuccessModal(false);
-        setIsRedirecting(false);
+        
+        // Navigate based on role
+        const targetRole = data.user.role || data.user.role_name;
         
         if (isModal && onSuccess) {
           onSuccess();
         } else {
           if (targetRole === 'ADMIN') {
             navigate('/app/dashboard', { replace: true });
-          } else if (targetRole === 'RIDER'){
+          } else if (targetRole === 'RIDER') {
             navigate('/app/rider-dashboard', { replace: true });
           } else {
+            // CUSTOMER or any other role goes to home
             navigate('/', { replace: true });
           }
         }
         timeoutRef.current = null;
-      }, 2500);
+      }, 2000);
 
       setLoading(false);
 
@@ -160,6 +210,7 @@ const Login = ({ onSuccess, isModal = false }) => {
   // Handle field blur to mark as touched
   const handleFieldBlur = (fieldName) => {
     setTouchedFields(prev => ({ ...prev, [fieldName]: true }));
+    validateField(fieldName);
   };
 
   // Cleanup timeout on unmount
@@ -167,6 +218,7 @@ const Login = ({ onSuccess, isModal = false }) => {
     return () => {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
     };
   }, []);
@@ -177,6 +229,11 @@ const Login = ({ onSuccess, isModal = false }) => {
     : "min-h-screen bg-blue-50/30 flex flex-col justify-center py-12 px-6 relative overflow-hidden";
 
   const innerCardClasses = "bg-white/70 py-8 px-10 shadow-2xl rounded-3xl border border-white";
+
+  // Check if field has error
+  const hasFieldError = (fieldName) => {
+    return touchedFields[fieldName] && fieldErrors[fieldName];
+  };
 
   return (
     <div className={containerClasses}>
@@ -222,6 +279,7 @@ const Login = ({ onSuccess, isModal = false }) => {
             <p className="text-gray-500 text-sm mt-2">Sign in to manage your water deliveries</p>
           </div>
 
+          {/* Error message - only shown when there's an error */}
           {error && !showFailureModal && !showSuccessModal && (
             <div className={`flex items-start gap-3 rounded-xl p-3 mb-5 border ${
               isLocked ? 'bg-red-50 border-red-200' : 'bg-red-50 border-red-200'
@@ -240,7 +298,7 @@ const Login = ({ onSuccess, isModal = false }) => {
             </div>
           )}
 
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleLogin} className="space-y-5" noValidate>
             {/* Email Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
@@ -249,36 +307,35 @@ const Login = ({ onSuccess, isModal = false }) => {
                 </label>
               </div>
               <div className={`relative transition-all duration-200 ${
-                touchedFields.email && !email.trim() 
+                hasFieldError('email')
                   ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
                   : ''
               }`}>
                 <Mail className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.email && !email.trim() ? 'text-red-500' : 'text-gray-400'
+                  hasFieldError('email') ? 'text-red-500' : 'text-gray-400'
                 }`} />
                 <input
                   type="email"
-                  required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => handleFieldChange('email', e.target.value)}
                   onBlur={() => handleFieldBlur('email')}
                   className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.email && !email.trim() 
+                    hasFieldError('email')
                       ? 'border-red-500 bg-red-50' 
                       : 'border-gray-200'
                   }`}
                   placeholder="Enter your email address"
                 />
-                {touchedFields.email && !email.trim() && (
+                {hasFieldError('email') && (
                   <div className="absolute right-3 top-3.5">
                     <AlertTriangle size={18} className="text-red-500" />
                   </div>
                 )}
               </div>
-              {touchedFields.email && !email.trim() && (
+              {hasFieldError('email') && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Email address is required
+                  {fieldErrors.email}
                 </p>
               )}
             </div>
@@ -289,23 +346,25 @@ const Login = ({ onSuccess, isModal = false }) => {
                 <label className="text-sm font-medium text-gray-700">
                   Password
                 </label>
+                <Link to="/forgot-password" className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors">
+                  Forgot Password?
+                </Link>
               </div>
               <div className={`relative transition-all duration-200 ${
-                touchedFields.password && !password.trim() 
+                hasFieldError('password')
                   ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
                   : ''
               }`}>
                 <Lock className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.password && !password.trim() ? 'text-red-500' : 'text-gray-400'
+                  hasFieldError('password') ? 'text-red-500' : 'text-gray-400'
                 }`} />
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => handleFieldChange('password', e.target.value)}
                   onBlur={() => handleFieldBlur('password')}
                   className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.password && !password.trim() 
+                    hasFieldError('password')
                       ? 'border-red-500 bg-red-50' 
                       : 'border-gray-200'
                   }`}
@@ -318,16 +377,16 @@ const Login = ({ onSuccess, isModal = false }) => {
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
-                {touchedFields.password && !password.trim() && (
+                {hasFieldError('password') && (
                   <div className="absolute right-12 top-3.5">
                     <AlertTriangle size={18} className="text-red-500" />
                   </div>
                 )}
               </div>
-              {touchedFields.password && !password.trim() && (
+              {hasFieldError('password') && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Password is required
+                  {fieldErrors.password}
                 </p>
               )}
             </div>
@@ -380,11 +439,6 @@ const Login = ({ onSuccess, isModal = false }) => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onClick={() => {
-              if (!isRedirecting) {
-                setShowSuccessModal(false);
-              }
-            }}
           >
             <motion.div
               initial={{ scale: 0.8, y: 30 }}
@@ -392,29 +446,33 @@ const Login = ({ onSuccess, isModal = false }) => {
               exit={{ scale: 0.8, y: 30 }}
               transition={{ type: "spring", damping: 25 }}
               className="relative max-w-sm w-full"
-              onClick={(e) => e.stopPropagation()}
             >
               <div className="bg-white rounded-3xl shadow-2xl p-8 text-center border border-green-100">
                 <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-10 h-10 text-green-600" />
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900">Welcome Back!</h3>
+                
+                <h3 className="text-2xl font-bold text-gray-900">
+                  Login Successful!
+                </h3>
+                
                 <p className="text-gray-500 mt-2">
                   You have successfully logged in to your account.
                 </p>
-                <p className="text-sm text-green-600 mt-1 font-medium">
-                  {isRedirecting ? 'Redirecting to dashboard...' : 'Click anywhere to continue'}
+                
+                <p className="text-sm text-blue-600 mt-1 font-medium">
+                  Redirecting to dashboard...
                 </p>
-                {isRedirecting && (
-                  <div className="mt-4 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                    <motion.div
-                      className="h-full bg-green-600 rounded-full"
-                      initial={{ width: "0%" }}
-                      animate={{ width: "100%" }}
-                      transition={{ duration: 2, ease: "linear" }}
-                    />
-                  </div>
-                )}
+                
+                {/* Progress bar - always show for all users */}
+                <div className="mt-4 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                  <motion.div
+                    className="h-full bg-green-600 rounded-full"
+                    initial={{ width: "0%" }}
+                    animate={{ width: "100%" }}
+                    transition={{ duration: 2, ease: "linear" }}
+                  />
+                </div>
               </div>
             </motion.div>
           </motion.div>
@@ -458,6 +516,7 @@ const Login = ({ onSuccess, isModal = false }) => {
                     onClick={() => {
                       setShowFailureModal(false);
                       setError('');
+                      setFieldErrors({ email: '', password: '' });
                     }}
                     className="w-full px-6 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition shadow-md shadow-blue-200 flex items-center justify-center gap-2"
                   >

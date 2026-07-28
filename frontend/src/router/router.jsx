@@ -61,6 +61,7 @@ import PaymentCancel from '../pages/customer/PaymentCancel';
 import ForgotPassword from '../pages/customer/ForgotPassword';
 import ResetPassword from '../pages/customer/ResetPassword';
 import SalesAnalytics from '../pages/admin/salesAnalytics';
+import PickupConfirmation from '../pages/customer/PickupConfirmation';
 
 
 /**
@@ -230,6 +231,7 @@ function CustomerRoutes() {
 
         <Route path="payment-result" element={<PaymentResult />} />
         <Route path="payment-cancel" element={<PaymentCancel />} />
+        <Route path="pickup-confirmation" element={<PickupConfirmation />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
