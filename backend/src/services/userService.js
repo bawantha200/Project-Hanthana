@@ -169,7 +169,8 @@ class UserService {
         email: employee.email,
         position: employee.position,
         phone: employee.phone,
-        address: employee.address
+        address: employee.address,
+        
       });
 
       // 2️⃣ Check if user already exists in profiles
@@ -215,7 +216,9 @@ class UserService {
         email_confirm: true,
         user_metadata: {
           full_name: employee.name,
-          phone_number: employee.phone
+          phone_number: employee.phone,
+          role_id: resolvedRoleId,   // ✅ dynamic, no more hardcoded 3
+          profile_image: employee.profile_image || null
         }
       });
 
@@ -283,7 +286,7 @@ class UserService {
   try {
     console.log(`[UserService] ✏️ Updating user: ${id}`);
 
-    const { fullName, email, phone, address, role, status, password } = userData; // ✅ added password
+    const { fullName, email, phone, address, role, status, password, profileImage } = userData; // ✅ added profileImage
 
     // Update profiles
     const { error: profileError } = await supabase
@@ -293,7 +296,8 @@ class UserService {
         email,
         phone_number: phone,
         address,
-        role_id: role
+        role_id: role,
+        ...(profileImage !== undefined && { profile_image: profileImage }) // ✅ only update if provided
       })
       .eq('id', id);
 

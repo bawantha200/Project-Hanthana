@@ -2,6 +2,12 @@
 const supabase = require('../config/db');
 const { checkAndAlertLowStock } = require('../utils/lowStockAlert'); // 🆕
 
+
+
+// Roles considered "admin-level" for authorization checks
+const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN', 'MANAGER']; // adjust to match your actual role_name values
+const isAdminLevel = (roleName) => ADMIN_ROLES.includes(roleName);
+
 // ============ PRODUCT FUNCTIONS ============
 
 async function getProductsWithStock() {

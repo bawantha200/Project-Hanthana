@@ -137,7 +137,7 @@ const createUserFromEmployee = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fullName, email, phone, address, role, status, password } = req.body; // ✅ added password
+    const { fullName, email, phone, address, role, status, password, profileImage } = req.body; // ✅ added profileImage
 
     if (!fullName || !email || !role) {
       return res.status(400).json({
@@ -154,7 +154,7 @@ const updateUser = async (req, res) => {
     }
 
     const updated = await userService.updateUser(id, {
-      fullName, email, phone, address, role, status, password // ✅ added password
+      fullName, email, phone, address, role, status, password, profileImage // ✅ added
     });
 
     return res.status(200).json({

@@ -1,6 +1,8 @@
 // backend/src/controllers/inventoryController.js
 const inventoryService = require('../services/inventoryService');
 
+
+
 // ============ VENDORS ============
 exports.getVendors = async (req, res) => {
   try {

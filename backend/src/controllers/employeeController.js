@@ -225,8 +225,8 @@ exports.createEmployee = async (req, res) => {
       phone: cleanedPhone,
       email,
       hire_date: hireDate,
-      status: 'pending',
-      role_id: role_id || null,  // ✅ FIXED: Use role_id from request, default to null (No Role)
+      status: role_id ? 'pending' : 'active',   // ✅ No role = active immediately, skip pending/account-creation flow
+      role_id: role_id || null,
       gender: gender || null,
       nic: nic ? nic.trim().toUpperCase() : null,
       address,
@@ -337,6 +337,10 @@ exports.updateEmployee = async (req, res) => {
     
     if (profileImage !== undefined) updateData.profile_image = profileImage;
     if (status) updateData.status = status;
+
+    if (status && status !== 'rejected') {
+      updateData.rejection_reason = null;
+    }
     
     // Base Salary
     if (baseSalary !== undefined && baseSalary !== '') {
@@ -573,6 +577,66 @@ exports.getAllRoles = async (req, res) => {
   }
 };
 
+// ===== REJECT an employee =====
+exports.rejectEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'A rejection reason is required'
+      });
+    }
+
+    const { data: existingEmployee } = await supabase
+      .from('employees')
+      .select('id, name, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!existingEmployee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('employees')
+      .update({
+        status: 'rejected',
+        rejection_reason: reason.trim(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('[Employees] Reject error:', error);
+      return res.status(400).json({
+        success: false,
+        message: 'Error rejecting employee',
+        error: error.message
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Employee ${existingEmployee.name} rejected`,
+      data: data[0]
+    });
+  } catch (error) {
+    console.error('[Employees] Reject server error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllEmployees: exports.getAllEmployees,
   getPendingEmployees: exports.getPendingEmployees,
@@ -582,5 +646,7 @@ module.exports = {
   deleteEmployee: exports.deleteEmployee,
   getEmployeeStats: exports.getEmployeeStats,
   updateEmployeeStatus: exports.updateEmployeeStatus,
-  getAllRoles: exports.getAllRoles  // ✅ Added roles endpoint
+  getAllRoles: exports.getAllRoles,
+  rejectEmployee: exports.rejectEmployee, 
+
 };

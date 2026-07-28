@@ -192,6 +192,9 @@ export default function Employees() {
     return employee.designation_id || null;
   };
 
+
+  
+
   // Helper function to get role name by ID
   const getRoleName = (roleId) => {
     if (!roleId) return 'No Role';
@@ -200,6 +203,11 @@ export default function Employees() {
   };
 
   // Validation functions
+
+  const capitalizeWords = (str) => {
+  return str.replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+  };
+
   const validateEmail = (email) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
@@ -804,20 +812,20 @@ const handleDeleteDesignation = async () => {
   };
 
   const handleEditEmployee = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      setError('Please fix all validation errors before submitting');
-      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
-      if (firstErrorField) {
-        const element = document.querySelector(`[name="${firstErrorField}"]`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          element.focus();
-        }
+  e.preventDefault();
+  
+  if (!validateForm()) {
+    setError('Please fix all validation errors before submitting');
+    const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+    if (firstErrorField) {
+      const element = document.querySelector(`[name="${firstErrorField}"]`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.focus();
       }
-      return;
     }
+    return;
+  }
 
     try {
       setSubmitting(true);
@@ -845,40 +853,74 @@ const handleDeleteDesignation = async () => {
 
       console.log('Updating employee data:', updateData);
 
-      const token = localStorage.getItem('token');
-      const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setEmployees(employees.map(emp => 
-          emp.id === selectedEmployee.id ? response.data.data : emp
-        ));
-        setShowCreateForm(false);
-        setShowDetailModal(false);
-        setSelectedEmployee(response.data.data);
-        resetForm();
-        showSuccessNotification('Employee updated successfully!');
-      }
-    } catch (err) {
-      console.error('Error updating employee:', err);
-      if (err.response) {
-        if (err.response.status === 409) {
-          setError('Email already in use by another employee.');
-        } else if (err.response.status === 404) {
-          setError('Employee not found.');
-        } else if (err.response.status === 400) {
-          setError(err.response.data?.message || 'Please check all required fields.');
-        } else {
-          setError(err.response.data?.message || 'Failed to update employee. Please try again.');
-        }
-      } else {
-        setError('Network error. Please check your connection.');
-      }
-    } finally {
-      setSubmitting(false);
+    // ✅ NEW: If employee was rejected and admin now assigns a role,
+    // automatically move them back to 'pending' so they reappear
+    // in the pending list for account creation.
+    let statusToSend = formData.status;
+    if (selectedEmployee?.status === 'rejected' && formData.role) {
+      statusToSend = 'pending';
     }
-  };
+    
+    const updateData = {
+      name: formData.fullName,
+      designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+      phone: formData.phoneNo,
+      email: formData.email,
+      hireDate: formData.hiredDate,
+      address: formData.address,
+      baseSalary: parseFloat(formData.baseSalary) || 0,
+      bonus: parseFloat(formData.bonus) || 0,
+      status: statusToSend,          // ✅ use the resolved status
+      role_id: formData.role || null
+    };
+    
+    if (formData.birthday) updateData.birthday = formData.birthday;
+    if (formData.gender) updateData.gender = formData.gender;
+    if (formData.nic) updateData.nic = formData.nic;
+    if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
+    if (formData.jobType) updateData.jobType = formData.jobType;
+    if (formData.profileImage) updateData.profileImage = formData.profileImage;
+
+    console.log('Updating employee data:', updateData);
+
+    const token = localStorage.getItem('token');
+    const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    
+    if (response.data.success) {
+      setEmployees(employees.map(emp => 
+        emp.id === selectedEmployee.id ? response.data.data : emp
+      ));
+      setShowCreateForm(false);
+      setShowDetailModal(false);
+      setSelectedEmployee(response.data.data);
+      resetForm();
+      showSuccessNotification(
+        statusToSend === 'pending' && selectedEmployee?.status === 'rejected'
+          ? 'Employee re-activated — pending account creation!'
+          : 'Employee updated successfully!'
+      );
+    }
+  } catch (err) {
+    console.error('Error updating employee:', err);
+    if (err.response) {
+      if (err.response.status === 409) {
+        setError('Email already in use by another employee.');
+      } else if (err.response.status === 404) {
+        setError('Employee not found.');
+      } else if (err.response.status === 400) {
+        setError(err.response.data?.message || 'Please check all required fields.');
+      } else {
+        setError(err.response.data?.message || 'Failed to update employee. Please try again.');
+      }
+    } else {
+      setError('Network error. Please check your connection.');
+    }
+  } finally {
+    setSubmitting(false);
+  }
+};
 
   const resetForm = () => {
     setFormData({
@@ -1561,23 +1603,24 @@ const handleDeleteDesignation = async () => {
                         <User size={14} className="inline mr-1" /> Full Name *
                       </label>
                       <input
-                        type="text"
-                        name="fullName"
-                        value={formData.fullName}
-                        onChange={(e) => {
-                          setFormData({ ...formData, fullName: e.target.value });
-                          validateField('fullName', e.target.value);
-                        }}
-                        onBlur={(e) => validateField('fullName', e.target.value)}
-                        placeholder="Enter full name"
-                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                          validationErrors.fullName 
-                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
-                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
-                        }`}
-                        required
-                        disabled={submitting}
-                      />
+  type="text"
+  name="fullName"
+  value={formData.fullName}
+  onChange={(e) => {
+    const capitalized = capitalizeWords(e.target.value);
+    setFormData({ ...formData, fullName: capitalized });
+    validateField('fullName', capitalized);
+  }}
+  onBlur={(e) => validateField('fullName', e.target.value)}
+  placeholder="Enter full name"
+  className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+    validationErrors.fullName 
+      ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+      : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+  }`}
+  required
+  disabled={submitting}
+/>
                       {validationErrors.fullName && (
                         <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                           <AlertCircle size={12} />
@@ -2189,6 +2232,18 @@ const handleDeleteDesignation = async () => {
                         </span>
                       </div>
                     </div>
+                    
+                    {selectedEmployee.status === 'rejected' && (
+                      <div className="bg-rose-50 rounded-xl p-4 border border-rose-100 md:col-span-2">
+                        <p className="text-xs text-rose-500 font-medium flex items-center gap-1">
+                          <AlertCircle size={12} className="text-rose-500" /> Reason for Rejection
+                        </p>
+                        <p className="text-sm font-medium text-rose-700 mt-1">
+                          {selectedEmployee.rejection_reason || 'No reason provided'}
+                        </p>
+                      </div>
+                    )}
+                    
                     <div className="ml-auto flex gap-3">
                       <button
                         onClick={(e) => {

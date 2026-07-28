@@ -2,13 +2,13 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { getTargetRoute } from '../utils/roleRouting';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import AdminDashboard from '../pages/admin/AdminDashboard';
 import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
@@ -107,7 +107,7 @@ function AdminRoutes() {
   // Default landing page per role, used both for the index redirect
   // and the catch-all fallback below.
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/app/user-management';
+    if (role === 'ADMIN') return '/app/dashboard';
     if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
     return '/app/dashboard';
   };
@@ -118,11 +118,13 @@ function AdminRoutes() {
         <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
 
         {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
+        
+
         <Route
           path="dashboard"
           element={
             role === 'ADMIN'
-              ? <Navigate to="/app/user-management" replace />
+              ? <AdminDashboard />   
               : <Dashboard />
           }
         />
