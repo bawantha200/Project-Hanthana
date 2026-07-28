@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Clock, Search, Plus, X, User, Calendar, Edit, Trash2, 
   CheckCircle, AlertCircle, Loader, RefreshCw, History,
-  ChevronDown, ChevronUp, Save
+  ChevronDown, ChevronUp, Save, Filter, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
@@ -83,6 +83,18 @@ const calculateAttendanceStatus = (checkIn, checkOut) => {
   return 'present';
 };
 
+// ========== GET DESIGNATION NAME ==========
+const getDesignationName = (employee) => {
+  if (!employee) return '';
+  if (employee.designation && typeof employee.designation === 'object') {
+    return employee.designation.designation || '';
+  }
+  if (employee.designation && typeof employee.designation === 'string') {
+    return employee.designation;
+  }
+  return '';
+};
+
 export default function Attendance() {
   // ========== STATE ==========
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,6 +105,15 @@ export default function Attendance() {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // ========== FILTER STATE ==========
+  const [filterEmployeeId, setFilterEmployeeId] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+
+  // ========== PAGINATION STATE ==========
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // ========== PREVIOUS MONTHS STATE ==========
   const [showPreviousAttendance, setShowPreviousAttendance] = useState(false);
@@ -130,7 +151,7 @@ export default function Attendance() {
       }
     } catch (err) {
       console.error('❌ Error fetching employees:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       }
     }
@@ -145,7 +166,7 @@ export default function Attendance() {
       }
     } catch (err) {
       console.error('❌ Error fetching attendance:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       }
     }
@@ -261,7 +282,7 @@ export default function Attendance() {
       }
     } catch (err) {
       console.error('Error:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       } else if (err.response?.status === 409) {
         setError('Attendance already recorded for this date.');
@@ -285,7 +306,7 @@ export default function Attendance() {
       showSuccessNotification('Attendance record deleted successfully!');
     } catch (err) {
       console.error('Error deleting attendance:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       } else {
         setError('Failed to delete attendance record.');
@@ -388,22 +409,64 @@ export default function Attendance() {
     });
   };
 
+  // ========== APPLY FILTERS ==========
+  const applyFilters = (data) => {
+    let filtered = [...data];
+
+    // Filter by Employee
+    if (filterEmployeeId) {
+      filtered = filtered.filter(rec => 
+        (rec.employee_id || rec.employeeId) === parseInt(filterEmployeeId)
+      );
+    }
+
+    // Filter by Month
+    if (filterMonth) {
+      filtered = filtered.filter(rec => {
+        const date = new Date(rec.date);
+        return date.getMonth() === parseInt(filterMonth);
+      });
+    }
+
+    // Filter by Year
+    if (filterYear) {
+      filtered = filtered.filter(rec => {
+        const date = new Date(rec.date);
+        return date.getFullYear() === parseInt(filterYear);
+      });
+    }
+
+    // Search by employee name
+    if (searchQuery) {
+      filtered = filtered.filter(rec =>
+        (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
+
+    return filtered;
+  };
+
   const currentMonthAttendance = getCurrentMonthData();
+  const filteredAttendance = applyFilters(currentMonthAttendance);
+  const filteredPreviousAttendance = applyFilters(previousAttendanceData);
 
-  const filteredAttendance = currentMonthAttendance.filter((rec) =>
-    (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // ========== PAGINATION ==========
+  const totalItems = filteredAttendance.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredAttendance.slice(startIndex, endIndex);
 
-  const filteredPreviousAttendance = previousAttendanceData.filter((rec) =>
-    (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterEmployeeId, filterMonth, filterYear, searchQuery]);
 
   // ========== SUMMARY STATISTICS ==========
-
-  const totalAttendance = currentMonthAttendance.length;
-  const presentCount = currentMonthAttendance.filter(rec => rec.status === 'present').length;
-  const absentCount = currentMonthAttendance.filter(rec => rec.status === 'absent').length;
-  const halfDayCount = currentMonthAttendance.filter(rec => rec.status === 'half_day').length;
+  const totalAttendance = filteredAttendance.length;
+  const presentCount = filteredAttendance.filter(rec => rec.status === 'present').length;
+  const absentCount = filteredAttendance.filter(rec => rec.status === 'absent').length;
+  const halfDayCount = filteredAttendance.filter(rec => rec.status === 'half_day').length;
 
   const summaryCards = [
     { 
@@ -562,23 +625,86 @@ export default function Attendance() {
         })}
       </motion.div>
 
-      {/* ========== SEARCH ========== */}
-      <motion.div
-        variants={itemVariants}
-        className="flex items-center gap-4 flex-wrap"
-      >
-        <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search by employee name..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-          />
+      {/* ========== FILTERS SECTION ========== */}
+      <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Filter size={16} className="text-gray-500" />
+          <span className="text-sm font-medium text-gray-700">Filters</span>
         </div>
-        <div className="text-sm text-gray-400">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by employee..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+            />
+          </div>
+
+          {/* Employee Filter */}
+          <select
+            value={filterEmployeeId}
+            onChange={(e) => setFilterEmployeeId(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+          >
+            <option value="">All Employees</option>
+            {employees.map((emp) => {
+              const desName = getDesignationName(emp);
+              return (
+                <option key={emp.id} value={emp.id}>
+                  {emp.name} {desName ? `- ${desName}` : ''}
+                </option>
+              );
+            })}
+          </select>
+
+          {/* Month Filter */}
+          <select
+            value={filterMonth}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+          >
+            <option value="">All Months</option>
+            {Array.from({ length: 12 }, (_, i) => (
+              <option key={i} value={i}>
+                {new Date(2000, i, 1).toLocaleString('default', { month: 'long' })}
+              </option>
+            ))}
+          </select>
+
+          {/* Year Filter */}
+          <select
+            value={filterYear}
+            onChange={(e) => setFilterYear(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+          >
+            <option value="">All Years</option>
+            {Array.from({ length: 5 }, (_, i) => {
+              const year = new Date().getFullYear() - i;
+              return (
+                <option key={year} value={year}>{year}</option>
+              );
+            })}
+          </select>
+        </div>
+        <div className="mt-3 text-xs text-gray-400">
           {filteredAttendance.length} records found
+          {(filterEmployeeId || filterMonth || filterYear || searchQuery) && (
+            <button
+              onClick={() => {
+                setFilterEmployeeId('');
+                setFilterMonth('');
+                setFilterYear('');
+                setSearchQuery('');
+              }}
+              className="ml-3 text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Clear Filters
+            </button>
+          )}
         </div>
       </motion.div>
 
@@ -591,84 +717,157 @@ export default function Attendance() {
       >
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="p-6 border-b border-gray-100">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h2 className="text-base font-semibold text-gray-900">
-                  Current Month Attendance
+                  Attendance Records
                   <span className="ml-2 text-xs font-normal text-gray-400">
-                    {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                    {filterEmployeeId ? 'Filtered' : 'All Records'}
                   </span>
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Daily check-in and check-out records for this month
+                  {filteredAttendance.length} records found
                 </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">Show:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(parseInt(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                >
+                  <option value={5}>5</option>
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
               </div>
             </div>
           </div>
           
-          {filteredAttendance.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Check In</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Check Out</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredAttendance.map((record) => (
-                    <tr key={record.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                      <td className="py-3 px-6 font-medium text-gray-900">{record.employee_name || record.name}</td>
-                      <td className="py-3 px-6 text-gray-600">{record.date}</td>
-                      <td className="py-3 px-6 text-gray-600">{record.check_in || record.checkIn || '--'}</td>
-                      <td className="py-3 px-6 text-gray-600">{record.check_out || record.checkOut || '--'}</td>
-                      <td className="py-3 px-6">
-                        <StatusBadge status={record.status} />
-                      </td>
-                      <td className="py-3 px-6">
-                        <div className="flex items-center justify-center gap-2">
-                          <button
-                            onClick={() => editAttendance(record)}
-                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Edit size={15} />
-                          </button>
-                          <button
-                            onClick={() => confirmDelete(record.id, record.employee_name || record.name)}
-                            className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={15} />
-                          </button>
-                        </div>
-                      </td>
+          {paginatedData.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Check In</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Check Out</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200 bg-gray-50/50">
-                    <td className="py-3 px-6 font-semibold text-gray-900">Total</td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6 text-center text-sm text-gray-400">
-                      {filteredAttendance.length} records
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {paginatedData.map((record) => (
+                      <tr key={record.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                        <td className="py-3 px-6 font-medium text-gray-900">{record.employee_name || record.name}</td>
+                        <td className="py-3 px-6 text-gray-600">{record.date}</td>
+                        <td className="py-3 px-6 text-gray-600">{record.check_in || record.checkIn || '--'}</td>
+                        <td className="py-3 px-6 text-gray-600">{record.check_out || record.checkOut || '--'}</td>
+                        <td className="py-3 px-6">
+                          <StatusBadge status={record.status} />
+                        </td>
+                        <td className="py-3 px-6">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => editAttendance(record)}
+                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit size={15} />
+                            </button>
+                            <button
+                              onClick={() => confirmDelete(record.id, record.employee_name || record.name)}
+                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* ========== PAGINATION ========== */}
+              {totalPages > 1 && (
+                <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-sm text-gray-500">
+                    Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                    <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{' '}
+                    <span className="font-medium">{totalItems}</span> results
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className={`p-2 rounded-lg border transition-colors ${
+                        currentPage === 1
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                      }`}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum;
+                      if (totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`w-8 h-8 rounded-lg text-sm font-medium transition-colors ${
+                            currentPage === pageNum
+                              ? 'bg-blue-600 text-white'
+                              : 'text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                    {totalPages > 5 && currentPage < totalPages - 2 && (
+                      <span className="text-gray-400">...</span>
+                    )}
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className={`p-2 rounded-lg border transition-colors ${
+                        currentPage === totalPages
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                      }`}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-12">
               <Clock size={48} className="mx-auto mb-4 text-gray-300" />
-              <p className="text-gray-500 font-medium">No attendance records for current month</p>
-              <p className="text-sm text-gray-400 mt-1">Add attendance records to get started</p>
+              <p className="text-gray-500 font-medium">No attendance records found</p>
+              <p className="text-sm text-gray-400 mt-1">
+                {filterEmployeeId || filterMonth || filterYear || searchQuery
+                  ? 'Try adjusting your filters'
+                  : 'Add attendance records to get started'}
+              </p>
               <button
                 onClick={() => openAttendanceForm()}
                 className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
@@ -768,7 +967,7 @@ export default function Attendance() {
                           </tr>
                         </thead>
                         <tbody>
-                          {filteredPreviousAttendance.map((record) => (
+                          {filteredPreviousAttendance.slice(0, 50).map((record) => (
                             <tr key={record.id} className="border-b border-purple-50 hover:bg-purple-50/30 transition-colors">
                               <td className="py-2.5 px-4 font-medium text-gray-800">{record.employee_name || record.name}</td>
                               <td className="py-2.5 px-4 text-gray-600">{record.date}</td>
@@ -801,7 +1000,7 @@ export default function Attendance() {
                         <tfoot className="bg-purple-50/50">
                           <tr>
                             <td colSpan="6" className="py-2 px-4 text-xs text-purple-600 font-medium">
-                              Total: {filteredPreviousAttendance.length} records
+                              Total: {filteredPreviousAttendance.length} records (showing first 50)
                             </td>
                           </tr>
                         </tfoot>
@@ -887,9 +1086,14 @@ export default function Attendance() {
                         disabled={submitting || isEditingAttendance}
                       >
                         <option value="">Select Employee</option>
-                        {employees.map((emp) => (
-                          <option key={emp.id} value={emp.id}>{emp.name}</option>
-                        ))}
+                        {employees.map((emp) => {
+                          const desName = getDesignationName(emp);
+                          return (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name} {desName ? `- ${desName}` : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                       {isEditingAttendance && (
                         <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
