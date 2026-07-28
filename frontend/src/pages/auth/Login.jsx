@@ -103,7 +103,6 @@ const Login = ({ onSuccess, isModal = false }) => {
 
 
       const targetRole = data.user.role || data.user.role_name;
-      const targetRoute = getTargetRoute(targetRole, data.permissions || []);
       
       // Clear any existing timeout
       if (timeoutRef.current) {
@@ -111,23 +110,30 @@ const Login = ({ onSuccess, isModal = false }) => {
       }
       
       // Set timeout for navigation - wait 2.5 seconds
-      timeoutRef.current = setTimeout(() => {
-        setShowSuccessModal(false);
-        setIsRedirecting(false);
-        
-        if (isModal && onSuccess) {
-          onSuccess();
-        } else {
-          if (targetRole === 'ADMIN') {
-            navigate('/app/dashboard', { replace: true });
-          } else if (targetRole === 'RIDER'){
-            navigate('/app/rider-dashboard', { replace: true });
-          } else {
-            navigate('/', { replace: true });
-          }
-        }
-        timeoutRef.current = null;
-      }, 2500);
+timeoutRef.current = setTimeout(() => {
+  setShowSuccessModal(false);
+  setIsRedirecting(false);
+  
+  if (isModal && onSuccess) {
+    onSuccess();
+  } else {
+    const roleUpper = String(targetRole || '').toUpperCase();
+    if (roleUpper === 'ADMIN') {
+      navigate('/app/dashboard', { replace: true });
+    } else if (roleUpper === 'RIDER') {
+      navigate('/app/rider-dashboard', { replace: true });
+    } else if (roleUpper === 'SALES_MANAGER') {
+      navigate('/app/sales-dashboard', { replace: true });
+    } else if (roleUpper === 'HR_MANAGER') {
+      navigate('/app/hrm-dashboard', { replace: true });
+    } else if (roleUpper === 'CUSTOMER') {
+      navigate('/', { replace: true });
+    } else {
+      navigate('/app/dashboard', { replace: true });
+    }
+  }
+  timeoutRef.current = null;
+}, 2500);
 
       setLoading(false);
 
