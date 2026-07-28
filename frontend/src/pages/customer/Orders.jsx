@@ -23,6 +23,8 @@ const staggerContainer = {
   },
 };
 
+const PAGE_SIZE = 20;
+
 const statusStyle = {
   Pending: 'bg-yellow-100 text-yellow-700 border-yellow-300',
   Preparing: 'bg-blue-100 text-blue-700 border-blue-300',
@@ -44,6 +46,9 @@ const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(null);
+
+  // Pagination state — lives inside the component, alongside the other state
+  const [currentPage, setCurrentPage] = useState(1);
 
   useEffect(() => {
     const fetchOrders = async () => {
@@ -88,6 +93,18 @@ const Orders = () => {
     : orders.filter(o => o.status === filter);
 
   const filters = ['All', 'Preparing', 'Dispatched', 'Delivered'];
+
+  // Reset to page 1 whenever the filter changes, so you don't land on an empty page
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter]);
+
+  // ---- Pagination derived values ----
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE));
+  const paginatedOrders = filteredOrders.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
 
   if (loading) {
     return (
@@ -210,7 +227,7 @@ const Orders = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {filteredOrders.map((order, index) => (
+                {paginatedOrders.map((order, index) => (
                   <motion.tr
                     key={order.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -248,6 +265,49 @@ const Orders = () => {
               <ShoppingBag className="w-12 h-12 text-gray-300 mx-auto mb-3" />
               <p className="text-gray-500 font-medium">No orders found</p>
               <p className="text-sm text-gray-400 mt-1">Try adjusting your filter</p>
+            </div>
+          )}
+
+          {/* Pagination controls */}
+          {filteredOrders.length > 0 && (
+            <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100 text-sm">
+              <span className="text-gray-500">
+                Showing {(currentPage - 1) * PAGE_SIZE + 1}–
+                {Math.min(currentPage * PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+                >
+                  Prev
+                </button>
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                  .map((p, idx, arr) => (
+                    <span key={p} className="flex items-center">
+                      {idx > 0 && arr[idx - 1] !== p - 1 && <span className="px-1 text-gray-400">…</span>}
+                      <button
+                        onClick={() => setCurrentPage(p)}
+                        className={`px-3 py-1.5 rounded-lg border text-sm ${
+                          p === currentPage
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    </span>
+                  ))}
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40 hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           )}
         </motion.div>

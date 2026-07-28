@@ -62,6 +62,18 @@ async function monthlyRevenue(req, res) {
   }
 }
 
+// GET /api/invoices/profit-trend?dateFrom=&dateTo=
+// Granularity (day/week/month) is chosen automatically based on the date range's span.
+async function profitTrend(req, res) {
+  try {
+    const { dateFrom, dateTo } = req.query;
+    const data = await invoiceService.getProfitTrend({ dateFrom, dateTo });
+    res.json(data);
+  } catch (err) {
+    res.status(err.status || 500).json({ message: err.message });
+  }
+}
+
 module.exports = {
   listInvoices,
   getInvoice,
@@ -69,4 +81,5 @@ module.exports = {
   financialReport,
   pendingPayments,
   monthlyRevenue,
+  profitTrend,
 };

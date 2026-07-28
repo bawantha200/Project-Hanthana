@@ -206,6 +206,143 @@ async function getMonthlyRevenueHistory() {
   return months.map(({ month, income }) => ({ month, income }));
 }
 
+// Groups a date into a bucket key + display label, based on granularity
+function bucketFor(dateStr, granularity) {
+  const d = new Date(dateStr);
+  if (granularity === "day") {
+    const key = d.toISOString().slice(0, 10); // "2026-07-24"
+    const label = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return { key, label };
+  }
+  if (granularity === "week") {
+    // Monday-start week
+    const day = d.getUTCDay() || 7;
+    const monday = new Date(d);
+    monday.setUTCDate(d.getUTCDate() - day + 1);
+    const key = monday.toISOString().slice(0, 10);
+    const label = monday.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return { key, label: `Wk of ${label}` };
+  }
+  // month
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+  return { key, label };
+}
+
+// GET profit trend over a date range, broken into daily/weekly/monthly points
+// depending on how wide the range is — this is what powers the profit line chart.
+async function getProfitTrend({ dateFrom, dateTo }) {
+  const toInclusive = dateTo ? `${dateTo}T23:59:59.999` : null;
+
+  // ---- Revenue side (paid invoices only) ----
+  let invQuery = supabase
+    .from("invoices")
+    .select(`total_amount, issued_at, orders ( payment_status )`);
+  if (dateFrom) invQuery = invQuery.gte("issued_at", dateFrom);
+  if (toInclusive) invQuery = invQuery.lte("issued_at", toInclusive);
+  const { data: invoices, error: invErr } = await invQuery;
+  if (invErr) throw invErr;
+
+  // ---- Expense side (non-voided only) ----
+  let expQuery = supabase.from("expenses").select("amount, recorded_at").eq("voided", false);
+  if (dateFrom) expQuery = expQuery.gte("recorded_at", dateFrom);
+  if (toInclusive) expQuery = expQuery.lte("recorded_at", toInclusive);
+  const { data: expenses, error: expErr } = await expQuery;
+  if (expErr) throw expErr;
+
+  // ---- Work out the actual date span, and pick a sensible bucket size ----
+  const allDates = [
+    ...(dateFrom ? [new Date(dateFrom)] : []),
+    ...(dateTo ? [new Date(dateTo)] : []),
+    ...invoices.map((i) => new Date(i.issued_at)),
+    ...expenses.map((e) => new Date(e.recorded_at)),
+  ];
+  const start = dateFrom ? new Date(dateFrom) : new Date(Math.min(...allDates));
+  const end = dateTo ? new Date(dateTo) : new Date();
+  const spanDays = Math.max(1, Math.round((end - start) / 86400000));
+
+  let granularity;
+  if (spanDays <= 31) granularity = "day";
+  else if (spanDays <= 180) granularity = "week";
+  else granularity = "month";
+
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  function bucketKey(dateStr) {
+    const d = new Date(dateStr);
+    if (granularity === "day") {
+      return d.toISOString().slice(0, 10);
+    }
+    if (granularity === "week") {
+      const day = d.getUTCDay();
+      const diff = (day === 0 ? -6 : 1) - day; // shift back to Monday
+      const monday = new Date(d);
+      monday.setUTCDate(d.getUTCDate() + diff);
+      return monday.toISOString().slice(0, 10);
+    }
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function bucketLabel(key) {
+    if (granularity === "day") {
+      const d = new Date(key);
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+    if (granularity === "week") {
+      const d = new Date(key);
+      return "Wk of " + d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+    const [y, m] = key.split("-");
+    return `${monthNames[parseInt(m, 10) - 1]} ${y}`;
+  }
+
+  // Build every bucket in order, even ones with no data, so the line doesn't skip gaps
+  const buckets = {};
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const key = bucketKey(cursor.toISOString());
+    if (!buckets[key]) buckets[key] = { key, label: bucketLabel(key), revenue: 0, expenses: 0 };
+    if (granularity === "day") cursor.setUTCDate(cursor.getUTCDate() + 1);
+    else if (granularity === "week") cursor.setUTCDate(cursor.getUTCDate() + 7);
+    else cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const endKey = bucketKey(end.toISOString());
+  if (!buckets[endKey]) buckets[endKey] = { key: endKey, label: bucketLabel(endKey), revenue: 0, expenses: 0 };
+
+  invoices.forEach((inv) => {
+    const status = (inv.orders?.payment_status || "").toUpperCase();
+    if (status !== "PAID" && status !== "COMPLETED") return;
+    const key = bucketKey(inv.issued_at);
+    if (buckets[key]) buckets[key].revenue += Number(inv.total_amount);
+  });
+  expenses.forEach((exp) => {
+    const key = bucketKey(exp.recorded_at);
+    if (buckets[key]) buckets[key].expenses += Number(exp.amount);
+  });
+
+  const points = Object.values(buckets)
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((b) => ({
+      label: b.label,
+      revenue: b.revenue,
+      expenses: b.expenses,
+      profit: b.revenue - b.expenses,
+    }));
+
+  const totalRevenue = points.reduce((sum, p) => sum + p.revenue, 0);
+  const totalExpenses = points.reduce((sum, p) => sum + p.expenses, 0);
+
+  return {
+    granularity,
+    points,
+    summary: {
+      revenue: totalRevenue,
+      expenses: totalExpenses,
+      netProfit: totalRevenue - totalExpenses,
+    },
+  };
+}
+
 module.exports = {
   getInvoices,
   getInvoiceDetail,
@@ -213,4 +350,5 @@ module.exports = {
   getFinancialReport,
   getPendingPaymentsTotal,
   getMonthlyRevenueHistory,
+  getProfitTrend,
 };
