@@ -38,6 +38,7 @@ import SalariesOT from "../pages/admin/SalariesOT";
 import Leave from "../pages/admin/Leave";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 import InvoicingReports from "../pages/admin/InvoicingReports";
+import ProfitReport from "../pages/admin/ProfitReport";
 import InventoryDashboard from "../pages/admin/InventoryDashboard";
 import JITDashboard from "../pages/admin/JITDashboard";
 import DemandForecastDashboard from "../pages/admin/DemandForecasting";
@@ -146,6 +147,7 @@ function AdminRoutes() {
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
         <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
+        <Route path="finance/profit-reports" element={<ProfitReport/>} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="finance/expenses/compare" element={<ExpenseComparison />} />
         <Route path="products" element={<Products />} />
