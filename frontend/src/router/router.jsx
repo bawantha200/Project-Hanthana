@@ -79,18 +79,14 @@ function GuestRoute() {
     );
   }
 
-  // If user is already logged in, redirect them away from login/register
-  // using the exact same rule Login.jsx uses right after a fresh login —
-  // so a CUSTOMER goes Home, but every other role stays out of Home.
   if (user) {
     const role = user.role?.toUpperCase();
-    if (role === 'ADMIN') {
-      return <Navigate to="/app/dashboard" replace />;
-    }
-    else if(role === 'RIDER'){
-      return <Navigate to="/app/rider-dashboard" replace />;
-    }
-    return <Navigate to="/" replace />;
+    if (role === 'ADMIN') return <Navigate to="/app/dashboard" replace />;
+    if (role === 'RIDER') return <Navigate to="/app/rider-dashboard" replace />;
+    if (role === 'SALES_MANAGER') return <Navigate to="/app/sales-dashboard" replace />;
+    if (role === 'HR_MANAGER') return <Navigate to="/app/hrm-dashboard" replace />;
+    if (role === 'CUSTOMER') return <Navigate to="/" replace />;
+    return <Navigate to="/app/dashboard" replace />;
   }
 
   return <Outlet />;
@@ -109,7 +105,8 @@ function AdminRoutes() {
   // and the catch-all fallback below.
   const defaultRouteForRole = () => {
     if (role === 'ADMIN') return '/app/dashboard';
-    if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
+    if (role === 'SALES_MANAGER') return '/app/sales-dashboard';
+    if (role === 'HR_MANAGER') return '/app/hrm-dashboard';
     return '/app/dashboard';
   };
 
