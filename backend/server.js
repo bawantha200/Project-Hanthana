@@ -42,6 +42,7 @@ const analyticsRoutes = require('./src/routes/analyticsRoutes');
 const salesRoutes = require('./src/routes/salesRoutes');
 const deliveryFeeRoutes = require('./src/routes/deliveryFeeRoutes');
 const demandForecastingRoutes = require('./src/routes/demandForecastingRoutes');
+const financialSummaryRoutes = require('./src/routes/financialSummaryRoutes');
 
 const app = express();
 
@@ -99,6 +100,8 @@ app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/delivery-fee', deliveryFeeRoutes);
 app.use('/api/demand-forecast', demandForecastingRoutes);
+app.use('/api/financial-summary', financialSummaryRoutes);
+
 
 
 app.use('/api/contact', contactRoutes); 
