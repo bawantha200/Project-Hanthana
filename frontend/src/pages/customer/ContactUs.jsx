@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -27,9 +27,10 @@ const ContactUs = () => {
   });
 
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Changed to false initially
+  const [serverError, setServerError] = useState('');
   
-  // 🆕 Settings State
+  // Settings State
   const [settings, setSettings] = useState({
     contactPhone: '+94 76 835 686',
     contactEmail: 'support@hanthana.com',
@@ -43,6 +44,8 @@ const ContactUs = () => {
     address: 'Colombo, Sri Lanka',
     companyName: 'Hanthana Water'
   });
+
+  const [settingsLoading, setSettingsLoading] = useState(true);
 
   // ===== FETCH SETTINGS =====
   useEffect(() => {
@@ -72,24 +75,18 @@ const ContactUs = () => {
         }
       } catch (error) {
         console.error('Fetch settings error:', error);
-        // Fallback values already set in state
       } finally {
-        setLoading(false);
+        setSettingsLoading(false);
       }
     };
 
     fetchSettings();
   }, []);
 
-  
-  const [serverError, setServerError] = useState(''); 
-
-
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
-
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -98,19 +95,27 @@ const ContactUs = () => {
     setSubmitted(false);
 
     try {
-      
       const response = await axios.post('http://localhost:5000/api/contact/send-message', formData);
 
       if (response.data.success) {
         setSubmitted(true);
-       
+        
+        // Scroll to success message
+        setTimeout(() => {
+          document.getElementById('success-message')?.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }, 100);
+        
+        // Clear form
         setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
-      
-        setTimeout(() => setSubmitted(false), 5000);
+        
+        // Auto-hide success message after 10 seconds
+        setTimeout(() => setSubmitted(false), 10000);
       }
     } catch (error) {
       console.error('Frontend Submit Error:', error);
-      
       setServerError(error.response?.data?.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
@@ -124,7 +129,7 @@ const ContactUs = () => {
     { day: 'Emergency Delivery', hours: settings.businessHours.emergency || '24/7 Available' },
   ];
 
-  if (loading) {
+  if (settingsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -134,9 +139,8 @@ const ContactUs = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Hero */}
+      {/* Hero Section - Same as before */}
       <section className="relative overflow-hidden bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600">
-        {/* Image Background – visible and with dark overlay for text contrast */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img 
             src="/images/contactus.jpeg" 
@@ -260,11 +264,12 @@ const ContactUs = () => {
               {/* Success Alert */}
               {submitted && (
                 <motion.div
+                  id="success-message"
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mb-6 bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 text-sm font-medium"
                 >
-                  Thank you! Your message has been sent successfully. We will
+                  ✅ Thank you! Your message has been sent successfully. We will
                   get back to you soon.
                 </motion.div>
               )}
@@ -276,7 +281,7 @@ const ContactUs = () => {
                   animate={{ opacity: 1, y: 0 }}
                   className="mb-6 bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm font-medium"
                 >
-                  {serverError}
+                  ❌ {serverError}
                 </motion.div>
               )}
 
@@ -284,7 +289,7 @@ const ContactUs = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
                     <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Name
+                      Name *
                     </label>
                     <input
                       type="text"
@@ -300,7 +305,7 @@ const ContactUs = () => {
                   </div>
                   <div>
                     <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Email
+                      Email *
                     </label>
                     <input
                       type="email"
@@ -322,7 +327,7 @@ const ContactUs = () => {
                       Phone
                     </label>
                     <input
-                      type="text"
+                      type="tel"
                       id="phone"
                       name="phone"
                       value={formData.phone}
@@ -334,7 +339,7 @@ const ContactUs = () => {
                   </div>
                   <div>
                     <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Subject
+                      Subject *
                     </label>
                     <input
                       type="text"
@@ -352,7 +357,7 @@ const ContactUs = () => {
 
                 <div>
                   <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Message
+                    Message *
                   </label>
                   <textarea
                     id="message"
@@ -367,7 +372,6 @@ const ContactUs = () => {
                   />
                 </div>
 
-                {/* Submit Button with Loading Indicator */}
                 <button
                   type="submit"
                   disabled={loading}
@@ -388,7 +392,7 @@ const ContactUs = () => {
               </form>
             </motion.div>
 
-            {/* Info Cards - 🆕 Dynamic Data */}
+            {/* Info Cards */}
             <motion.div
               initial="hidden"
               whileInView="visible"
@@ -396,7 +400,7 @@ const ContactUs = () => {
               variants={staggerContainer}
               className="lg:col-span-2 space-y-6"
             >
-              {/* Hotline Card - 🆕 Dynamic */}
+              {/* Hotline Card */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -418,7 +422,7 @@ const ContactUs = () => {
                 </div>
               </motion.div>
 
-              {/* Email Card - 🆕 Dynamic */}
+              {/* Email Card */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -449,7 +453,7 @@ const ContactUs = () => {
                 </div>
               </motion.div>
 
-              {/* Business Hours Card - 🆕 Dynamic */}
+              {/* Business Hours Card */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -491,7 +495,7 @@ const ContactUs = () => {
         </div>
       </section>
 
-      {/* Business Hours Detailed Section - 🆕 Dynamic */}
+      {/* Business Hours Detailed Section */}
       <section className="py-16 sm:py-20 bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600 relative overflow-hidden">
         <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/5 rounded-full" />
         <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/5 rounded-full" />
@@ -541,7 +545,6 @@ const ContactUs = () => {
             ))}
           </motion.div>
 
-          {/* Emergency note - 🆕 Dynamic */}
           <motion.div
             initial="hidden"
             whileInView="visible"

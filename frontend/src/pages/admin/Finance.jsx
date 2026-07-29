@@ -216,7 +216,7 @@ export default function Finance() {
       </motion.div>
 
       {/* Summary Cards — each links to the page that explains it */}
-      <motion.div variants={itemVariants} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-1">
+      <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div onClick={goTo('/app/finance/invoicing-reports')} className="cursor-pointer" title="View invoicing & revenue reports">
           <StatCard
             title="Total Income"

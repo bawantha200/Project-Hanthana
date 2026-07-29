@@ -327,6 +327,14 @@ const Services = () => {
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link
                 to="/customer/order"
+                onClick={(e) => {
+                  e.preventDefault(); // Prevent navigation
+                  window.dispatchEvent(
+                    new CustomEvent("open-order-modal", { 
+                      detail: { productId: null } // or undefined, or you can pass a specific product
+                    })
+                  );
+                }}
                 className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-4 rounded-xl transition-colors duration-200 shadow-lg shadow-blue-600/20 text-lg"
               >
                 Order Now

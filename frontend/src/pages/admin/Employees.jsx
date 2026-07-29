@@ -7,7 +7,8 @@ import {
   UserPlus, FileText, Camera, Image, Building, Clock, DollarSign,
   Circle, CheckCircle, AlertCircle, Loader, Shield, BarChart, Package, 
   Calculator, Truck, Bike, Headphones, Crown, ChevronDown, Wallet, Coins,
-  Settings, List, PlusCircle, Pencil, Trash, Save, Users as UsersIcon
+  Settings, List, PlusCircle, Pencil, Trash, Save, Users as UsersIcon,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
@@ -61,16 +62,6 @@ const summaryCards = [
   },
 ];
 
-
-  const employeeStatusFilters = [
-    { key: 'ALL', label: 'All' },
-    { key: 'active', label: 'Active' },
-    { key: 'on_leave', label: 'On Leave' },
-    { key: 'inactive', label: 'Inactive' },
-    { key: 'pending', label: 'Pending' },
-    { key: 'rejected', label: 'Rejected' },
-  ];
-
 export default function Employees() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -88,9 +79,10 @@ export default function Employees() {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  
+  // ========== PAGINATION STATE ==========
   const [currentPage, setCurrentPage] = useState(1);
-  const employeesPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Validation states
   const [validationErrors, setValidationErrors] = useState({
@@ -141,11 +133,6 @@ export default function Employees() {
     role: ''
   });
 
-
-
-
-
-  
   // ========== HELPER FUNCTIONS ==========
   
   // Get role display name from employee object
@@ -217,20 +204,18 @@ export default function Employees() {
     return role ? role.role_name : 'No Role';
   };
 
-  // ========== VALIDATION FUNCTIONS (FIXED) ==========
+  // ========== VALIDATION FUNCTIONS ==========
 
   const capitalizeWords = (str) => {
     return str.replace(/(^|\s)\S/g, (match) => match.toUpperCase());
   };
 
-  // ✅ Email: trim spaces
   const validateEmail = (email) => {
     const trimmed = email.trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(trimmed);
   };
 
-  // ✅ Phone: remove spaces, dashes, brackets; allow local and +94
   const validatePhone = (phone) => {
     const cleaned = phone.trim().replace(/[\s\-()]/g, '');
     const localRegex = /^0[0-9]{9}$/;
@@ -238,7 +223,6 @@ export default function Employees() {
     return localRegex.test(cleaned) || intlRegex.test(cleaned);
   };
 
-  // ✅ NIC: trim + uppercase
   const validateNIC = (nic) => {
     const cleaned = nic.trim().toUpperCase();
     const oldRegex = /^[0-9]{9}[VX]$/;
@@ -401,10 +385,10 @@ export default function Employees() {
     let isValid = true;
     
     fields.forEach(field => {
-  const value = field === 'designation' ? formData.designationId : formData[field];
-  const isFieldValid = validateField(field, value);
-  if (!isFieldValid) isValid = false;
-});
+      const value = field === 'designation' ? formData.designationId : formData[field];
+      const isFieldValid = validateField(field, value);
+      if (!isFieldValid) isValid = false;
+    });
 
     if (formData.nic && !validateField('nic', formData.nic)) {
       isValid = false;
@@ -437,7 +421,6 @@ export default function Employees() {
       if (response.data.success && response.data.data) {
         setRoles(response.data.data);
       } else {
-        // Fallback to default roles if API fails
         setRoles([
           { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
           { id: 2, role_name: 'MANAGER', description: 'Manager role' },
@@ -447,7 +430,6 @@ export default function Employees() {
       }
     } catch (err) {
       console.error('Error fetching roles:', err);
-      // Set default roles as fallback
       setRoles([
         { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
         { id: 2, role_name: 'MANAGER', description: 'Manager role' },
@@ -517,6 +499,7 @@ export default function Employees() {
       if (response.data.success) {
         setDesignations([...designations, response.data.data]);
         setDesignationForm({ name: '', otRate: 500 });
+        setShowDesignationModal(false);
         showSuccessNotification('Designation added successfully!');
       }
     } catch (err) {
@@ -576,6 +559,7 @@ export default function Employees() {
         setDesignationForm({ name: '', otRate: 500 });
         setIsEditingDesignation(false);
         setEditingDesignationId(null);
+        setShowDesignationModal(false);
         showSuccessNotification('Designation updated successfully!');
         fetchEmployees();
       }
@@ -716,27 +700,84 @@ export default function Employees() {
     ...designations.map(d => ({ key: d.designation, label: d.designation, icon: Briefcase }))
   ];
 
+  // ========== FILTER EMPLOYEES (Status Filter Removed) ==========
   const filteredEmployees = employees.filter((employee) => {
     const employeeDesignation = getDesignationName(employee);
     const matchesPosition = activeFilter === 'All' || employeeDesignation === activeFilter;
-    const matchesStatus = statusFilter === 'ALL' || employee.status === statusFilter;   // ✅ add this
     const matchesSearch =
       employee.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employeeDesignation.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employee.email?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesPosition && matchesStatus && matchesSearch;   
+    return matchesPosition && matchesSearch;
   });
 
-  // Pagination
-  const totalPages = Math.ceil(filteredEmployees.length / employeesPerPage);
+  // ========== PAGINATION ==========
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
   const paginatedEmployees = filteredEmployees.slice(
-    (currentPage - 1) * employeesPerPage,
-    currentPage * employeesPerPage
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
   );
 
+  // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, activeFilter, statusFilter]);
+  }, [searchQuery, activeFilter, itemsPerPage]);
+
+  // ========== PAGINATION FUNCTIONS ==========
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(totalPages, page)));
+  };
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  };
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  // Get page numbers to display
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, currentPage - 1);
+      let endPage = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (currentPage >= totalPages - 2) {
+        startPage = totalPages - 3;
+        endPage = totalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < totalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(totalPages);
+    }
+    
+    return pages;
+  };
 
   const handleDelete = async () => {
     if (employeeToDelete) {
@@ -857,18 +898,16 @@ export default function Employees() {
 
       let statusToSend = formData.status;
 
-// original role_id eka gannawa (join karapu object ekak nam id eka gannawa)
-const originalRoleId = selectedEmployee?.role_id 
-  ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
-        ? selectedEmployee.role.id 
-        : null);
+      const originalRoleId = selectedEmployee?.role_id 
+        ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
+              ? selectedEmployee.role.id 
+              : null);
 
-const newRoleId = formData.role ? parseInt(formData.role) : null;
+      const newRoleId = formData.role ? parseInt(formData.role) : null;
 
-// role eka wenas unoth witharak pending karanna (rejected wenas nathuwa, ANY role change ekata)
-if (newRoleId && newRoleId !== originalRoleId) {
-  statusToSend = 'pending';
-}
+      if (newRoleId && newRoleId !== originalRoleId) {
+        statusToSend = 'pending';
+      }
       
       const updateData = {
         name: formData.fullName,
@@ -1041,7 +1080,7 @@ if (newRoleId && newRoleId !== originalRoleId) {
   const currentTab = filterTabs.find(tab => tab.key === activeFilter) || filterTabs[0];
   const CurrentIcon = currentTab.icon;
 
-  // ✅ Check if designations are loaded
+  // Check if designations are loaded
   const isDesignationsLoaded = designations.length > 0;
 
   if (loading) {
@@ -1134,7 +1173,7 @@ if (newRoleId && newRoleId !== originalRoleId) {
           })}
         </motion.div>
 
-        {/* Filter Dropdown & Search */}
+        {/* Filter Dropdown & Search - Status Filter Removed */}
         <motion.div variants={itemVariants} className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
             
@@ -1204,48 +1243,33 @@ if (newRoleId && newRoleId !== originalRoleId) {
 
           </div>
 
-          {/* Status Filter Buttons */}
-        <motion.div variants={itemVariants} className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-            <Filter size={16} className="text-gray-400" />
-            <span>Status:</span>
-          </div>
-          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1 flex-wrap">
-            {employeeStatusFilters.map((s) => (
-              <button
-                key={s.key}
-                onClick={() => setStatusFilter(s.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-                  statusFilter === s.key
-                    ? s.key === 'active'
-                      ? 'bg-emerald-500 text-white shadow-sm'
-                      : s.key === 'pending'
-                      ? 'bg-yellow-500 text-white shadow-sm'
-                      : s.key === 'rejected'
-                      ? 'bg-rose-500 text-white shadow-sm'
-                      : s.key === 'inactive'
-                      ? 'bg-red-500 text-white shadow-sm'
-                      : s.key === 'on_leave'
-                      ? 'bg-amber-500 text-white shadow-sm'
-                      : 'bg-blue-600 text-white shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </motion.div>
+          <div className="flex items-center gap-3">
+            {/* Items per page selector */}
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-2 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
 
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search employees..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
-            />
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search employees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
+              />
+            </div>
           </div>
         </motion.div>
 
@@ -1324,30 +1348,51 @@ if (newRoleId && newRoleId !== originalRoleId) {
               </tbody>
             </table>
           </div>
-          {/* Pagination Controls */}
+          
+          {/* ========== ENHANCED PAGINATION CONTROLS ========== */}
           {filteredEmployees.length > 0 && (
-            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/30">
+            <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/30 gap-3">
               <span className="text-xs text-gray-500">
-                Showing {(currentPage - 1) * employeesPerPage + 1}–
-                {Math.min(currentPage * employeesPerPage, filteredEmployees.length)} of {filteredEmployees.length}
+                Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span>–
+                <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredEmployees.length)}</span> of{' '}
+                <span className="font-medium">{filteredEmployees.length}</span> employees
               </span>
-              <div className="flex items-center gap-1.5">
+              
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  onClick={goToPrevPage}
                   disabled={currentPage === 1}
-                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                 >
-                  Previous
+                  <ChevronLeft size={14} />
+                  Prev
                 </button>
-                <span className="text-xs text-gray-500 px-2">
-                  Page {currentPage} of {totalPages}
-                </span>
+                
+                {getPageNumbers().map((page, index) => (
+                  typeof page === 'number' ? (
+                    <button
+                      key={index}
+                      onClick={() => goToPage(page)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                        currentPage === page
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'border border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ) : (
+                    <span key={index} className="px-1 text-gray-400">…</span>
+                  )
+                ))}
+                
                 <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  onClick={goToNextPage}
                   disabled={currentPage === totalPages}
-                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
                 >
                   Next
+                  <ChevronRight size={14} />
                 </button>
               </div>
             </div>
@@ -2137,39 +2182,6 @@ if (newRoleId && newRoleId !== originalRoleId) {
                         <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
                           <AlertCircle size={12} />
                           {validationErrors.bonus}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Status */}
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Circle size={14} className="inline mr-1" /> Status *
-                      </label>
-                      <select
-                        name="status"
-                        value={formData.status}
-                        onChange={(e) => {
-                          setFormData({ ...formData, status: e.target.value });
-                          validateField('status', e.target.value);
-                        }}
-                        onBlur={(e) => validateField('status', e.target.value)}
-                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
-                          validationErrors.status 
-                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
-                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
-                        }`}
-                        required
-                        disabled={submitting}
-                      >
-                        <option value="active">Active</option>
-                        <option value="on_leave">On Leave</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                      {validationErrors.status && (
-                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                          <AlertCircle size={12} />
-                          {validationErrors.status}
                         </p>
                       )}
                     </div>

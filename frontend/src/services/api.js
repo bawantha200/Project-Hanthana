@@ -72,6 +72,7 @@ export const stockAPI = {
   deleteStock: (productId) => api.delete(`/stock/${productId}`),
   processVendorOrder: (orderId) => api.post(`/stock/process-vendor-order/${orderId}`),
   syncEmptyStock: () => api.post('/stock/sync-empty-stock'),
+  convertStock: (data) => api.post('/stock/convert', data),
 };
 
 // ============ EMPTY BOTTLES API ============
@@ -115,6 +116,7 @@ export const inventoryAPI = {
   deleteStock: stockAPI.deleteStock,
   processVendorOrder: stockAPI.processVendorOrder,
   syncEmptyStock: stockAPI.syncEmptyStock,
+  convertStock: stockAPI.convertStock,
   
   // Vendors
   getVendors: vendorsAPI.getAll,

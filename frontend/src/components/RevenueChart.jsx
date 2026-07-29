@@ -9,7 +9,7 @@ const CustomTooltip = ({ active, payload, label }) => {
         {payload.map((entry, i) => (
           <p key={i} style={{ color: entry.color }} className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
-            {entry.name}: ₹{entry.value.toLocaleString()}
+            {entry.name}: LKR {entry.value.toLocaleString()}
           </p>
         ))}
       </div>
