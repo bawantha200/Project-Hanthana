@@ -2,16 +2,25 @@ const supabase = require('../config/db');
 
 // GET all employees with optional filters
 // Update the getAllEmployees function to include designation details
+// ===== GET all employees with optional filters =====
 exports.getAllEmployees = async (req, res) => {
   try {
-    const { position, status, search } = req.query;
+    const { position, status, search, limit, page } = req.query;
     
-    console.log('[Employees] Fetching with params:', { position, status, search });
-    
+    console.log('[Employees] Fetching with params:', { position, status, search, limit, page });
+
+    // 💡 Performance Fix: Select ONLY needed fields for table view instead of '*'
     let query = supabase
       .from('employees')
       .select(`
-        *,
+        id,
+        name,
+        email,
+        phone,
+        position,
+        status,
+        hire_date,
+        profile_image,
         designation:designation_id (
           id,
           designation,
@@ -30,8 +39,16 @@ exports.getAllEmployees = async (req, res) => {
     if (search) {
       query = query.or(`name.ilike.%${search}%,position.ilike.%${search}%,email.ilike.%${search}%`);
     }
+
+    // 💡 Pagination / Limit support (Default limit 50, if not specified)
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 50;
+    const from = (pageNum - 1) * limitNum;
+    const to = from + limitNum - 1;
+
+    query = query.order('id', { ascending: false }).range(from, to);
     
-    const { data, error } = await query.order('id', { ascending: false });
+    const { data, error } = await query;
     
     if (error) {
       console.error('[Employees] Supabase error:', error);
@@ -47,7 +64,8 @@ exports.getAllEmployees = async (req, res) => {
     res.status(200).json({
       success: true,
       data: data || [],
-      count: data?.length || 0
+      count: data?.length || 0,
+      page: pageNum
     });
   } catch (error) {
     console.error('[Employees] Server error:', error);
@@ -58,6 +76,8 @@ exports.getAllEmployees = async (req, res) => {
     });
   }
 };
+
+
 
 // ===== GET pending employees =====
 exports.getPendingEmployees = async (req, res) => {
@@ -469,18 +489,22 @@ exports.deleteEmployee = async (req, res) => {
 };
 
 // ===== GET employee statistics =====
+// ===== GET employee statistics (Optimized Pure Count Query) =====
 exports.getEmployeeStats = async (req, res) => {
   try {
-    const { data: totalData } = await supabase.from('employees').select('id', { count: 'exact' });
-    const { data: activeData } = await supabase.from('employees').select('id', { count: 'exact' }).eq('status', 'active');
-    const { data: pendingData } = await supabase.from('employees').select('id', { count: 'exact' }).eq('status', 'pending');
+    // 💡 head: true, count: 'exact' භාවිතයෙන් Data fetch නොකර DB එකෙන් කෙලින්ම count එක පමණක් ගනී.
+    const [{ count: total }, { count: active }, { count: pending }] = await Promise.all([
+      supabase.from('employees').select('*', { count: 'exact', head: true }),
+      supabase.from('employees').select('*', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase.from('employees').select('*', { count: 'exact', head: true }).eq('status', 'pending')
+    ]);
     
     res.status(200).json({
       success: true,
       data: {
-        total: totalData?.length || 0,
-        active: activeData?.length || 0,
-        pending: pendingData?.length || 0,
+        total: total || 0,
+        active: active || 0,
+        pending: pending || 0,
         managers: 0
       }
     });

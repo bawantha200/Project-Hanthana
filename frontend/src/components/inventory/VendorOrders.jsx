@@ -1,6 +1,7 @@
 // frontend/src/components/inventory/VendorOrders.jsx
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   ShoppingCart, Plus, RefreshCw, Truck, Package, 
   CircleDollarSign, Edit, X, AlertTriangle, Search,
@@ -15,9 +16,15 @@ import {
   Legend
 } from 'recharts';
 
+// ─── Query Keys ───
+const QUERY_KEYS = {
+  VENDOR_ORDERS: ['vendorOrders'],
+  VENDOR_SUMMARY: ['vendorSummary'],
+};
+
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d'];
 
-// Vendor Order Modal Component
+// ─── Vendor Order Modal ───
 const VendorOrderModal = ({ 
   isOpen, 
   onClose, 
@@ -25,13 +32,14 @@ const VendorOrderModal = ({
   mode, 
   item, 
   vendors = [], 
-  products = [] 
+  products = [],
+  isSubmitting 
 }) => {
   const [formData, setFormData] = useState({
     vendor_id: '',
     product_id: '',
     order_type: 'bottle',
-    quantity: 0,
+    quantity: 1,
     unit_price: 0,
     order_date: new Date().toISOString().split('T')[0],
     delivery_date: '',
@@ -39,33 +47,36 @@ const VendorOrderModal = ({
     notes: ''
   });
 
-  useEffect(() => {
-    if (mode === 'edit' && item) {
-      setFormData({
-        vendor_id: item.vendor_id || '',
-        product_id: item.product_id || '',
-        order_type: item.order_type || 'bottle',
-        quantity: item.quantity || 0,
-        unit_price: item.unit_price || 0,
-        order_date: item.order_date || new Date().toISOString().split('T')[0],
-        delivery_date: item.delivery_date || '',
-        status: item.status || 'pending',
-        notes: item.notes || ''
-      });
-    } else if (mode === 'add') {
-      setFormData({
-        vendor_id: vendors?.[0]?.id || '',
-        product_id: products?.[0]?.id || '',
-        order_type: 'bottle',
-        quantity: 1,
-        unit_price: 0,
-        order_date: new Date().toISOString().split('T')[0],
-        delivery_date: '',
-        status: 'pending',
-        notes: ''
-      });
+  // Reset form when modal opens or mode changes
+  useState(() => {
+    if (isOpen) {
+      if (mode === 'edit' && item) {
+        setFormData({
+          vendor_id: item.vendor_id || '',
+          product_id: item.product_id || '',
+          order_type: item.order_type || 'bottle',
+          quantity: item.quantity || 1,
+          unit_price: item.unit_price || 0,
+          order_date: item.order_date || new Date().toISOString().split('T')[0],
+          delivery_date: item.delivery_date || '',
+          status: item.status || 'pending',
+          notes: item.notes || ''
+        });
+      } else {
+        setFormData({
+          vendor_id: vendors?.[0]?.id || '',
+          product_id: products?.[0]?.id || '',
+          order_type: 'bottle',
+          quantity: 1,
+          unit_price: 0,
+          order_date: new Date().toISOString().split('T')[0],
+          delivery_date: '',
+          status: 'pending',
+          notes: ''
+        });
+      }
     }
-  }, [mode, item, vendors, products]);
+  }, [isOpen, mode, item, vendors, products]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -164,7 +175,7 @@ const VendorOrderModal = ({
               <input
                 type="number"
                 value={formData.quantity}
-                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 0 })}
+                onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) || 1 })}
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
                 min="1"
                 required
@@ -250,9 +261,12 @@ const VendorOrderModal = ({
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
               type="submit" 
-              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+              disabled={isSubmitting}
+              className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors shadow-sm ${
+                isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
-              {mode === 'add' ? 'Place Order' : 'Update Order'}
+              {isSubmitting ? 'Saving...' : (mode === 'add' ? 'Place Order' : 'Update Order')}
             </motion.button>
           </div>
         </form>
@@ -261,8 +275,8 @@ const VendorOrderModal = ({
   );
 };
 
-// Delete Confirmation Modal
-const DeleteModal = ({ isOpen, onClose, onConfirm, order }) => {
+// ─── Delete Confirmation Modal ───
+const DeleteModal = ({ isOpen, onClose, onConfirm, order, isDeleting }) => {
   if (!isOpen) return null;
 
   return (
@@ -314,9 +328,12 @@ const DeleteModal = ({ isOpen, onClose, onConfirm, order }) => {
             whileHover={{ scale: 1.03 }}
             whileTap={{ scale: 0.97 }}
             onClick={onConfirm}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors shadow-sm"
+            disabled={isDeleting}
+            className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors shadow-sm ${
+              isDeleting ? 'bg-gray-400 cursor-not-allowed' : 'bg-red-600 hover:bg-red-700'
+            }`}
           >
-            Delete Order
+            {isDeleting ? 'Deleting...' : 'Delete Order'}
           </motion.button>
         </div>
       </motion.div>
@@ -324,7 +341,7 @@ const DeleteModal = ({ isOpen, onClose, onConfirm, order }) => {
   );
 };
 
-// Status Badge Component
+// ─── Status Badge Component ───
 const StatusBadge = ({ status }) => {
   const styles = {
     pending: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -341,7 +358,7 @@ const StatusBadge = ({ status }) => {
   );
 };
 
-// Pagination Component
+// ─── Pagination Component ───
 const Pagination = ({ currentPage, totalPages, onPageChange, totalItems, itemsPerPage }) => {
   const getPageNumbers = () => {
     const pages = [];
@@ -429,11 +446,11 @@ const Pagination = ({ currentPage, totalPages, onPageChange, totalItems, itemsPe
   );
 };
 
-// Main Component
+// ─── Main Component ───
 export default function VendorOrders({ vendors = [], products = [], onRefresh, loading: parentLoading }) {
-  const [orders, setOrders] = useState([]);
-  const [summary, setSummary] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // ─── State ───
   const [modalState, setModalState] = useState({ isOpen: false, mode: 'add', item: null });
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, order: null });
   const [filters, setFilters] = useState({
@@ -443,121 +460,126 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
     search: ''
   });
   const [showFilters, setShowFilters] = useState(false);
-  
-  // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
-  const [paginatedOrders, setPaginatedOrders] = useState([]);
 
-  const fetchOrders = async () => {
-    try {
-      setIsLoading(true);
-      
+  // ─── React Query: Fetch Vendor Orders ───
+  const {
+    data: ordersData = [],
+    isLoading: ordersLoading,
+    isFetching: ordersFetching,
+    error: ordersError,
+    refetch: refetchOrders,
+  } = useQuery({
+    queryKey: [...QUERY_KEYS.VENDOR_ORDERS, filters],
+    queryFn: async () => {
       const params = {};
       if (filters.vendorId) params.vendorId = filters.vendorId;
       if (filters.productId) params.productId = filters.productId;
       if (filters.status) params.status = filters.status;
       if (filters.search) params.search = filters.search;
       
-      console.log('📡 Fetching orders with params:', params);
-      
-      const [ordersRes, summaryRes] = await Promise.all([
-        inventoryAPI.getVendorOrders(params),
-        inventoryAPI.getVendorPurchaseSummary()
-      ]);
-      
-      console.log('📦 Orders response:', ordersRes.data);
-      console.log('📊 Summary response:', summaryRes.data);
-      
-      const ordersData = ordersRes.data?.orders || [];
-      setOrders(ordersData);
-      setTotalItems(ordersData.length);
-      setSummary(summaryRes.data?.summary || []);
-      
-      // Reset to first page when filters change
-      setCurrentPage(1);
-    } catch (error) {
-      console.error('❌ Failed to fetch vendor orders:', error);
-      toast.error('Failed to load vendor orders');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      const response = await inventoryAPI.getVendorOrders(params);
+      return response.data?.orders || [];
+    },
+    staleTime: 30000,
+    gcTime: 120000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 60000,
+    placeholderData: (previousData) => previousData,
+  });
 
-  // Update paginated orders when orders or page changes
-  useEffect(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    setPaginatedOrders(orders.slice(startIndex, endIndex));
-  }, [orders, currentPage, itemsPerPage]);
+  // ─── React Query: Fetch Vendor Summary ───
+  const {
+    data: summaryData = [],
+    isLoading: summaryLoading,
+    refetch: refetchSummary,
+  } = useQuery({
+    queryKey: QUERY_KEYS.VENDOR_SUMMARY,
+    queryFn: async () => {
+      const response = await inventoryAPI.getVendorPurchaseSummary();
+      return response.data?.summary || [];
+    },
+    staleTime: 120000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
+  });
 
-  useEffect(() => {
-    fetchOrders();
-  }, [filters]);
-
-  const handleRefresh = () => {
-    fetchOrders();
-    if (onRefresh) onRefresh();
-  };
-
-  const handleSave = async (formData) => {
-    try {
-      const payload = {
-        vendor_id: parseInt(formData.vendor_id),
-        product_id: parseInt(formData.product_id),
-        order_type: formData.order_type,
-        quantity: formData.quantity,
-        unit_price: formData.unit_price,
-        order_date: formData.order_date,
-        delivery_date: formData.delivery_date || null,
-        status: formData.status,
-        notes: formData.notes || null
-      };
-
-      let response;
-      if (modalState.mode === 'add') {
-        response = await inventoryAPI.createVendorOrder(payload);
-        toast.success('Vendor order placed successfully!');
-      } else {
-        response = await inventoryAPI.updateVendorOrder(modalState.item?.id, payload);
-        toast.success('Vendor order updated successfully!');
-      }
-      
+  // ─── React Query: Create Vendor Order Mutation ───
+  const createOrderMutation = useMutation({
+    mutationFn: async (payload) => {
+      const response = await inventoryAPI.createVendorOrder(payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VENDOR_ORDERS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VENDOR_SUMMARY });
+      toast.success('Vendor order placed successfully!');
       setModalState({ isOpen: false, mode: 'add', item: null });
-      fetchOrders();
-    } catch (err) {
-      console.error('❌ Error saving order:', err);
-      toast.error(err.response?.data?.error || 'Failed to save vendor order');
-    }
-  };
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to place vendor order');
+    },
+  });
 
-  const handleDelete = async () => {
-    if (!deleteModal.order) return;
-    try {
-      await inventoryAPI.deleteVendorOrder(deleteModal.order.id);
+  // ─── React Query: Update Vendor Order Mutation ───
+  const updateOrderMutation = useMutation({
+    mutationFn: async ({ id, payload }) => {
+      const response = await inventoryAPI.updateVendorOrder(id, payload);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VENDOR_ORDERS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VENDOR_SUMMARY });
+      toast.success('Vendor order updated successfully!');
+      setModalState({ isOpen: false, mode: 'add', item: null });
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to update vendor order');
+    },
+  });
+
+  // ─── React Query: Delete Vendor Order Mutation ───
+  const deleteOrderMutation = useMutation({
+    mutationFn: async (id) => {
+      const response = await inventoryAPI.deleteVendorOrder(id);
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VENDOR_ORDERS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.VENDOR_SUMMARY });
       toast.success('Order deleted successfully!');
       setDeleteModal({ isOpen: false, order: null });
-      fetchOrders();
-    } catch (err) {
-      console.error('❌ Error deleting order:', err);
-      toast.error(err.response?.data?.error || 'Failed to delete order');
-    }
-  };
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to delete order');
+    },
+  });
 
-  const handleFilterChange = (key, value) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-  };
+  // ─── Memoized Data ───
+  const totalItems = useMemo(() => ordersData.length, [ordersData]);
+  
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    return ordersData.slice(startIndex, endIndex);
+  }, [ordersData, currentPage, itemsPerPage]);
 
-  const clearFilters = () => {
-    setFilters({ vendorId: '', productId: '', status: '', search: '' });
-  };
+  const totalSpent = useMemo(() => {
+    return summaryData.reduce((sum, v) => sum + (v.total_spent || 0), 0);
+  }, [summaryData]);
 
-  // Calculate vendor total when filtered
-  const getFilteredVendorTotal = () => {
+  const totalOrders = useMemo(() => ordersData.length, [ordersData]);
+
+  const deliveredOrders = useMemo(() => {
+    return ordersData.filter(o => o.status === 'delivered').length;
+  }, [ordersData]);
+
+  const filteredVendorTotal = useMemo(() => {
     if (!filters.vendorId) return null;
     
-    const vendorOrders = orders.filter(order => 
+    const vendorOrders = ordersData.filter(order => 
       order.vendor_id === parseInt(filters.vendorId)
     );
     
@@ -566,17 +588,69 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
     const vendorName = vendorOrders[0]?.vendors?.vendor_name || 'Unknown Vendor';
     
     return { vendorName, total, orderCount };
-  };
+  }, [ordersData, filters.vendorId]);
 
-  const filteredVendorTotal = getFilteredVendorTotal();
+  const chartData = useMemo(() => {
+    return summaryData.map(v => ({
+      name: v.vendor_name || 'Unknown',
+      spent: v.total_spent || 0,
+      bottles: v.total_bottles || 0,
+      other: v.total_other || 0
+    }));
+  }, [summaryData]);
 
-  const totalSpent = summary.reduce((sum, v) => sum + (v.total_spent || 0), 0);
-  const totalOrders = orders.length;
+  // ─── Handlers ───
+  const handleRefresh = useCallback(() => {
+    refetchOrders();
+    refetchSummary();
+    if (onRefresh) onRefresh();
+  }, [refetchOrders, refetchSummary, onRefresh]);
 
-  const filterVendors = vendors || [];
-  const filterProducts = products || [];
+  const handleSave = useCallback((formData) => {
+    const payload = {
+      vendor_id: parseInt(formData.vendor_id),
+      product_id: parseInt(formData.product_id),
+      order_type: formData.order_type,
+      quantity: formData.quantity,
+      unit_price: formData.unit_price,
+      order_date: formData.order_date,
+      delivery_date: formData.delivery_date || null,
+      status: formData.status,
+      notes: formData.notes || null
+    };
 
-  if (isLoading || parentLoading) {
+    if (modalState.mode === 'add') {
+      createOrderMutation.mutate(payload);
+    } else {
+      updateOrderMutation.mutate({ id: modalState.item?.id, payload });
+    }
+  }, [modalState, createOrderMutation, updateOrderMutation]);
+
+  const handleDelete = useCallback(() => {
+    if (!deleteModal.order) return;
+    deleteOrderMutation.mutate(deleteModal.order.id);
+  }, [deleteModal.order, deleteOrderMutation]);
+
+  const handleFilterChange = useCallback((key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setCurrentPage(1);
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilters({ vendorId: '', productId: '', status: '', search: '' });
+    setCurrentPage(1);
+  }, []);
+
+  const handlePageChange = useCallback((page) => {
+    if (page >= 1 && page <= Math.ceil(totalItems / itemsPerPage)) {
+      setCurrentPage(page);
+    }
+  }, [totalItems, itemsPerPage]);
+
+  // ─── Loading State ───
+  const isLoading = ordersLoading || summaryLoading || parentLoading;
+
+  if (isLoading && ordersData.length === 0) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="flex flex-col items-center gap-3">
@@ -587,12 +661,25 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
     );
   }
 
-  const chartData = summary.map(v => ({
-    name: v.vendor_name || 'Unknown',
-    spent: v.total_spent || 0,
-    bottles: v.total_bottles || 0,
-    other: v.total_other || 0
-  }));
+  // ─── Error State ───
+  if (ordersError) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
+        <h3 className="font-semibold text-lg mb-2">Error Loading Orders</h3>
+        <p>{ordersError.message || 'Failed to load vendor orders'}</p>
+        <button
+          onClick={handleRefresh}
+          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const isRefreshing = ordersFetching;
+  const isSubmitting = createOrderMutation.isPending || updateOrderMutation.isPending;
+  const isDeleting = deleteOrderMutation.isPending;
 
   return (
     <>
@@ -604,6 +691,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
         item={modalState.item}
         vendors={vendors}
         products={products}
+        isSubmitting={isSubmitting}
       />
 
       <DeleteModal
@@ -611,10 +699,11 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
         onClose={() => setDeleteModal({ isOpen: false, order: null })}
         onConfirm={handleDelete}
         order={deleteModal.order}
+        isDeleting={isDeleting}
       />
 
       <div className="space-y-6">
-        {/* Summary Cards */}
+        {/* ─── Summary Cards ─── */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200">
             <div className="flex items-center gap-3">
@@ -645,7 +734,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
               </div>
               <div>
                 <p className="text-xs text-gray-400 font-medium">Vendors</p>
-                <p className="text-xl font-bold text-gray-900">{summary.length}</p>
+                <p className="text-xl font-bold text-gray-900">{summaryData.length}</p>
               </div>
             </div>
           </div>
@@ -656,15 +745,13 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
               </div>
               <div>
                 <p className="text-xs text-gray-400 font-medium">Delivered</p>
-                <p className="text-xl font-bold text-gray-900">
-                  {orders.filter(o => o.status === 'delivered').length}
-                </p>
+                <p className="text-xl font-bold text-gray-900">{deliveredOrders}</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Vendor Total Card (shown when vendor is filtered) */}
+        {/* ─── Vendor Total Card ─── */}
         {filteredVendorTotal && (
           <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -691,7 +778,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
           </div>
         )}
 
-        {/* Charts */}
+        {/* ─── Charts ─── */}
         {chartData.length > 0 && !filters.vendorId && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <div className="flex items-center justify-between mb-5">
@@ -741,12 +828,15 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
           </div>
         )}
 
-        {/* Orders Table */}
+        {/* ─── Orders Table ─── */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-semibold text-gray-900">Vendor Orders</h2>
-              <p className="text-xs text-gray-400 mt-0.5">All orders placed with vendors</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                All orders placed with vendors
+                {isRefreshing && ' (updating...)'}
+              </p>
             </div>
             <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <div className="relative flex-1 sm:flex-none">
@@ -773,9 +863,10 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
 
               <button 
                 onClick={handleRefresh} 
-                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                disabled={isRefreshing}
+                className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
               >
-                <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+                <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
               </button>
 
               <motion.button
@@ -790,7 +881,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
             </div>
           </div>
 
-          {/* Filters */}
+          {/* ─── Filters ─── */}
           {showFilters && (
             <div className="px-6 py-4 bg-gray-50 border-b border-gray-100 flex flex-wrap gap-4 items-end">
               <div>
@@ -801,7 +892,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                   className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                 >
                   <option value="">All Vendors</option>
-                  {filterVendors.map(v => (
+                  {vendors.map(v => (
                     <option key={v.id} value={v.id}>{v.vendor_name || v.name || 'Unknown Vendor'}</option>
                   ))}
                 </select>
@@ -814,7 +905,7 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
                   className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                 >
                   <option value="">All Products</option>
-                  {filterProducts.map(p => (
+                  {products.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
@@ -919,11 +1010,11 @@ export default function VendorOrders({ vendors = [], products = [], onRefresh, l
             )}
           </div>
 
-          {/* Pagination */}
+          {/* ─── Pagination ─── */}
           <Pagination
             currentPage={currentPage}
             totalPages={Math.ceil(totalItems / itemsPerPage)}
-            onPageChange={setCurrentPage}
+            onPageChange={handlePageChange}
             totalItems={totalItems}
             itemsPerPage={itemsPerPage}
           />

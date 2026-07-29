@@ -1827,11 +1827,11 @@ const getUserPermissions = async (req, res) => {
     const userId = req.user.id;
 
     // Get user's role_id from profiles table
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role_id')
-      .eq('id', userId)
-      .single();
+    // const { data: profile, error: profileError } = await supabase
+    //   .from('profiles')
+    //   .select('role_id')
+    //   .eq('id', userId)
+    //   .single();
 
     if (profileError || !profile) {
       return res.status(200).json({ success: true, permissions: [] });
@@ -1843,7 +1843,7 @@ const getUserPermissions = async (req, res) => {
     // Get user's position_id from employees table
     const { data: employee, error: empError } = await supabase
       .from('employees')
-      .select('position_id')
+      .select('position')
       .eq('profile_id', userId)
       .maybeSingle();
 
