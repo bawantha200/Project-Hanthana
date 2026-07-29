@@ -2495,7 +2495,7 @@ const getPermissionsForUserId = async (userId) => {
     return [];
   }
 };
- * @desc    Decode token (for frontend to check token validity)
+ /* @desc    Decode token (for frontend to check token validity)
  * @route   GET /api/auth/decode-token/:token
  */
 const decodeToken = async (req, res) => {
