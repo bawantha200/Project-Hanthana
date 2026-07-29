@@ -44,11 +44,27 @@ const detectUserType = (user) => {
     user?.app_metadata?.provider === 'google' ||
     user?.user_metadata?.provider === 'google';
   
-  // Check if user has a password - check multiple sources
+  // 🔥 FIXED: Better password detection
+  // Check multiple sources for password existence
   const hasPassword = 
     user?.hasPassword === true || 
+    user?.has_password === true ||
     user?.user_metadata?.has_password === true ||
-    user?.identities?.some?.(id => id.provider === 'email');
+    user?.identities?.some?.(id => id.provider === 'email') ||
+    // Check if encrypted_password exists (if coming from backend)
+    (user?.encrypted_password && user.encrypted_password !== '') ||
+    // Check if password exists in any other form
+    (user?.password && user.password !== '');
+  
+  console.log('🔍 detectUserType:', {
+    isGoogleUser,
+    hasPassword,
+    provider: user?.provider,
+    identities: user?.identities,
+    hasPasswordField: user?.hasPassword,
+    hasPasswordInMetadata: user?.user_metadata?.has_password,
+    hasEncryptedPassword: !!(user?.encrypted_password)
+  });
   
   return { isGoogleUser, hasPassword };
 };
@@ -79,10 +95,10 @@ export function AuthProvider({ children }) {
     const finalPhone = data.phone || data.phone_number || data.user_metadata?.phone_number || '';
     const finalAddress = data.address || data.user_metadata?.address || '';
 
-    // ✅ CRITICAL FIX: Check if email is confirmed
+    // Check if email is confirmed
     const emailConfirmed = data.email_confirmed_at || data.emailConfirmed || false;
 
-    return {
+    const formattedUser = {
       ...data,
       id: data.id,
       email: data.email || '',
@@ -96,10 +112,19 @@ export function AuthProvider({ children }) {
       hasPassword: hasPassword || data.hasPassword || false,
       provider: isGoogleUser ? 'google' : 'email',
       roleColor: getRoleColorClass(finalRole),
-      // ✅ Add email confirmation status
       emailConfirmed: emailConfirmed,
-      email_confirmed_at: emailConfirmed
+      email_confirmed_at: emailConfirmed,
+      // Ensure identities are preserved if they exist
+      identities: data.identities || []
     };
+
+    console.log('📊 Formatted user:', {
+      hasPassword: formattedUser.hasPassword,
+      provider: formattedUser.provider,
+      identities: formattedUser.identities
+    });
+
+    return formattedUser;
   }, []);
 
   /**
@@ -107,21 +132,30 @@ export function AuthProvider({ children }) {
    */
   const checkAuthStatus = useCallback(async () => {
     try {
-      // 1. Fetch latest active session directly from Supabase
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || localStorage.getItem('token'); 
+      // 1. Get token from localStorage first (most reliable)
+      let token = localStorage.getItem('token');
+      
+      // 2. If no token in localStorage, try Supabase session
+      if (!token) {
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token;
+        if (token) {
+          localStorage.setItem('token', token);
+        }
+      }
+      
+      console.log('checkAuthStatus - Token found:', !!token);
       
       if (!token) {
+        console.log('No token found, setting user to null');
         setUser(null);
         setPermissions([]);
         setLoading(false);
         return;
       }
 
-      // Sync active token to localStorage for backend requests
-      localStorage.setItem('token', token);
-
-      // 2. Validate token against backend endpoint
+      // 3. Validate token against backend endpoint
+      console.log('Validating token with backend...');
       const response = await fetch('http://localhost:5000/api/auth/me', {
         method: 'GET',
         headers: {
@@ -130,18 +164,50 @@ export function AuthProvider({ children }) {
         }
       });
 
+      console.log('Auth check response status:', response.status);
+
+      if (response.status === 401) {
+        console.log('Token invalid, clearing session');
+        localStorage.removeItem('token');
+        await supabase.auth.signOut();
+        setUser(null);
+        setPermissions([]);
+        setLoading(false);
+        return;
+      }
+
       const result = await response.json();
 
       if (response.ok && result.success) {
-        // ✅ CRITICAL FIX: Include email confirmation status from session
-        const userData = {
+        console.log('Auth check successful, user:', result.user);
+        
+        // 🔥 FIXED: Also get the Supabase session to check identities
+        const { data: { session } } = await supabase.auth.getSession();
+        const supabaseUser = session?.user;
+        
+        // Merge user data with Supabase user data to get identities
+        const mergedUserData = {
           ...result.user,
-          // Get email_confirmed_at from the actual user object if available
-          email_confirmed_at: session?.user?.email_confirmed_at || result.user?.email_confirmed_at
+          identities: supabaseUser?.identities || result.user?.identities || [],
+          encrypted_password: supabaseUser?.encrypted_password || result.user?.encrypted_password,
+          user_metadata: { ...result.user?.user_metadata, ...supabaseUser?.user_metadata }
         };
-        setUser(formatUserData(userData)); 
+        
+        const userData = {
+          ...mergedUserData,
+          email_confirmed_at: result.user?.email_confirmed_at || false
+        };
+        
+        const formattedUser = formatUserData(userData);
+        console.log('✅ Formatted user with password status:', {
+          hasPassword: formattedUser.hasPassword,
+          provider: formattedUser.provider
+        });
+        
+        setUser(formattedUser); 
         setPermissions(result.permissions || []); 
       } else {
+        console.log('Auth check failed:', result);
         localStorage.removeItem('token');
         setUser(null);
         setPermissions([]);
@@ -163,17 +229,19 @@ export function AuthProvider({ children }) {
 
     // Listen to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔐 Auth state change:', event, session?.user?.email);
+      
       if (session) {
         localStorage.setItem('token', session.access_token);
         
         if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
-          checkAuthStatus();
+          // 🔥 Force refresh user data
+          await checkAuthStatus();
         }
         
-        // ✅ Handle email confirmation events
+        // Handle email confirmation events
         if (event === 'USER_UPDATED' && session.user?.email_confirmed_at) {
-          // User's email was confirmed - update the user state
-          checkAuthStatus();
+          await checkAuthStatus();
         }
       } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('token');
@@ -191,18 +259,29 @@ export function AuthProvider({ children }) {
    * Manual login handler to persist token and update application state
    */
   const login = useCallback((userData, sessionOrToken, dynamicPermissions) => {
+    console.log('Login called with:', { userData, sessionOrToken, dynamicPermissions });
+    
     const token = typeof sessionOrToken === 'object' && sessionOrToken !== null
-      ? sessionOrToken.access_token 
+      ? sessionOrToken.access_token || sessionOrToken.token
       : sessionOrToken;
+
+    console.log('Extracted token:', token);
 
     if (token) {
       localStorage.setItem('token', token);
-      setUser(formatUserData(userData));
+      const formattedUser = formatUserData(userData);
+      console.log('Formatted user:', formattedUser);
+      setUser(formattedUser);
       setPermissions(dynamicPermissions || []);
+      
+      // Immediately check auth status to verify token works
+      setTimeout(() => {
+        checkAuthStatus();
+      }, 100);
     } else {
       console.error("Login execution failed: Access token missing or malformed");
     }
-  }, [formatUserData]);
+  }, [formatUserData, checkAuthStatus]);
 
   /**
    * Destroys active Supabase session and clears local application state
@@ -216,6 +295,8 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('token');
     setUser(null);
     setPermissions([]);
+    // Use window.location instead of navigate
+    window.location.href = '/login';
   }, []);
 
   /**
@@ -246,7 +327,6 @@ export function AuthProvider({ children }) {
     clearTimeout(idleTimerRef.current);
     clearTimeout(warningTimerRef.current);
     logout();
-    window.location.href = '/login';
   }, [logout]);
 
   /**
@@ -333,11 +413,14 @@ export function AuthProvider({ children }) {
    */
   const loginWithGoogle = useCallback(async () => {
     try {
+      // Store that user is coming from Google sign-in
+      localStorage.setItem('googleSignInPending', 'true');
+      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: 'http://localhost:5173/auth/callback',
-          skipBrowserRedirect: false, 
+          skipBrowserRedirect: false,
         },
       });
       
@@ -350,19 +433,20 @@ export function AuthProvider({ children }) {
       return data;
     } catch (err) {
       console.error("OAuth distribution interface error:", err);
+      localStorage.removeItem('googleSignInPending');
       throw err;
     }
   }, []);
 
   /**
-   * ✅ NEW: Check if user's email is confirmed
+   * Check if user's email is confirmed
    */
   const isEmailConfirmed = useCallback(() => {
     return user?.email_confirmed_at !== null && user?.email_confirmed_at !== undefined;
   }, [user]);
 
   /**
-   * ✅ NEW: Refresh user data from backend
+   * Refresh user data from backend
    */
   const refreshUser = useCallback(async () => {
     await checkAuthStatus();

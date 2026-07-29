@@ -20,6 +20,7 @@ import {
   AlertCircle,
   ChevronRight,
   Send,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
@@ -105,7 +106,7 @@ export default function Settings() {
   const [hasPassword, setHasPassword] = useState(true);
   const [isGoogleUser, setIsGoogleUser] = useState(false);
   const [showResetPasswordForm, setShowResetPasswordForm] = useState(false);
-
+ const [sendingResetLink, setSendingResetLink] = useState(false);
   // Check user type on mount
   useEffect(() => {
     const checkUserType = async () => {
@@ -425,51 +426,19 @@ export default function Settings() {
 
   // ---------- SEND PASSWORD RESET LINK ----------
   const handleSendResetLink = async () => {
-    if (!email) {
-      setMessages(prev => ({
-        ...prev,
-        resetPassword: { type: 'error', text: 'No email address found. Please update your profile first.' }
-      }));
-      return;
-    }
-
-    setLoading(prev => ({ ...prev, resetPassword: true }));
-    setMessages(prev => ({ ...prev, resetPassword: { type: '', text: '' } }));
-
+    setSendingResetLink(true);
     try {
-      const response = await fetch('http://localhost:5000/api/auth/forgot-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email })
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
       });
 
-      const data = await response.json();
+      if (error) throw error;
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to send reset link');
-      }
-
-      setMessages(prev => ({
-        ...prev,
-        resetPassword: { 
-          type: 'success', 
-          text: `Password reset link sent to ${email}. Please check your inbox.` 
-        }
-      }));
-
-      setTimeout(() => {
-        setMessages(prev => ({ ...prev, resetPassword: { type: '', text: '' } }));
-      }, 10000);
-
-    } catch (error) {
-      setMessages(prev => ({
-        ...prev,
-        resetPassword: { type: 'error', text: error.message }
-      }));
+      toast.success('Password reset link sent to your email!');
+    } catch (err) {
+      toast.error(err.message || 'Failed to send reset link');
     } finally {
-      setLoading(prev => ({ ...prev, resetPassword: false }));
+      setSendingResetLink(false);
     }
   };
 
@@ -1109,18 +1078,22 @@ const handleDeleteAccount = async () => {
                             A password reset link will be sent to: <span className="font-medium">{email}</span>
                           </p>
                           <button
-                            type="button"
-                            onClick={handleSendResetLink}
-                            disabled={loading.resetPassword}
-                            className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-xl shadow-md shadow-blue-600/25 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            {loading.resetPassword ? (
-                              <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <Send size={18} />
-                            )}
-                            Send Reset Link
-                          </button>
+                                            onClick={handleSendResetLink}
+                                            disabled={sendingResetLink}
+                                            className="w-full py-3 rounded-xl text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transition-all duration-200 shadow-md hover:shadow-lg transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+                                          >
+                                            {sendingResetLink ? (
+                                              <>
+                                                <RefreshCw className="w-4 h-4 inline mr-2 animate-spin" />
+                                                Sending...
+                                              </>
+                                            ) : (
+                                              <>
+                                                <Key className="w-4 h-4 inline mr-2" />
+                                                Send Password Reset Link to Email
+                                              </>
+                                            )}
+                                          </button>
                         </div>
                       )}
                     </div>
