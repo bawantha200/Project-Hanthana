@@ -30,6 +30,29 @@ const getRoleColorClass = (roleName) => {
   return `${colors[index]} border`;
 };
 
+/**
+ * Detects user type from various possible sources
+ */
+const detectUserType = (user) => {
+  if (!user) return { isGoogleUser: false, hasPassword: false };
+  
+  // Check if user is from Google - multiple possible sources
+  const isGoogleUser = 
+    user?.provider === 'google' || 
+    user?.authProvider === 'google' ||
+    user?.identities?.some?.(id => id.provider === 'google') ||
+    user?.app_metadata?.provider === 'google' ||
+    user?.user_metadata?.provider === 'google';
+  
+  // Check if user has a password - check multiple sources
+  const hasPassword = 
+    user?.hasPassword === true || 
+    user?.user_metadata?.has_password === true ||
+    user?.identities?.some?.(id => id.provider === 'email');
+  
+  return { isGoogleUser, hasPassword };
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
@@ -41,44 +64,50 @@ export function AuthProvider({ children }) {
   // Refs to manage inactivity timeout timers
   const idleTimerRef = useRef(null);
   const warningTimerRef = useRef(null);
-  const sessionTimeoutMinutesRef = useRef(30); // Default timeout in minutes
+  const sessionTimeoutMinutesRef = useRef(30);
 
   /**
    * Standardizes database variations of user objects into consistent camelCase/snake_case fields
    */
-const formatUserData = useCallback((data) => {
-  if (!data) return null;
+  const formatUserData = useCallback((data) => {
+    if (!data) return null;
 
-  const { isGoogleUser, hasPassword } = detectUserType(data);
+    const { isGoogleUser, hasPassword } = detectUserType(data);
 
-  const finalFullName = data.fullName || data.full_name || 'User Profile';
-  const finalRole = data.role || data.role_name || 'CUSTOMER';
-  const finalPhone = data.phone || data.phone_number || '';
-  const finalAddress = data.address || '';
+    const finalFullName = data.fullName || data.full_name || data.user_metadata?.full_name || 'User Profile';
+    const finalRole = data.role || data.role_name || 'CUSTOMER';
+    const finalPhone = data.phone || data.phone_number || data.user_metadata?.phone_number || '';
+    const finalAddress = data.address || data.user_metadata?.address || '';
 
-  return {
-    ...data,
-    id: data.id,
-    email: data.email || '',
-    fullName: finalFullName, 
-    full_name: finalFullName, 
-    role: finalRole.toUpperCase(),
-    role_name: finalRole.toUpperCase(), 
-    phone: finalPhone,
-    phone_number: finalPhone,
-    address: finalAddress,
-    hasPassword: hasPassword || data.hasPassword || false,
-    provider: isGoogleUser ? 'google' : 'email',
-    roleColor: getRoleColorClass(finalRole)
-  };
-}, []);
+    // ✅ CRITICAL FIX: Check if email is confirmed
+    const emailConfirmed = data.email_confirmed_at || data.emailConfirmed || false;
+
+    return {
+      ...data,
+      id: data.id,
+      email: data.email || '',
+      fullName: finalFullName, 
+      full_name: finalFullName, 
+      role: finalRole.toUpperCase(),
+      role_name: finalRole.toUpperCase(), 
+      phone: finalPhone,
+      phone_number: finalPhone,
+      address: finalAddress,
+      hasPassword: hasPassword || data.hasPassword || false,
+      provider: isGoogleUser ? 'google' : 'email',
+      roleColor: getRoleColorClass(finalRole),
+      // ✅ Add email confirmation status
+      emailConfirmed: emailConfirmed,
+      email_confirmed_at: emailConfirmed
+    };
+  }, []);
 
   /**
    * Retrieves active Supabase session token and verifies user authentication with Express backend
    */
   const checkAuthStatus = useCallback(async () => {
     try {
-      // 1. Fetch latest active session directly from Supabase to handle token refreshes properly
+      // 1. Fetch latest active session directly from Supabase
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token || localStorage.getItem('token'); 
       
@@ -104,10 +133,15 @@ const formatUserData = useCallback((data) => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setUser(formatUserData(result.user)); 
+        // ✅ CRITICAL FIX: Include email confirmation status from session
+        const userData = {
+          ...result.user,
+          // Get email_confirmed_at from the actual user object if available
+          email_confirmed_at: session?.user?.email_confirmed_at || result.user?.email_confirmed_at
+        };
+        setUser(formatUserData(userData)); 
         setPermissions(result.permissions || []); 
       } else {
-        // Clear stored token and state if token validation fails
         localStorage.removeItem('token');
         setUser(null);
         setPermissions([]);
@@ -127,13 +161,18 @@ const formatUserData = useCallback((data) => {
   useEffect(() => {
     checkAuthStatus();
 
-    // Listen to auth state changes (e.g., token refreshes, sign in, sign out)
+    // Listen to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
         localStorage.setItem('token', session.access_token);
         
-        // Re-verify auth status on explicit login or token refresh events
-        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          checkAuthStatus();
+        }
+        
+        // ✅ Handle email confirmation events
+        if (event === 'USER_UPDATED' && session.user?.email_confirmed_at) {
+          // User's email was confirmed - update the user state
           checkAuthStatus();
         }
       } else if (event === 'SIGNED_OUT') {
@@ -196,7 +235,7 @@ const formatUserData = useCallback((data) => {
       sessionTimeoutMinutesRef.current = minutes;
     } catch (error) {
       console.error('Failed to fetch session timeout setting:', error);
-      sessionTimeoutMinutesRef.current = 30; // Fallback default
+      sessionTimeoutMinutesRef.current = 30;
     }
   }, []);
 
@@ -218,7 +257,7 @@ const formatUserData = useCallback((data) => {
     clearTimeout(warningTimerRef.current);
 
     const timeoutMs = sessionTimeoutMinutesRef.current * 60 * 1000;
-    const warningMs = Math.max(timeoutMs - 60000, timeoutMs * 0.9); // Warning 1 min before logout
+    const warningMs = Math.max(timeoutMs - 60000, timeoutMs * 0.9);
 
     warningTimerRef.current = setTimeout(() => {
       console.warn('Session will expire in 1 minute due to inactivity.');
@@ -315,25 +354,19 @@ const formatUserData = useCallback((data) => {
     }
   }, []);
 
-  // Add this function inside AuthContext.jsx
-// ============ FILE: AuthContext.jsx ============
-// LOCATION: Add this function inside your AuthContext component
+  /**
+   * ✅ NEW: Check if user's email is confirmed
+   */
+  const isEmailConfirmed = useCallback(() => {
+    return user?.email_confirmed_at !== null && user?.email_confirmed_at !== undefined;
+  }, [user]);
 
-// Add this function to detect user type
-const detectUserType = (user) => {
-  if (!user) return { isGoogleUser: false, hasPassword: false };
-  
-  // Check if user is from Google
-  const isGoogleUser = user?.provider === 'google' || 
-                       user?.authProvider === 'google' ||
-                       user?.identities?.some?.(id => id.provider === 'google') ||
-                       user?.app_metadata?.provider === 'google';
-  
-  // Check if user has a password
-  const hasPassword = user?.hasPassword || false;
-  
-  return { isGoogleUser, hasPassword };
-};
+  /**
+   * ✅ NEW: Refresh user data from backend
+   */
+  const refreshUser = useCallback(async () => {
+    await checkAuthStatus();
+  }, [checkAuthStatus]);
 
   return (
     <AuthContext.Provider value={{ 
@@ -345,7 +378,9 @@ const detectUserType = (user) => {
       updateUser,
       hasPermission, 
       checkAuthStatus,
-      loginWithGoogle
+      loginWithGoogle,
+      isEmailConfirmed,
+      refreshUser
     }}>
       {loading ? (
         <div className="flex items-center justify-center min-h-screen">

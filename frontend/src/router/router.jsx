@@ -42,6 +42,8 @@ import ProfitReport from "../pages/admin/ProfitReport";
 import InventoryDashboard from "../pages/admin/InventoryDashboard";
 import JITDashboard from "../pages/admin/JITDashboard";
 import DemandForecastDashboard from "../pages/admin/DemandForecasting";
+import AccountSettings from '../pages/admin/AccountSettings';
+import VerifyEmail from '../pages/admin/VerifyEmail';
 
 // Auth pages
 import Login from '../pages/auth/Login';
@@ -157,7 +159,9 @@ function AdminRoutes() {
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        <Route path="account-settings" element={<AccountSettings />} />
         
+
         {/* ✅ New HRM Routes */}
         <Route path="attendance" element={<Attendance />} />
         <Route path="leave" element={<Leave />} />
@@ -206,7 +210,7 @@ function CustomerRoutes() {
         {/* <Route path="profile" element={<Profile />} /> */}
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
-
+        <Route path="verify-email/:token" element={<VerifyEmail />} />
         {/* Protected routes - require authentication */}
         <Route path="orders" element={
             <CustomerProtectedRoute>

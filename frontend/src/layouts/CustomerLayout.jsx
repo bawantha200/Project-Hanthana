@@ -961,6 +961,13 @@ function Navbar({ showLoginModal, setShowLoginModal, maintenanceActive }) {
                       <label className="text-sm font-medium text-gray-700">
                         Password
                       </label>
+                      <Link 
+                        to="/forgot-password" 
+                        onClick={() => setShowLoginModal(false)}
+                        className="text-xs text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                      >
+                        Forgot Password?
+                      </Link>
                     </div>
                     <div className={`relative transition-all duration-200 ${
                       hasFieldError('password')

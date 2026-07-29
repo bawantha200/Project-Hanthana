@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Mail, Lock, Phone, AlertCircle, CheckCircle, Eye, EyeOff, AlertTriangle, X, LogIn } from 'lucide-react';
+import { User, Mail, Lock, Phone, AlertCircle, CheckCircle, Eye, EyeOff, AlertTriangle, X, LogIn, Shield, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const Register = () => {
@@ -10,22 +10,40 @@ const Register = () => {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [touchedFields, setTouchedFields] = useState({ 
     fullName: false, 
     email: false, 
     phone: false, 
-    password: false 
+    password: false,
+    confirmPassword: false
   });
   const [registrationError, setRegistrationError] = useState('');
   const [fieldErrors, setFieldErrors] = useState({
     fullName: '',
     email: '',
     phone: '',
-    password: ''
+    password: '',
+    confirmPassword: ''
   });
   
+  // Password strength states
+  const [passwordStrength, setPasswordStrength] = useState({
+    score: 0, // 0-4
+    label: 'Weak',
+    color: 'red',
+    criteria: {
+      length: false,
+      uppercase: false,
+      lowercase: false,
+      number: false,
+      special: false
+    }
+  });
+
   // Modal states
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailureModal, setShowFailureModal] = useState(false);
@@ -94,6 +112,13 @@ const Register = () => {
           error = 'Password must contain at least one special character (!@#$%^&* etc.)';
         }
         break;
+      case 'confirmPassword':
+        if (!confirmPassword.trim()) {
+          error = 'Please confirm your password';
+        } else if (confirmPassword !== password) {
+          error = 'Passwords do not match';
+        }
+        break;
       default:
         break;
     }
@@ -104,7 +129,7 @@ const Register = () => {
 
   // Validate all fields
   const validateAllFields = () => {
-    const fields = ['fullName', 'email', 'phone', 'password'];
+    const fields = ['fullName', 'email', 'phone', 'password', 'confirmPassword'];
     let isValid = true;
     
     fields.forEach(field => {
@@ -113,6 +138,49 @@ const Register = () => {
     });
     
     return isValid;
+  };
+
+  // Check password strength
+  const checkPasswordStrength = (pwd) => {
+    const criteria = {
+      length: pwd.length >= 8,
+      uppercase: /[A-Z]/.test(pwd),
+      lowercase: /[a-z]/.test(pwd),
+      number: /[0-9]/.test(pwd),
+      special: /[!@#$%^&*(),.?":{}|<>]/.test(pwd)
+    };
+
+    // Count met criteria
+    const metCount = Object.values(criteria).filter(Boolean).length;
+
+    // Calculate score (0-4)
+    let score = 0;
+    let label = 'Weak';
+    let color = 'red';
+
+    if (pwd.length === 0) {
+      score = 0;
+      label = 'Weak';
+      color = 'red';
+    } else if (metCount <= 2) {
+      score = 1;
+      label = 'Weak';
+      color = 'red';
+    } else if (metCount === 3) {
+      score = 2;
+      label = 'Fair';
+      color = 'orange';
+    } else if (metCount === 4) {
+      score = 3;
+      label = 'Good';
+      color = 'blue';
+    } else if (metCount === 5) {
+      score = 4;
+      label = 'Strong';
+      color = 'green';
+    }
+
+    setPasswordStrength({ score, label, color, criteria });
   };
 
   // Handle phone number input - only allow numbers
@@ -130,11 +198,22 @@ const Register = () => {
     const setters = {
       fullName: setFullName,
       email: setEmail,
-      password: setPassword
+      password: setPassword,
+      confirmPassword: setConfirmPassword
     };
     
     if (setters[field]) {
       setters[field](value);
+      
+      // Check password strength when password changes
+      if (field === 'password') {
+        checkPasswordStrength(value);
+        // Also re-validate confirm password if it has a value
+        if (confirmPassword && touchedFields.confirmPassword) {
+          validateField('confirmPassword');
+        }
+      }
+      
       if (touchedFields[field]) {
         validateField(field);
       }
@@ -147,8 +226,12 @@ const Register = () => {
       fullName: true, 
       email: true, 
       phone: true, 
-      password: true 
+      password: true,
+      confirmPassword: true
     });
+    
+    // Check password strength before submission
+    checkPasswordStrength(password);
     
     const isValid = validateAllFields();
     
@@ -156,6 +239,13 @@ const Register = () => {
       setRegistrationError('Please fix all errors before continuing');
       return false;
     }
+    
+    // Require at least "Good" password strength (score >= 3)
+    if (passwordStrength.score < 3) {
+      setRegistrationError('Please use a stronger password (at least "Good" strength)');
+      return false;
+    }
+    
     return true;
   };
 
@@ -207,7 +297,7 @@ const Register = () => {
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, phone, navigate]);
+  }, [email, password, fullName, phone, navigate, passwordStrength]);
 
   const handleGoogleSignIn = async () => {
     console.log("Initiating Google Sign-In via Context Wrapper Layer...");
@@ -227,6 +317,19 @@ const Register = () => {
       hasError: !!fieldErrors[field],
       message: fieldErrors[field]
     };
+  };
+
+  // Get password strength icon
+  const getStrengthIcon = () => {
+    const { score, color } = passwordStrength;
+    const iconClass = `w-5 h-5`;
+    
+    if (score === 0) return <Shield className={`${iconClass} text-gray-300`} />;
+    if (score === 1) return <ShieldAlert className={`${iconClass} text-red-500`} />;
+    if (score === 2) return <ShieldAlert className={`${iconClass} text-orange-500`} />;
+    if (score === 3) return <ShieldCheck className={`${iconClass} text-blue-500`} />;
+    if (score === 4) return <ShieldCheck className={`${iconClass} text-green-500`} />;
+    return <Shield className={`${iconClass} text-gray-300`} />;
   };
 
   return (
@@ -289,7 +392,7 @@ const Register = () => {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Full Name <span className="text-red-500"></span>
+                  Full Name
                 </label>
                 {getFieldErrorState('fullName').hasError && (
                   <span className="text-xs text-red-500">Required</span>
@@ -342,7 +445,7 @@ const Register = () => {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Email Address <span className="text-red-500"></span>
+                  Email Address
                 </label>
                 {getFieldErrorState('email').hasError && (
                   <span className="text-xs text-red-500">Required</span>
@@ -395,7 +498,7 @@ const Register = () => {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Phone Number <span className="text-red-500"></span>
+                  Phone Number
                 </label>
                 {getFieldErrorState('phone').hasError && (
                   <span className="text-xs text-red-500">Required</span>
@@ -456,7 +559,7 @@ const Register = () => {
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <label className="text-sm font-medium text-gray-700">
-                  Password <span className="text-red-500"></span>
+                  Password
                 </label>
                 {getFieldErrorState('password').hasError && (
                   <span className="text-xs text-red-500">Required</span>
@@ -484,7 +587,7 @@ const Register = () => {
                       ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
-                  placeholder="Min 6 characters"
+                  placeholder="Min 8 characters"
                 />
                 <button
                   type="button"
@@ -504,16 +607,166 @@ const Register = () => {
                   </div>
                 )}
               </div>
+
+              {/* Password Strength Indicator */}
+              {password && (
+                <div className="mt-2 space-y-1.5">
+                  {/* Strength bar */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(passwordStrength.score / 4) * 100}%` }}
+                        transition={{ duration: 0.3 }}
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          passwordStrength.score === 0 ? 'bg-gray-300' :
+                          passwordStrength.score === 1 ? 'bg-red-500' :
+                          passwordStrength.score === 2 ? 'bg-orange-500' :
+                          passwordStrength.score === 3 ? 'bg-blue-500' :
+                          'bg-green-500'
+                        }`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-[70px]">
+                      {getStrengthIcon()}
+                      <span className={`text-xs font-medium ${
+                        passwordStrength.score === 0 ? 'text-gray-400' :
+                        passwordStrength.score === 1 ? 'text-red-500' :
+                        passwordStrength.score === 2 ? 'text-orange-500' :
+                        passwordStrength.score === 3 ? 'text-blue-500' :
+                        'text-green-500'
+                      }`}>
+                        {passwordStrength.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Password criteria checklist */}
+                  <div className="grid grid-cols-2 gap-1 mt-1.5">
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.length ? (
+                        <CheckCircle size={12} className="text-green-500" />
+                      ) : (
+                        <AlertCircle size={12} className="text-gray-400" />
+                      )}
+                      <span className={`text-xs ${passwordStrength.criteria.length ? 'text-green-600' : 'text-gray-500'}`}>
+                        ≥ 8 characters
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.uppercase ? (
+                        <CheckCircle size={12} className="text-green-500" />
+                      ) : (
+                        <AlertCircle size={12} className="text-gray-400" />
+                      )}
+                      <span className={`text-xs ${passwordStrength.criteria.uppercase ? 'text-green-600' : 'text-gray-500'}`}>
+                        Uppercase
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.lowercase ? (
+                        <CheckCircle size={12} className="text-green-500" />
+                      ) : (
+                        <AlertCircle size={12} className="text-gray-400" />
+                      )}
+                      <span className={`text-xs ${passwordStrength.criteria.lowercase ? 'text-green-600' : 'text-gray-500'}`}>
+                        Lowercase
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.number ? (
+                        <CheckCircle size={12} className="text-green-500" />
+                      ) : (
+                        <AlertCircle size={12} className="text-gray-400" />
+                      )}
+                      <span className={`text-xs ${passwordStrength.criteria.number ? 'text-green-600' : 'text-gray-500'}`}>
+                        Number
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 col-span-2">
+                      {passwordStrength.criteria.special ? (
+                        <CheckCircle size={12} className="text-green-500" />
+                      ) : (
+                        <AlertCircle size={12} className="text-gray-400" />
+                      )}
+                      <span className={`text-xs ${passwordStrength.criteria.special ? 'text-green-600' : 'text-gray-500'}`}>
+                        Special character (!@#$%^&* etc.)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {getFieldErrorState('password').hasError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
                   {fieldErrors.password}
                 </p>
               )}
-              {touchedFields.password && !getFieldErrorState('password').hasError && password.trim() && (
+            </div>
+
+            {/* Confirm Password Field */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-sm font-medium text-gray-700">
+                  Confirm Password
+                </label>
+                {getFieldErrorState('confirmPassword').hasError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
+              </div>
+              <div className={`relative transition-all duration-200 ${
+                getFieldErrorState('confirmPassword').hasError
+                  ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
+                  : touchedFields.confirmPassword && !getFieldErrorState('confirmPassword').hasError
+                  ? 'ring-2 ring-green-500 ring-offset-2 rounded-xl'
+                  : ''
+              }`}>
+                <Lock className={`absolute left-3 top-3.5 h-5 w-5 ${
+                  getFieldErrorState('confirmPassword').hasError ? 'text-red-500' : 'text-gray-400'
+                }`} />
+                <input 
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                  onBlur={() => handleFieldBlur('confirmPassword')}
+                  className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
+                    getFieldErrorState('confirmPassword').hasError
+                      ? 'border-red-500 bg-red-50' 
+                      : touchedFields.confirmPassword && !getFieldErrorState('confirmPassword').hasError
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200'
+                  }`}
+                  placeholder="Confirm your password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+                {getFieldErrorState('confirmPassword').hasError && (
+                  <div className="absolute right-12 top-3.5">
+                    <AlertTriangle size={18} className="text-red-500" />
+                  </div>
+                )}
+                {touchedFields.confirmPassword && !getFieldErrorState('confirmPassword').hasError && confirmPassword.trim() && (
+                  <div className="absolute right-12 top-3.5">
+                    <CheckCircle size={18} className="text-green-500" />
+                  </div>
+                )}
+              </div>
+              {getFieldErrorState('confirmPassword').hasError && (
+                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                  <AlertCircle size={12} />
+                  {fieldErrors.confirmPassword}
+                </p>
+              )}
+              {touchedFields.confirmPassword && !getFieldErrorState('confirmPassword').hasError && confirmPassword.trim() && (
                 <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
                   <CheckCircle size={12} />
-                  Password strength: Good
+                  Passwords match
                 </p>
               )}
             </div>

@@ -2,6 +2,12 @@ const supabase = require('../config/db');
 const supabaseAdmin = supabase.supabaseAdmin;
 
 const jwt = require('jsonwebtoken');
+const {
+  sendEmailChangeVerification,
+  sendEmailChangeConfirmation,
+  sendOldEmailNotification
+} = require('../utils/mailer');
+
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const LOCK_DURATION_MINUTES = 15;
@@ -38,6 +44,42 @@ const userHasPassword = async (userId) => {
   }
 };
 
+
+// Add this to authController.js
+const handleEmailConfirmation = async (req, res) => {
+  try {
+    const { user } = req.body;
+    
+    if (!user || !user.email) {
+      return res.status(400).json({ success: false, message: 'Invalid webhook data' });
+    }
+
+    // Update the profile email when email is confirmed
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ email: user.email })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('[PROFILE UPDATE ERROR]', updateError);
+      return res.status(500).json({ success: false, message: 'Failed to update profile' });
+    }
+
+    await logAction(user.id, 'EMAIL_CONFIRMED', { 
+      email: user.email,
+      status: 'verified'
+    }, req);
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Email confirmed and profile updated' 
+    });
+
+  } catch (error) {
+    console.error('[WEBHOOK ERROR]', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
 
 /**
  * @desc    Register a new user, create auth credentials, and provision a database profile
@@ -1126,6 +1168,372 @@ const getAllRoles = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Change user email with verification
+ * @route   PUT /api/auth/change-email
+ */
+
+const changeEmail = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { newEmail, currentPassword } = req.body;
+
+    // Validate input
+    if (!newEmail) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New email address is required.' 
+      });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide a valid email address.' 
+      });
+    }
+
+    if (newEmail === req.user.email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New email must be different from current email.' 
+      });
+    }
+
+    // Check if user has a password
+    const hasPassword = await userHasPassword(userId);
+    
+    if (hasPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Current password is required to change email.' 
+        });
+      }
+
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: req.user.email,
+        password: currentPassword,
+      });
+
+      if (signInError || !signInData.user) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Invalid current password.' 
+        });
+      }
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'This account uses Google login. Please change your email through Google account settings.',
+        provider: 'google'
+      });
+    }
+
+    // ✅ Generate verification token (24 hour expiry)
+    const verificationToken = jwt.sign(
+      { 
+        userId: userId, 
+        newEmail: newEmail,
+        oldEmail: req.user.email
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // ✅ Send verification email
+    const verificationLink = `http://localhost:5173/verify-email/${verificationToken}`;
+    
+    try {
+      // Use your existing mailer
+      const { sendEmailChangeVerification } = require('../utils/mailer');
+      
+      await sendEmailChangeVerification({
+        to: newEmail,
+        newEmail: newEmail,
+        oldEmail: req.user.email,
+        userName: req.user.fullName || 'User',
+        verificationLink: verificationLink,
+        token: verificationToken
+      });
+    } catch (emailError) {
+      console.error('❌ Failed to send email:', emailError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to send verification email. Please try again.' 
+      });
+    }
+
+    // ✅ Log the email change request
+    await logAction(userId, 'EMAIL_CHANGE_REQUESTED', { 
+      oldEmail: req.user.email, 
+      newEmail,
+      status: 'pending_verification'
+    }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: `Verification email sent to ${newEmail}. Please check your inbox and click the confirmation link.`,
+      requiresVerification: true,
+      newEmail: newEmail,
+      emailChangePending: true
+    });
+
+  } catch (error) {
+    console.error('[EMAIL CHANGE ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Verify email change
+ * @route   GET /api/auth/verify-email/:token
+ */
+
+const verifyEmailChange = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+    
+    console.log('🔍 ========== VERIFICATION START ==========');
+    console.log('📝 Token:', token);
+    console.log('📝 Password provided:', password ? 'Yes' : 'No');
+    
+    if (!password) {
+      console.log('❌ No password provided');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password is required to verify email change.' 
+      });
+    }
+    
+    // ✅ Verify the JWT token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log('✅ Token decoded successfully:', decoded);
+    } catch (error) {
+      console.error('❌ Token verification failed:', error.message);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or expired verification link. Please request a new one.' 
+      });
+    }
+
+    const { userId, newEmail, oldEmail } = decoded;
+    console.log('👤 User ID:', userId);
+    console.log('📧 New Email:', newEmail);
+    console.log('📧 Old Email:', oldEmail);
+
+    // ✅ Get user's current email
+    const { data: user, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId);
+    
+    if (userError) {
+      console.error('❌ User fetch error:', userError);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User not found.' 
+      });
+    }
+
+    const currentEmail = user.user.email;
+    console.log('📧 Current email in auth:', currentEmail);
+
+    // ✅ Verify the password
+    console.log('🔐 Verifying password...');
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      email: currentEmail,
+      password: password,
+    });
+
+    if (signInError || !signInData.user) {
+      console.error('❌ Password verification failed:', signInError);
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Incorrect password. Please try again.' 
+      });
+    }
+    console.log('✅ Password verified successfully');
+
+    // ✅ Check if email is already updated
+    if (currentEmail === newEmail) {
+      console.log('ℹ️ Email already updated to:', currentEmail);
+      return res.status(200).json({
+        success: true,
+        message: 'Email already verified! You can now login with your new email.'
+      });
+    }
+
+    // ✅ Update the email in Supabase Auth
+    console.log('🔄 Updating email in auth...');
+    const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      userId,
+      { 
+        email: newEmail,
+        email_confirm: true
+      }
+    );
+
+    if (updateError) {
+      console.error('❌ Auth update error:', updateError);
+      
+      if (updateError.message.includes('already exists')) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'This email is already registered to another account.' 
+        });
+      }
+      
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Failed to verify email change. Please try again.' 
+      });
+    }
+    console.log('✅ Email updated in auth');
+
+    // ✅ Update the profile
+    console.log('🔄 Updating profile...');
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ email: newEmail })
+      .eq('id', userId);
+
+    if (profileError) {
+      console.error('❌ Profile update error:', profileError);
+    } else {
+      console.log('✅ Profile updated');
+    }
+
+    console.log('✅ ========== VERIFICATION COMPLETE ==========');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email verified and updated successfully! You can now log in with your new email.'
+    });
+
+  } catch (error) {
+    console.error('❌ Verify email error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error. Please try again.' 
+    });
+  }
+};
+
+/**
+ * @desc    Resend verification email
+ * @route   POST /api/auth/resend-email-verification
+ */
+
+const resendEmailVerification = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email address is required.' 
+      });
+    }
+
+    // ✅ Generate new verification token
+    const verificationToken = jwt.sign(
+      { 
+        userId: userId, 
+        newEmail: email,
+        oldEmail: req.user.email
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // ✅ Send new verification email
+    const verificationLink = `http://localhost:5173/verify-email/${verificationToken}`;
+    
+    try {
+      const { sendEmailChangeVerification } = require('../utils/mailer');
+      
+      await sendEmailChangeVerification({
+        to: email,
+        newEmail: email,
+        oldEmail: req.user.email,
+        userName: req.user.fullName || 'User',
+        verificationLink: verificationLink,
+        token: verificationToken
+      });
+    } catch (emailError) {
+      console.error('❌ Failed to send email:', emailError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to send verification email. Please try again.' 
+      });
+    }
+
+    await logAction(userId, 'EMAIL_VERIFICATION_RESENT', { email }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: `Verification email resent to ${email}. Please check your inbox.`
+    });
+
+  } catch (error) {
+    console.error('[RESEND EMAIL ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Cancel email change
+ * @route   POST /api/auth/cancel-email-change
+ */
+const cancelEmailChange = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // ✅ Update the pending request status
+    const { data: request, error: requestError } = await supabase
+      .from('email_change_requests')
+      .update({ status: 'cancelled' })
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .select()
+      .single();
+
+    if (requestError || !request) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No pending email change request found.' 
+      });
+    }
+
+    await logAction(userId, 'EMAIL_CHANGE_CANCELLED', { 
+      newEmail: request.new_email,
+      oldEmail: request.old_email
+    }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email change request cancelled successfully.',
+      email: request.old_email
+    });
+
+  } catch (error) {
+    console.error('[CANCEL EMAIL ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
 
 
 /**
@@ -1296,6 +1704,36 @@ const verifySetup2FA = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Decode token (for frontend to check token validity)
+ * @route   GET /api/auth/decode-token/:token
+ */
+const decodeToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    console.log('🔍 Decoding token:', token);
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('✅ Token decoded:', decoded);
+    
+    return res.json({
+      success: true,
+      decoded: {
+        userId: decoded.userId,
+        newEmail: decoded.newEmail,
+        oldEmail: decoded.oldEmail,
+        expiresAt: new Date(decoded.exp * 1000).toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('❌ Token decode error:', error.message);
+    return res.status(400).json({
+      success: false,
+      message: error.message === 'jwt expired' ? 'Verification link has expired.' : 'Invalid verification link.'
+    });
+  }
+};
+
 
 module.exports = {
   // Auth Routes
@@ -1314,6 +1752,13 @@ module.exports = {
   updatePassword,
   setPasswordForGoogleUser,
   
+  // Email Routes
+  changeEmail,
+  verifyEmailChange,
+  resendEmailVerification,
+  cancelEmailChange,
+  decodeToken,
+
   // Account Routes
   deleteAccount,
   
