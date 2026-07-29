@@ -30,6 +30,45 @@ const getRoleColorClass = (roleName) => {
   return `${colors[index]} border`;
 };
 
+/**
+ * Detects user type from various possible sources
+ */
+const detectUserType = (user) => {
+  if (!user) return { isGoogleUser: false, hasPassword: false };
+  
+  // Check if user is from Google - multiple possible sources
+  const isGoogleUser = 
+    user?.provider === 'google' || 
+    user?.authProvider === 'google' ||
+    user?.identities?.some?.(id => id.provider === 'google') ||
+    user?.app_metadata?.provider === 'google' ||
+    user?.user_metadata?.provider === 'google';
+  
+  // 🔥 FIXED: Better password detection
+  // Check multiple sources for password existence
+  const hasPassword = 
+    user?.hasPassword === true || 
+    user?.has_password === true ||
+    user?.user_metadata?.has_password === true ||
+    user?.identities?.some?.(id => id.provider === 'email') ||
+    // Check if encrypted_password exists (if coming from backend)
+    (user?.encrypted_password && user.encrypted_password !== '') ||
+    // Check if password exists in any other form
+    (user?.password && user.password !== '');
+  
+  console.log('🔍 detectUserType:', {
+    isGoogleUser,
+    hasPassword,
+    provider: user?.provider,
+    identities: user?.identities,
+    hasPasswordField: user?.hasPassword,
+    hasPasswordInMetadata: user?.user_metadata?.has_password,
+    hasEncryptedPassword: !!(user?.encrypted_password)
+  });
+  
+  return { isGoogleUser, hasPassword };
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [permissions, setPermissions] = useState([]);
@@ -41,58 +80,82 @@ export function AuthProvider({ children }) {
   // Refs to manage inactivity timeout timers
   const idleTimerRef = useRef(null);
   const warningTimerRef = useRef(null);
-  const sessionTimeoutMinutesRef = useRef(30); // Default timeout in minutes
+  const sessionTimeoutMinutesRef = useRef(30);
 
   /**
    * Standardizes database variations of user objects into consistent camelCase/snake_case fields
    */
-const formatUserData = useCallback((data) => {
-  if (!data) return null;
+  const formatUserData = useCallback((data) => {
+    if (!data) return null;
 
-  const { isGoogleUser, hasPassword } = detectUserType(data);
+    const { isGoogleUser, hasPassword } = detectUserType(data);
 
-  const finalFullName = data.fullName || data.full_name || 'User Profile';
-  const finalRole = data.role || data.role_name || 'CUSTOMER';
-  const finalPhone = data.phone || data.phone_number || '';
-  const finalAddress = data.address || '';
+    const finalFullName = data.fullName || data.full_name || data.user_metadata?.full_name || 'User Profile';
+    const finalRole = data.role || data.role_name || 'CUSTOMER';
+    const finalPhone = data.phone || data.phone_number || data.user_metadata?.phone_number || '';
+    const finalAddress = data.address || data.user_metadata?.address || '';
 
-  return {
-    ...data,
-    id: data.id,
-    email: data.email || '',
-    fullName: finalFullName, 
-    full_name: finalFullName, 
-    role: finalRole.toUpperCase(),
-    role_name: finalRole.toUpperCase(), 
-    phone: finalPhone,
-    phone_number: finalPhone,
-    address: finalAddress,
-    hasPassword: hasPassword || data.hasPassword || false,
-    provider: isGoogleUser ? 'google' : 'email',
-    roleColor: getRoleColorClass(finalRole)
-  };
-}, []);
+    // Check if email is confirmed
+    const emailConfirmed = data.email_confirmed_at || data.emailConfirmed || false;
+
+    const formattedUser = {
+      ...data,
+      id: data.id,
+      email: data.email || '',
+      fullName: finalFullName, 
+      full_name: finalFullName, 
+      role: finalRole.toUpperCase(),
+      role_name: finalRole.toUpperCase(), 
+      phone: finalPhone,
+      phone_number: finalPhone,
+      address: finalAddress,
+      hasPassword: hasPassword || data.hasPassword || false,
+      provider: isGoogleUser ? 'google' : 'email',
+      roleColor: getRoleColorClass(finalRole),
+      emailConfirmed: emailConfirmed,
+      email_confirmed_at: emailConfirmed,
+      // Ensure identities are preserved if they exist
+      identities: data.identities || []
+    };
+
+    console.log('📊 Formatted user:', {
+      hasPassword: formattedUser.hasPassword,
+      provider: formattedUser.provider,
+      identities: formattedUser.identities
+    });
+
+    return formattedUser;
+  }, []);
 
   /**
    * Retrieves active Supabase session token and verifies user authentication with Express backend
    */
   const checkAuthStatus = useCallback(async () => {
     try {
-      // 1. Fetch latest active session directly from Supabase to handle token refreshes properly
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token || localStorage.getItem('token'); 
+      // 1. Get token from localStorage first (most reliable)
+      let token = localStorage.getItem('token');
+      
+      // 2. If no token in localStorage, try Supabase session
+      if (!token) {
+        const { data: { session } } = await supabase.auth.getSession();
+        token = session?.access_token;
+        if (token) {
+          localStorage.setItem('token', token);
+        }
+      }
+      
+      console.log('checkAuthStatus - Token found:', !!token);
       
       if (!token) {
+        console.log('No token found, setting user to null');
         setUser(null);
         setPermissions([]);
         setLoading(false);
         return;
       }
 
-      // Sync active token to localStorage for backend requests
-      localStorage.setItem('token', token);
-
-      // 2. Validate token against backend endpoint
+      // 3. Validate token against backend endpoint
+      console.log('Validating token with backend...');
       const response = await fetch('http://localhost:5000/api/auth/me', {
         method: 'GET',
         headers: {
@@ -101,13 +164,50 @@ const formatUserData = useCallback((data) => {
         }
       });
 
+      console.log('Auth check response status:', response.status);
+
+      if (response.status === 401) {
+        console.log('Token invalid, clearing session');
+        localStorage.removeItem('token');
+        await supabase.auth.signOut();
+        setUser(null);
+        setPermissions([]);
+        setLoading(false);
+        return;
+      }
+
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setUser(formatUserData(result.user)); 
+        console.log('Auth check successful, user:', result.user);
+        
+        // 🔥 FIXED: Also get the Supabase session to check identities
+        const { data: { session } } = await supabase.auth.getSession();
+        const supabaseUser = session?.user;
+        
+        // Merge user data with Supabase user data to get identities
+        const mergedUserData = {
+          ...result.user,
+          identities: supabaseUser?.identities || result.user?.identities || [],
+          encrypted_password: supabaseUser?.encrypted_password || result.user?.encrypted_password,
+          user_metadata: { ...result.user?.user_metadata, ...supabaseUser?.user_metadata }
+        };
+        
+        const userData = {
+          ...mergedUserData,
+          email_confirmed_at: result.user?.email_confirmed_at || false
+        };
+        
+        const formattedUser = formatUserData(userData);
+        console.log('✅ Formatted user with password status:', {
+          hasPassword: formattedUser.hasPassword,
+          provider: formattedUser.provider
+        });
+        
+        setUser(formattedUser); 
         setPermissions(result.permissions || []); 
       } else {
-        // Clear stored token and state if token validation fails
+        console.log('Auth check failed:', result);
         localStorage.removeItem('token');
         setUser(null);
         setPermissions([]);
@@ -127,14 +227,21 @@ const formatUserData = useCallback((data) => {
   useEffect(() => {
     checkAuthStatus();
 
-    // Listen to auth state changes (e.g., token refreshes, sign in, sign out)
+    // Listen to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔐 Auth state change:', event, session?.user?.email);
+      
       if (session) {
         localStorage.setItem('token', session.access_token);
         
-        // Re-verify auth status on explicit login or token refresh events
-        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
-          checkAuthStatus();
+        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          // 🔥 Force refresh user data
+          await checkAuthStatus();
+        }
+        
+        // Handle email confirmation events
+        if (event === 'USER_UPDATED' && session.user?.email_confirmed_at) {
+          await checkAuthStatus();
         }
       } else if (event === 'SIGNED_OUT') {
         localStorage.removeItem('token');
@@ -152,18 +259,29 @@ const formatUserData = useCallback((data) => {
    * Manual login handler to persist token and update application state
    */
   const login = useCallback((userData, sessionOrToken, dynamicPermissions) => {
+    console.log('Login called with:', { userData, sessionOrToken, dynamicPermissions });
+    
     const token = typeof sessionOrToken === 'object' && sessionOrToken !== null
-      ? sessionOrToken.access_token 
+      ? sessionOrToken.access_token || sessionOrToken.token
       : sessionOrToken;
+
+    console.log('Extracted token:', token);
 
     if (token) {
       localStorage.setItem('token', token);
-      setUser(formatUserData(userData));
+      const formattedUser = formatUserData(userData);
+      console.log('Formatted user:', formattedUser);
+      setUser(formattedUser);
       setPermissions(dynamicPermissions || []);
+      
+      // Immediately check auth status to verify token works
+      setTimeout(() => {
+        checkAuthStatus();
+      }, 100);
     } else {
       console.error("Login execution failed: Access token missing or malformed");
     }
-  }, [formatUserData]);
+  }, [formatUserData, checkAuthStatus]);
 
   /**
    * Destroys active Supabase session and clears local application state
@@ -177,6 +295,8 @@ const formatUserData = useCallback((data) => {
     localStorage.removeItem('token');
     setUser(null);
     setPermissions([]);
+    // Use window.location instead of navigate
+    window.location.href = '/login';
   }, []);
 
   /**
@@ -196,7 +316,7 @@ const formatUserData = useCallback((data) => {
       sessionTimeoutMinutesRef.current = minutes;
     } catch (error) {
       console.error('Failed to fetch session timeout setting:', error);
-      sessionTimeoutMinutesRef.current = 30; // Fallback default
+      sessionTimeoutMinutesRef.current = 30;
     }
   }, []);
 
@@ -207,7 +327,6 @@ const formatUserData = useCallback((data) => {
     clearTimeout(idleTimerRef.current);
     clearTimeout(warningTimerRef.current);
     logout();
-    window.location.href = '/login';
   }, [logout]);
 
   /**
@@ -218,7 +337,7 @@ const formatUserData = useCallback((data) => {
     clearTimeout(warningTimerRef.current);
 
     const timeoutMs = sessionTimeoutMinutesRef.current * 60 * 1000;
-    const warningMs = Math.max(timeoutMs - 60000, timeoutMs * 0.9); // Warning 1 min before logout
+    const warningMs = Math.max(timeoutMs - 60000, timeoutMs * 0.9);
 
     warningTimerRef.current = setTimeout(() => {
       console.warn('Session will expire in 1 minute due to inactivity.');
@@ -294,11 +413,14 @@ const formatUserData = useCallback((data) => {
    */
   const loginWithGoogle = useCallback(async () => {
     try {
+      // Store that user is coming from Google sign-in
+      localStorage.setItem('googleSignInPending', 'true');
+      
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: 'http://localhost:5173/auth/callback',
-          skipBrowserRedirect: false, 
+          skipBrowserRedirect: false,
         },
       });
       
@@ -311,29 +433,24 @@ const formatUserData = useCallback((data) => {
       return data;
     } catch (err) {
       console.error("OAuth distribution interface error:", err);
+      localStorage.removeItem('googleSignInPending');
       throw err;
     }
   }, []);
 
-  // Add this function inside AuthContext.jsx
-// ============ FILE: AuthContext.jsx ============
-// LOCATION: Add this function inside your AuthContext component
+  /**
+   * Check if user's email is confirmed
+   */
+  const isEmailConfirmed = useCallback(() => {
+    return user?.email_confirmed_at !== null && user?.email_confirmed_at !== undefined;
+  }, [user]);
 
-// Add this function to detect user type
-const detectUserType = (user) => {
-  if (!user) return { isGoogleUser: false, hasPassword: false };
-  
-  // Check if user is from Google
-  const isGoogleUser = user?.provider === 'google' || 
-                       user?.authProvider === 'google' ||
-                       user?.identities?.some?.(id => id.provider === 'google') ||
-                       user?.app_metadata?.provider === 'google';
-  
-  // Check if user has a password
-  const hasPassword = user?.hasPassword || false;
-  
-  return { isGoogleUser, hasPassword };
-};
+  /**
+   * Refresh user data from backend
+   */
+  const refreshUser = useCallback(async () => {
+    await checkAuthStatus();
+  }, [checkAuthStatus]);
 
   return (
     <AuthContext.Provider value={{ 
@@ -345,7 +462,9 @@ const detectUserType = (user) => {
       updateUser,
       hasPermission, 
       checkAuthStatus,
-      loginWithGoogle
+      loginWithGoogle,
+      isEmailConfirmed,
+      refreshUser
     }}>
       {loading ? (
         <div className="flex items-center justify-center min-h-screen">

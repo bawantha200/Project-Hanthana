@@ -1,7 +1,8 @@
 // frontend/src/pages/admin/OrderDetails.jsx
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   User,
@@ -33,6 +34,14 @@ import api from '../../services/api';
 import { formatCurrency } from '../../utils/helpers';
 import toast from 'react-hot-toast';
 
+// ─── Query Keys ───
+const QUERY_KEYS = {
+  ORDER_DETAILS: (id) => ['order', id, 'details'],
+  ORDER_HISTORY: (id) => ['order', id, 'history'],
+  DELIVERY_PERSONNEL: ['delivery', 'personnel'],
+};
+
+// ─── Constants ───
 const statusConfig = {
   PLACED: { label: 'Pending', color: 'bg-amber-100 text-amber-700', icon: Clock },
   PROCESSING: { label: 'Processing', color: 'bg-blue-100 text-blue-700', icon: RefreshCw },
@@ -49,190 +58,216 @@ const deliveryStatusConfig = {
   CANCELLED: { label: 'Cancelled', color: 'bg-red-100 text-red-700' }
 };
 
-// Different status steps based on order type
 const deliveryStatusSteps = ['PLACED', 'PROCESSING', 'DELIVERED'];
 const pickupStatusSteps = ['PLACED', 'PROCESSING', 'COMPLETED'];
 
+// ─── Helper Functions ───
+const isRefillItem = (item) => {
+  const productName = item.product?.name?.toLowerCase() || item.product_name?.toLowerCase() || '';
+  const productType = item.product?.type?.toLowerCase() || item.type?.toLowerCase() || '';
+  const productSize = item.product?.size || item.size || '';
+  const productCategory = item.product?.category?.toLowerCase() || item.category?.toLowerCase() || '';
+  
+  const isRefillType = 
+    productType === 'refill' || 
+    productType === 'REFILL' ||
+    productCategory === 'refill' ||
+    productCategory === 'REFILL';
+  
+  const isRefillName = 
+    productName.includes('refill') && 
+    !productName.includes('sealed');
+  
+  const is19L = 
+    productSize === '19L' || 
+    productSize === '19 L' ||
+    productName.includes('19l') || 
+    productName.includes('19 l') ||
+    productName.includes('19-liter') ||
+    productName.includes('19 litre');
+  
+  return (isRefillType || isRefillName) && is19L;
+};
+
+const countEmptyBottles = (items) => {
+  if (!items || !Array.isArray(items)) return 0;
+  return items.reduce((count, item) => {
+    if (isRefillItem(item)) {
+      return count + (item.quantity || 0);
+    }
+    return count;
+  }, 0);
+};
+
+const calculateTotalWithDelivery = (order) => {
+  const totalAmount = parseFloat(order?.total_amount) || 0;
+  const deliveryFee = parseFloat(order?.delivery_fee) || 0;
+  return totalAmount + deliveryFee;
+};
+
+// ─── Main Component ───
 export default function OrderDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [order, setOrder] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [deliveryPersonnel, setDeliveryPersonnel] = useState([]);
+  const queryClient = useQueryClient();
+
+  // ─── State ───
   const [selectedDeliveryPerson, setSelectedDeliveryPerson] = useState('');
   const [showAssignModal, setShowAssignModal] = useState(false);
 
-  useEffect(() => {
-    loadOrderDetails();
-    loadDeliveryPersonnel();
-  }, [id]);
-
-  const loadOrderDetails = async () => {
-    try {
-      setLoading(true);
+  // ─── React Query: Fetch Order Details ───
+  const {
+    data: order = null,
+    isLoading: orderLoading,
+    isFetching: orderFetching,
+    error: orderError,
+    refetch: refetchOrder,
+  } = useQuery({
+    queryKey: QUERY_KEYS.ORDER_DETAILS(id),
+    queryFn: async () => {
       const response = await api.get(`/orders/${id}/details`);
       if (response.data.success) {
-        setOrder(response.data.order);
-        setHistory(response.data.history || []);
-      } else {
-        toast.error('Failed to load order details');
+        return response.data.order;
       }
-    } catch (error) {
-      console.error('Failed to load order details:', error);
-      if (error.response?.status === 404) {
-        toast.error('Order not found');
-      } else {
-        toast.error('Failed to load order details');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
+      throw new Error(response.data.message || 'Failed to load order details');
+    },
+    staleTime: 60000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 60000,
+    placeholderData: (previousData) => previousData,
+    retry: 2,
+  });
 
-  const loadDeliveryPersonnel = async () => {
-    try {
-      console.log('📡 Fetching delivery personnel...');
+  // ─── React Query: Fetch Order History ───
+  const {
+    data: history = [],
+    isLoading: historyLoading,
+    refetch: refetchHistory,
+  } = useQuery({
+    queryKey: QUERY_KEYS.ORDER_HISTORY(id),
+    queryFn: async () => {
+      const response = await api.get(`/orders/${id}/details`);
+      return response.data.history || [];
+    },
+    staleTime: 120000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
+  });
+
+  // ─── React Query: Fetch Delivery Personnel ───
+  const {
+    data: deliveryPersonnel = [],
+    isLoading: personnelLoading,
+    refetch: refetchPersonnel,
+  } = useQuery({
+    queryKey: QUERY_KEYS.DELIVERY_PERSONNEL,
+    queryFn: async () => {
       const response = await api.get('/deliveries/personnel');
-      console.log('✅ Delivery personnel response:', response.data);
-      
       if (response.data.success) {
-        setDeliveryPersonnel(response.data.personnel || []);
-        console.log(`✅ Loaded ${response.data.personnel?.length || 0} riders`);
-      } else {
-        console.error('❌ Failed to load delivery personnel:', response.data.message);
+        return response.data.personnel || [];
       }
-    } catch (error) {
-      console.error('❌ Failed to load delivery personnel:', error);
-      toast.error('Failed to load delivery personnel');
-    }
-  };
+      return [];
+    },
+    staleTime: 120000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    placeholderData: (previousData) => previousData,
+  });
 
-  const updateOrderStatus = async (newStatus) => {
-    try {
-      setUpdating(true);
-      const response = await api.put(`/orders/${id}/status`, { status: newStatus });
-      if (response.data.success) {
-        toast.success(`Order status updated to ${statusConfig[newStatus].label}`);
-        await loadOrderDetails();
-      }
-    } catch (error) {
-      console.error('Failed to update status:', error);
-      toast.error('Failed to update status');
-    } finally {
-      setUpdating(false);
-    }
-  };
+  // ─── React Query: Update Order Status Mutation ───
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ orderId, status }) => {
+      const response = await api.put(`/orders/${orderId}/status`, { status });
+      return response.data;
+    },
+    onSuccess: (data, variables) => {
+      toast.success(`Order status updated to ${statusConfig[variables.status].label}`);
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ORDER_DETAILS(id) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ORDER_HISTORY(id) });
+      refetchOrder();
+      refetchHistory();
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to update status');
+    },
+  });
 
-  const assignDeliveryPerson = async () => {
+  // ─── React Query: Assign Delivery Person Mutation ───
+  const assignDeliveryMutation = useMutation({
+    mutationFn: async ({ orderId, deliveryPersonId }) => {
+      const response = await api.put(`/orders/${orderId}/assign`, {
+        deliveryPersonId
+      });
+      return response.data;
+    },
+    onSuccess: () => {
+      toast.success('Delivery person assigned successfully');
+      setShowAssignModal(false);
+      setSelectedDeliveryPerson('');
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ORDER_DETAILS(id) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DELIVERY_PERSONNEL });
+      refetchOrder();
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to assign delivery person');
+    },
+  });
+
+  // ─── Memoized Computations ───
+  const isHomeDelivery = useMemo(() => order?.order_type === 'HOME_DELIVERY', [order]);
+  const isPickup = useMemo(() => order?.order_type === 'PICKUP', [order]);
+  const emptyBottlesCount = useMemo(() => countEmptyBottles(order?.items), [order?.items]);
+  const totalWithDelivery = useMemo(() => calculateTotalWithDelivery(order), [order]);
+  const deliveryFee = useMemo(() => parseFloat(order?.delivery_fee) || 0, [order]);
+
+  const statusSteps = useMemo(() => {
+    if (isHomeDelivery) return deliveryStatusSteps;
+    if (isPickup) return pickupStatusSteps;
+    return deliveryStatusSteps;
+  }, [isHomeDelivery, isPickup]);
+
+  const currentStepIndex = useMemo(() => {
+    if (!order) return 0;
+    const stepIndex = statusSteps.indexOf(order.order_status);
+    return stepIndex >= 0 ? stepIndex : 0;
+  }, [order, statusSteps]);
+
+  // ─── Handlers ───
+  const updateOrderStatus = useCallback((newStatus) => {
+    updateStatusMutation.mutate({ orderId: id, status: newStatus });
+  }, [id, updateStatusMutation]);
+
+  const assignDeliveryPerson = useCallback(() => {
     if (!selectedDeliveryPerson) {
       toast.error('Please select a delivery person');
       return;
     }
-    try {
-      setUpdating(true);
-      const response = await api.put(`/orders/${id}/assign`, {
-        deliveryPersonId: selectedDeliveryPerson
-      });
-      if (response.data.success) {
-        toast.success('Delivery person assigned successfully');
-        setShowAssignModal(false);
-        setSelectedDeliveryPerson('');
-        await loadOrderDetails();
-      }
-    } catch (error) {
-      console.error('Failed to assign delivery person:', error);
-      toast.error('Failed to assign delivery person');
-    } finally {
-      setUpdating(false);
-    }
-  };
+    assignDeliveryMutation.mutate({ 
+      orderId: id, 
+      deliveryPersonId: selectedDeliveryPerson 
+    });
+  }, [id, selectedDeliveryPerson, assignDeliveryMutation]);
 
-  // Helper function to calculate total with delivery fee
-  const calculateTotalWithDelivery = (order) => {
-    const totalAmount = parseFloat(order?.total_amount) || 0;
-    const deliveryFee = parseFloat(order?.delivery_fee) || 0;
-    return totalAmount + deliveryFee;
-  };
+  const handleRefresh = useCallback(() => {
+    refetchOrder();
+    refetchHistory();
+    refetchPersonnel();
+    toast.success('Refreshing order details...');
+  }, [refetchOrder, refetchHistory, refetchPersonnel]);
 
-  // Helper function to check if an item is a Refill 19L (not Sealed)
-  const isRefillItem = (item) => {
-    const productName = item.product?.name?.toLowerCase() || item.product_name?.toLowerCase() || '';
-    const productType = item.product?.type?.toLowerCase() || item.type?.toLowerCase() || '';
-    const productSize = item.product?.size || item.size || '';
-    const productCategory = item.product?.category?.toLowerCase() || item.category?.toLowerCase() || '';
-    
-    // Must be a REFILL type, not SEALED
-    // Check if it's explicitly a refill
-    const isRefillType = 
-      productType === 'refill' || 
-      productType === 'REFILL' ||
-      productCategory === 'refill' ||
-      productCategory === 'REFILL';
-    
-    // Check if the name indicates it's a refill (not sealed)
-    const isRefillName = 
-      productName.includes('refill') && 
-      !productName.includes('sealed');
-    
-    // Check size is 19L
-    const is19L = 
-      productSize === '19L' || 
-      productSize === '19 L' ||
-      productName.includes('19l') || 
-      productName.includes('19 l') ||
-      productName.includes('19-liter') ||
-      productName.includes('19 litre');
-    
-    // Must be a refill AND 19L
-    return (isRefillType || isRefillName) && is19L;
-  };
-
-  // Helper function to count empty bottles (Refill 19L items only)
-  const countEmptyBottles = (items) => {
-    if (!items || !Array.isArray(items)) return 0;
-    
-    return items.reduce((count, item) => {
-      if (isRefillItem(item)) {
-        return count + (item.quantity || 0);
-      }
-      return count;
-    }, 0);
-  };
-
-  // Get empty bottles count
-  const emptyBottlesCount = countEmptyBottles(order?.items);
-
-  const isHomeDelivery = order?.order_type === 'HOME_DELIVERY';
-  const isPickup = order?.order_type === 'PICKUP';
-  
-  // Get the appropriate status steps based on order type
-  const getStatusSteps = () => {
-    if (isHomeDelivery) return deliveryStatusSteps;
-    if (isPickup) return pickupStatusSteps;
-    return deliveryStatusSteps;
-  };
-
-  const getCurrentStepIndex = () => {
-    if (!order) return 0;
-    const steps = getStatusSteps();
-    const stepIndex = steps.indexOf(order.order_status);
-    return stepIndex >= 0 ? stepIndex : 0;
-  };
-
-  const getStatusIcon = (status) => {
+  const getStatusIcon = useCallback((status) => {
     const config = statusConfig[status];
     if (config?.icon) {
       const Icon = config.icon;
       return <Icon size={16} />;
     }
     return <Clock size={16} />;
-  };
+  }, []);
 
-  const statusSteps = getStatusSteps();
-
-  if (loading) {
+  // ─── Loading State ───
+  if (orderLoading) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
@@ -241,25 +276,33 @@ export default function OrderDetails() {
     );
   }
 
-  if (!order) {
+  // ─── Error State ───
+  if (orderError || !order) {
     return (
       <div className="text-center py-12">
         <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-        <p className="text-gray-500 font-medium">Order not found</p>
-        <button
-          onClick={() => navigate('/app/orders')}
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Back to Orders
-        </button>
+        <p className="text-gray-500 font-medium">
+          {orderError?.response?.status === 404 ? 'Order not found' : 'Failed to load order'}
+        </p>
+        <div className="flex items-center justify-center gap-3 mt-4">
+          <button
+            onClick={() => navigate('/app/orders')}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Back to Orders
+          </button>
+          <button
+            onClick={handleRefresh}
+            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Get delivery fee (from order or from delivery object)
-  const deliveryFee = parseFloat(order.delivery_fee) || 
-                     parseFloat(order.delivery?.delivery_fee) || 0;
-  const totalWithDelivery = calculateTotalWithDelivery(order);
+  const isUpdating = updateStatusMutation.isPending || assignDeliveryMutation.isPending;
 
   return (
     <motion.div
@@ -267,7 +310,7 @@ export default function OrderDetails() {
       animate={{ opacity: 1, y: 0 }}
       className="space-y-6"
     >
-      {/* Header */}
+      {/* ─── Header ─── */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div className="flex items-center gap-4">
           <button
@@ -294,10 +337,18 @@ export default function OrderDetails() {
             </h1>
             <p className="text-sm text-gray-500">
               Placed on {new Date(order.created_at).toLocaleString()}
+              {orderFetching && ' (updating...)'}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleRefresh}
+            disabled={orderFetching}
+            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={18} className={orderFetching ? 'animate-spin' : ''} />
+          </button>
           <span className={`px-3 py-1 rounded-full text-xs font-medium ${statusConfig[order.order_status]?.color || 'bg-gray-100 text-gray-700'}`}>
             {statusConfig[order.order_status]?.label || order.order_status}
           </span>
@@ -315,7 +366,7 @@ export default function OrderDetails() {
         </div>
       </div>
 
-      {/* Status Progress */}
+      {/* ─── Status Progress ─── */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -342,10 +393,9 @@ export default function OrderDetails() {
         <div className="relative">
           <div className="flex items-center justify-between">
             {statusSteps.map((step, index) => {
-              const isCompleted = index <= getCurrentStepIndex();
-              const isCurrent = index === getCurrentStepIndex();
+              const isCompleted = index <= currentStepIndex;
+              const isCurrent = index === currentStepIndex;
               const StatusIcon = statusConfig[step]?.icon || Clock;
-              // For pickup orders, show COMPLETED instead of DELIVERED in label
               const stepLabel = isPickup && step === 'DELIVERED' ? 'Completed' : statusConfig[step]?.label || step;
               
               return (
@@ -377,21 +427,20 @@ export default function OrderDetails() {
               );
             })}
           </div>
-          {/* Progress bar */}
           <div className="absolute top-5 left-0 right-0 h-0.5 bg-gray-200 -z-10">
             <div
               className="h-full bg-blue-600 transition-all duration-500"
               style={{
-                width: `${(getCurrentStepIndex() / (statusSteps.length - 1)) * 100}%`
+                width: `${(currentStepIndex / (statusSteps.length - 1)) * 100}%`
               }}
             />
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* ─── Main Content ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column - Order Info */}
+        {/* ─── Left Column - Order Info ─── */}
         <div className="lg:col-span-2 space-y-6">
           {/* Customer Info */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
@@ -541,7 +590,6 @@ export default function OrderDetails() {
               })}
             </div>
             
-            {/* Empty Bottles Summary - Only for Refill items */}
             {emptyBottlesCount > 0 && (
               <div className="mt-3 p-3 bg-emerald-50 rounded-lg border border-emerald-200">
                 <div className="flex items-center gap-3">
@@ -560,13 +608,11 @@ export default function OrderDetails() {
               </div>
             )}
             
-            {/* Subtotal */}
             <div className="mt-3 pt-3 border-t border-gray-100 flex justify-between items-center">
               <p className="text-sm text-gray-600">Subtotal</p>
               <p className="font-semibold text-gray-900">{formatCurrency(order.total_amount || 0)}</p>
             </div>
             
-            {/* Delivery Fee - Only show for home delivery with fee > 0 */}
             {isHomeDelivery && deliveryFee > 0 && (
               <div className="mt-1 flex justify-between items-center">
                 <p className="text-sm text-gray-600">Delivery Fee</p>
@@ -574,7 +620,6 @@ export default function OrderDetails() {
               </div>
             )}
             
-            {/* Total with Delivery */}
             <div className="mt-3 pt-3 border-t border-gray-200 flex justify-between items-center">
               <p className="font-semibold text-gray-900">Total Amount</p>
               <p className="font-bold text-xl text-blue-600">
@@ -624,15 +669,14 @@ export default function OrderDetails() {
           )}
         </div>
 
-        {/* Right Column - Actions */}
+        {/* ─── Right Column - Actions ─── */}
         <div className="space-y-6">
-          {/* Actions Card */}
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 sticky top-6">
             <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
               <UserCheck size={18} className="text-blue-600" /> Actions
             </h3>
 
-            {/* Delivery Person Assignment - Only for Home Delivery */}
+            {/* Delivery Person Assignment */}
             {isHomeDelivery && (
               <div className="mb-4">
                 <label className="block text-xs font-medium text-gray-600 mb-1.5">
@@ -650,6 +694,7 @@ export default function OrderDetails() {
                     <button
                       onClick={() => setShowAssignModal(true)}
                       className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                      disabled={isUpdating}
                     >
                       Change
                     </button>
@@ -658,6 +703,7 @@ export default function OrderDetails() {
                   <button
                     onClick={() => setShowAssignModal(true)}
                     className="w-full px-4 py-3 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100 transition-colors border-2 border-dashed border-blue-200"
+                    disabled={isUpdating}
                   >
                     <div className="flex items-center justify-center gap-2">
                       <Bike size={16} />
@@ -668,7 +714,6 @@ export default function OrderDetails() {
               </div>
             )}
 
-            {/* Pickup Info - No delivery assignment needed */}
             {isPickup && (
               <div className="mb-4 p-4 bg-purple-50 rounded-lg border border-purple-200">
                 <div className="flex items-center gap-3">
@@ -691,13 +736,11 @@ export default function OrderDetails() {
               <p className="text-xs font-medium text-gray-600">Update Order Status</p>
               <div className="grid grid-cols-2 gap-2">
                 {Object.entries(statusConfig).map(([key, config]) => {
-                  // For pickup orders, don't show DELIVERED (use COMPLETED instead)
                   if (isPickup && key === 'DELIVERED') return null;
-                  // For home delivery, don't show COMPLETED (use DELIVERED instead)
                   if (isHomeDelivery && key === 'COMPLETED') return null;
                   
                   const isDisabled = 
-                    updating || 
+                    isUpdating || 
                     key === order.order_status || 
                     (key === 'CANCELLED' && order.order_status === 'DELIVERED') ||
                     (key === 'DELIVERED' && order.order_status === 'CANCELLED') ||
@@ -785,7 +828,7 @@ export default function OrderDetails() {
         </div>
       </div>
 
-      {/* Assign Delivery Person Modal - Only for Home Delivery */}
+      {/* ─── Assign Delivery Person Modal ─── */}
       {showAssignModal && isHomeDelivery && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <motion.div
@@ -808,6 +851,7 @@ export default function OrderDetails() {
                 value={selectedDeliveryPerson}
                 onChange={(e) => setSelectedDeliveryPerson(e.target.value)}
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                disabled={isUpdating}
               >
                 <option value="">Select delivery person...</option>
                 {deliveryPersonnel.map((person) => (
@@ -817,7 +861,11 @@ export default function OrderDetails() {
                 ))}
               </select>
 
-              {deliveryPersonnel.length === 0 && (
+              {personnelLoading && (
+                <p className="text-sm text-gray-500 text-center">Loading delivery personnel...</p>
+              )}
+
+              {deliveryPersonnel.length === 0 && !personnelLoading && (
                 <p className="text-sm text-amber-600 bg-amber-50 p-3 rounded-lg">
                   No delivery personnel available. Please add delivery staff first.
                 </p>
@@ -826,10 +874,10 @@ export default function OrderDetails() {
               <div className="flex gap-3">
                 <button
                   onClick={assignDeliveryPerson}
-                  disabled={updating || !selectedDeliveryPerson}
+                  disabled={isUpdating || !selectedDeliveryPerson}
                   className="flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {updating ? 'Assigning...' : 'Assign'}
+                  {isUpdating ? 'Assigning...' : 'Assign'}
                 </button>
                 <button
                   onClick={() => {

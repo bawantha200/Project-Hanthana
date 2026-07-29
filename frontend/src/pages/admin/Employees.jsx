@@ -637,26 +637,36 @@ export default function Employees() {
     setError(null);
   };
 
-  // ========== FETCH EMPLOYEES ==========
-  const fetchEmployees = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(API_URL, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log('Employees from API:', response.data);
-      if (response.data.success) {
-        setEmployees(response.data.data);
+
+// ========== FETCH EMPLOYEES ==========
+const fetchEmployees = useCallback(async () => {
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    
+    // 💡 Frontend Search / Filter / Pagination params API එකට යවනවා නම්:
+    const response = await axios.get(API_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: {
+        search: searchQuery,
+        status: activeFilter,
+        page: currentPage,
+        limit: itemsPerPage
       }
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching employees:', err);
-      setError('Failed to load employees. Please try again.');
-    } finally {
-      setLoading(false);
+    });
+
+    console.log('Employees from API:', response.data);
+    if (response.data.success) {
+      setEmployees(response.data.data);
     }
-  };
+    setError(null);
+  } catch (err) {
+    console.error('Error fetching employees:', err);
+    setError('Failed to load employees. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+}, [searchQuery, activeFilter, currentPage, itemsPerPage]); // 💡 මේ dependencies වෙනස් වෙද්දී විතරක් function එක Re-create වේ.
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];

@@ -1,7 +1,8 @@
 // frontend/src/components/FloatingOrderButton.jsx
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from "framer-motion";
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import CryptoJS from 'crypto-js';
 import html2canvas from 'html2canvas';
 import {
@@ -21,7 +22,15 @@ import toast from "react-hot-toast";
 import api from '../services/api';
 import { calculateDeliveryFee } from '../services/deliveryFeeService';
 
-// PAYHERE CONFIGURATION
+// ─── Query Keys ───
+const QUERY_KEYS = {
+  PRODUCTS: ['products'],
+  INVENTORY: ['inventory'],
+  USER_ADDRESS: (userId) => ['user', userId, 'address'],
+  ORDER: (orderId) => ['order', orderId],
+};
+
+// ─── PAYHERE CONFIGURATION ───
 const PAYHERE_CONFIG = {
   merchantId: "1236932",
   merchantSecret: "MTUwODY5ODIwMzYzODI1MDQxNjI3OTI1MDk1OTMzNDY4MjE5OTU4",
@@ -31,6 +40,20 @@ const PAYHERE_CONFIG = {
   notifyUrl: "https://straggler-capitol-unseeing.ngrok-free.dev/api/payments/notify",
 };
 
+// ─── MapTiler Configuration ───
+const MAPTILER_CONFIG = {
+  apiKey: import.meta.env.VITE_MAPTILER_API_KEY || '',
+  styleUrl: 'https://api.maptiler.com/maps/basic/style.json',
+  geocodingUrl: 'https://api.maptiler.com/geocoding',
+};
+
+const mapContainerStyle = {
+  width: '100%',
+  height: '100%',
+  minHeight: '320px'
+};
+
+// ─── Helper Functions ───
 const generatePayHereHash = (merchantId, orderId, amount, currency, merchantSecret) => {
   const hashedSecret = CryptoJS.MD5(merchantSecret).toString().toUpperCase();
   const hashString = `${merchantId}${orderId}${amount}${currency}${hashedSecret}`;
@@ -38,30 +61,14 @@ const generatePayHereHash = (merchantId, orderId, amount, currency, merchantSecr
   return hash;
 };
 
-// MapTiler Configuration
-const MAPTILER_CONFIG = {
-  apiKey: import.meta.env.VITE_MAPTILER_API_KEY || '',
-  styleUrl: 'https://api.maptiler.com/maps/basic/style.json',
-  geocodingUrl: 'https://api.maptiler.com/geocoding',
-};
-
-// Map Container Style
-const mapContainerStyle = {
-  width: '100%',
-  height: '100%',
-  minHeight: '320px'
-};
-
-const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
+const FloatingOrderButton = ({ onLoginRequired, hasMaintenanceBanner }) => {
   const { user } = useAuth();
-  const [isOpen, setIsOpen] = useState(false);
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [productStock, setProductStock] = useState({});
-  const [stockErrors, setStockErrors] = useState({});
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  
-  // ORDER DATA - Address (from DB) + Location (user selected)
+
+  // ─── State ───
+  const [isOpen, setIsOpen] = useState(false);
+  const [step, setStep] = useState(1);
   const [orderData, setOrderData] = useState({ 
     items: {}, 
     deliveryType: null, 
@@ -70,25 +77,19 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
     longitude: null,
     locationAddress: "",
   });
-  
-  const [savedAddress, setSavedAddress] = useState({
-    address: "",
-  });
-  
-  const [step, setStep] = useState(1);
-  const [subtotal, setSubtotal] = useState(0);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CASH");
   const [orderId, setOrderId] = useState(null);
   const [orderDetails, setOrderDetails] = useState(null);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CASH");
-  const invoiceContainerRef = useRef(null);
+  const [loading, setLoading] = useState(false);
+  const [subtotal, setSubtotal] = useState(0);
   
   // Delivery fee states
   const [deliveryCharge, setDeliveryCharge] = useState(0);
   const [deliveryDistance, setDeliveryDistance] = useState(0);
   const [deliveryDuration, setDeliveryDuration] = useState(0);
-  const [isCalculatingFee, setIsCalculatingFee] = useState(false);
   const [deliveryFeeMessage, setDeliveryFeeMessage] = useState('');
+  const [isCalculatingFee, setIsCalculatingFee] = useState(false);
   
   // Location states
   const [isGettingLocation, setIsGettingLocation] = useState(false);
@@ -98,27 +99,299 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [locationInput, setLocationInput] = useState('');
+  const [savedAddress, setSavedAddress] = useState({ address: "" });
   
-  // MapLibre state
+  // Map states
   const [maplibregl, setMaplibregl] = useState(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [isMapInitializing, setIsMapInitializing] = useState(false);
   const mapInitAttempts = useRef(0);
-  
-  // Map refs
   const mapContainer = useRef(null);
   const map = useRef(null);
   const marker = useRef(null);
-  const geocoderInputRef = useRef(null);
   const [pendingProductId, setPendingProductId] = useState(null);
-
+  const [stockErrors, setStockErrors] = useState({});
+  const invoiceContainerRef = useRef(null);
   const addressDebounceTimer = useRef(null);
   const geolocationTimeoutRef = useRef(null);
 
-  const maptilerApiKey = MAPTILER_CONFIG.apiKey;
-  const hasValidApiKey = maptilerApiKey && maptilerApiKey !== '';
+  // ─── React Query: Fetch Products ───
+  const {
+    data: products = [],
+    isLoading: productsLoading,
+    error: productsError,
+  } = useQuery({
+    queryKey: QUERY_KEYS.PRODUCTS,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("products")
+        .select("id, name, type, unit_price, image_url")
+        .order("name");
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 120000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    enabled: isOpen, // Only fetch when modal is open
+  });
 
-  // Load maplibre-gl dynamically
+  // ─── React Query: Fetch Inventory ───
+  const {
+    data: inventoryData = [],
+    isLoading: inventoryLoading,
+  } = useQuery({
+    queryKey: QUERY_KEYS.INVENTORY,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("inventory")
+        .select("product_id, current_stock");
+      if (error) throw error;
+      return data || [];
+    },
+    staleTime: 60000,
+    gcTime: 180000,
+    refetchOnWindowFocus: false,
+    enabled: isOpen,
+  });
+
+  // ─── React Query: Fetch User Address ───
+  const {
+    data: userAddress = null,
+    isLoading: addressLoading,
+  } = useQuery({
+    queryKey: QUERY_KEYS.USER_ADDRESS(user?.id),
+    queryFn: async () => {
+      if (!user) return null;
+      const { data, error } = await supabase
+        .from("users")
+        .select("address")
+        .eq("id", user.id)
+        .single();
+      if (error) {
+        console.warn('[FloatingOrderButton] Error fetching user address:', error);
+        return null;
+      }
+      return data?.address || null;
+    },
+    staleTime: 300000,
+    gcTime: 600000,
+    refetchOnWindowFocus: false,
+    enabled: !!user && isOpen,
+  });
+
+  // ─── React Query: Create Order Mutation ───
+  const createOrderMutation = useMutation({
+    mutationFn: async (orderData) => {
+      const response = await api.post('/orders', orderData);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      setOrderId(data.order?.id);
+      setOrderDetails(data.order);
+    },
+    onError: (error) => {
+      console.error("Order creation failed:", error);
+      const msg = error.response?.data?.message || "Failed to place order.";
+      toast.error(msg);
+      setLoading(false);
+    },
+  });
+
+  // ─── React Query: Create Payment Mutation ───
+  const createPaymentMutation = useMutation({
+    mutationFn: async ({ orderId, amount, order }) => {
+      const { data: customer } = await supabase
+        .from("users")
+        .select("name, email, phone")
+        .eq("id", user.id)
+        .single();
+
+      const orderRef = String(orderId).padStart(6, "0");
+      const totalAmount = Number(amount).toFixed(2);
+
+      const hash = generatePayHereHash(
+        PAYHERE_CONFIG.merchantId,
+        orderRef,
+        totalAmount,
+        "LKR",
+        PAYHERE_CONFIG.merchantSecret
+      );
+
+      await supabase.from("payments").insert({
+        order_id: orderId,
+        amount: amount,
+        payment_method: "ONLINE",
+        status: "PENDING",
+        transaction_id: `TXN-${Date.now()}`,
+      });
+
+      return {
+        merchant_id: PAYHERE_CONFIG.merchantId,
+        order_id: orderRef,
+        items: `Water Order #${orderId}`,
+        amount: totalAmount,
+        currency: "LKR",
+        hash: hash,
+        first_name: customer?.name?.split(" ")[0] || "Customer",
+        last_name: customer?.name?.split(" ").slice(1).join(" ") || " ",
+        email: customer?.email || user.email || "",
+        phone: customer?.phone || "",
+        address: orderData.address || "No Address",
+        city: "Colombo",
+        country: "Sri Lanka",
+        delivery_address: orderData.locationAddress || orderData.address || "No Address",
+        delivery_city: "Colombo",
+        delivery_country: "Sri Lanka",
+        custom_1: `OrderID:${orderId}`,
+        return_url: PAYHERE_CONFIG.returnUrl,
+        cancel_url: PAYHERE_CONFIG.cancelUrl,
+        notify_url: PAYHERE_CONFIG.notifyUrl,
+      };
+    },
+    onSuccess: (formData) => {
+      const form = document.createElement("form");
+      form.method = "POST";
+      form.action = `${PAYHERE_CONFIG.baseUrl}/pay/checkout`;
+
+      Object.entries(formData).forEach(([key, value]) => {
+        const input = document.createElement("input");
+        input.type = "hidden";
+        input.name = key;
+        input.value = String(value);
+        form.appendChild(input);
+      });
+
+      document.body.appendChild(form);
+      form.submit();
+    },
+    onError: (error) => {
+      console.error("Payment setup failed:", error);
+      toast.error("Failed to initiate payment.");
+      setIsPaymentProcessing(false);
+      setLoading(false);
+    },
+  });
+
+  // ─── React Query: Calculate Delivery Fee ───
+  const calculateDeliveryFeeMutation = useMutation({
+    mutationFn: async ({ address, subtotal }) => {
+      return await calculateDeliveryFee(address, subtotal);
+    },
+    onSuccess: (response) => {
+      if (response.success && response.data) {
+        const { delivery_fee, distance_km, duration_minutes, message } = response.data;
+        setDeliveryCharge(delivery_fee || 0);
+        setDeliveryDistance(distance_km || 0);
+        setDeliveryDuration(duration_minutes || 0);
+        setDeliveryFeeMessage(message || '');
+      } else {
+        setDeliveryCharge(0);
+        setDeliveryDistance(0);
+        setDeliveryDuration(0);
+        setDeliveryFeeMessage('Using default delivery charge');
+      }
+      setIsCalculatingFee(false);
+    },
+    onError: (error) => {
+      console.error('[FloatingOrderButton] Failed to calculate delivery fee:', error);
+      setDeliveryCharge(0);
+      setDeliveryDistance(0);
+      setDeliveryDuration(0);
+      setDeliveryFeeMessage('Using default delivery charge');
+      setIsCalculatingFee(false);
+    },
+  });
+
+  // ─── React Query: Search Address (Geocoding) ───
+  const searchAddressMutation = useMutation({
+    mutationFn: async (query) => {
+      if (!query || query.length < 3) return [];
+
+      // Try MapTiler first
+      if (MAPTILER_CONFIG.apiKey) {
+        const response = await fetch(
+          `${MAPTILER_CONFIG.geocodingUrl}/${encodeURIComponent(query)}.json?key=${MAPTILER_CONFIG.apiKey}&limit=5&language=en&country=lk`
+        );
+        if (response.ok) {
+          const data = await response.json();
+          if (data.features && data.features.length > 0) {
+            return data.features.map(feature => ({
+              label: feature.place_name || feature.text,
+              latitude: feature.geometry.coordinates[1],
+              longitude: feature.geometry.coordinates[0],
+              formatted: feature.place_name || feature.text,
+              context: feature.context?.map(c => c.text).join(', ') || ''
+            }));
+          }
+        }
+      }
+
+      // Fallback to Nominatim
+      const fallbackResponse = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=lk`
+      );
+      const fallbackData = await fallbackResponse.json();
+      if (fallbackData && fallbackData.length > 0) {
+        return fallbackData.map(item => ({
+          label: item.display_name,
+          latitude: parseFloat(item.lat),
+          longitude: parseFloat(item.lon),
+          formatted: item.display_name,
+          context: ''
+        }));
+      }
+      return [];
+    },
+    onSuccess: (results) => {
+      setSearchResults(results);
+      setIsSearching(false);
+    },
+    onError: () => {
+      setSearchResults([]);
+      setIsSearching(false);
+    },
+  });
+
+  // ─── Product Stock Map (Memoized) ───
+  const productStock = useMemo(() => {
+    const stockMap = {};
+    inventoryData.forEach(item => {
+      stockMap[item.product_id] = item.current_stock || 0;
+    });
+    return stockMap;
+  }, [inventoryData]);
+
+  // ─── Compute Subtotal ───
+  useEffect(() => {
+    let total = 0;
+    products.forEach(p => {
+      const qty = orderData.items[p.id] || 0;
+      total += qty * p.unit_price;
+    });
+    setSubtotal(total);
+  }, [orderData.items, products]);
+
+  // ─── Set Saved Address ───
+  useEffect(() => {
+    if (userAddress) {
+      setSavedAddress({ address: userAddress });
+      setOrderData(prev => ({ ...prev, address: userAddress }));
+    }
+  }, [userAddress]);
+
+  // ─── Handle Delivery Fee Calculation ───
+  useEffect(() => {
+    if (orderData.deliveryType === "HOME_DELIVERY") {
+      const deliveryAddress = orderData.locationAddress || orderData.address;
+      if (deliveryAddress && deliveryAddress.trim().length >= 5) {
+        setIsCalculatingFee(true);
+        calculateDeliveryFeeMutation.mutate({ address: deliveryAddress, subtotal });
+      }
+    }
+  }, [orderData.deliveryType, orderData.locationAddress, orderData.address, subtotal]);
+
+  // ─── Load maplibre-gl dynamically ───
   useEffect(() => {
     const loadMapLibre = async () => {
       try {
@@ -135,7 +408,7 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
     loadMapLibre();
   }, []);
 
-  // Cleanup geolocation timeout on unmount
+  // ─── Cleanup geolocation timeout ───
   useEffect(() => {
     return () => {
       if (geolocationTimeoutRef.current) {
@@ -145,700 +418,37 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
     };
   }, []);
 
-  // ============================================
-  // MAP INITIALIZATION
-  // ============================================
-
-  const initMap = () => {
-    if (isMapInitializing) {
-      console.log('[initMap] Already initializing, skipping...');
-      return;
-    }
-
-    if (!mapContainer.current) {
-      console.log('[initMap] Container not ready, retrying...');
-      setTimeout(() => initMap(), 200);
-      return;
-    }
-
-    if (!hasValidApiKey) {
-      console.log('[initMap] No API key');
-      return;
-    }
-
-    if (!maplibregl) {
-      console.log('[initMap] MapLibre not loaded yet');
-      return;
-    }
-
-    if (map.current) {
-      console.log('[initMap] Removing existing map');
-      try {
-        map.current.remove();
-      } catch (e) {
-        console.warn('[initMap] Error removing existing map:', e);
-      }
-      map.current = null;
-      marker.current = null;
-    }
-
-    const rect = mapContainer.current.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) {
-      console.log('[initMap] Container not visible, retrying...');
-      setTimeout(() => initMap(), 300);
-      return;
-    }
-
-    setIsMapInitializing(true);
-    mapInitAttempts.current += 1;
-    console.log(`[initMap] Initializing map (attempt ${mapInitAttempts.current})...`);
-
-    try {
-      const MapLibreGL = maplibregl;
-      const style = `${MAPTILER_CONFIG.styleUrl}?key=${maptilerApiKey}`;
-      
-      const centerLng = orderData.longitude || 79.8919;
-      const centerLat = orderData.latitude || 7.0744;
-      
-      map.current = new MapLibreGL.Map({
-        container: mapContainer.current,
-        style: style,
-        center: [centerLng, centerLat],
-        zoom: 15,
-        attributionControl: false,
-        fadeDuration: 0,
-        interactive: true,
-        preserveDrawingBuffer: true,
-      });
-
-      if (map.current.setMissingStyleImageResolver) {
-        map.current.setMissingStyleImageResolver(() => null);
-      }
-
-      map.current.on('load', () => {
-        console.log('[MapLibre] Map loaded successfully');
-        try {
-          map.current.addControl(new MapLibreGL.AttributionControl(), 'bottom-right');
-          map.current.addControl(new MapLibreGL.NavigationControl(), 'top-right');
-
-          marker.current = new MapLibreGL.Marker({
-            draggable: true,
-            color: '#2563eb'
-          })
-            .setLngLat([centerLng, centerLat])
-            .addTo(map.current);
-
-          marker.current.on('dragend', async () => {
-            const lngLat = marker.current.getLngLat();
-            await reverseGeocodeLocation(lngLat.lat, lngLat.lng);
-          });
-
-          map.current.on('click', async (e) => {
-            const { lat, lng } = e.lngLat;
-            if (marker.current) {
-              marker.current.setLngLat([lng, lat]);
-            }
-            await reverseGeocodeLocation(lat, lng);
-          });
-
-          setIsMapInitializing(false);
-          console.log('[MapLibre] Map fully initialized');
-        } catch (error) {
-          console.error('[MapLibre] Error adding controls/marker:', error);
-          setIsMapInitializing(false);
-        }
-      });
-
-      map.current.on('error', (e) => {
-        if (e.error && e.error.message) {
-          const msg = e.error.message.toLowerCase();
-          if (msg.includes('sprite') || msg.includes('image') || msg.includes('could not load') || msg.includes('resource')) {
-            return;
-          }
-          console.error('[MapLibre] Map error:', e);
-        }
-        setIsMapInitializing(false);
-      });
-
-      map.current.on('style.load', () => {
-        console.log('[MapLibre] Style loaded');
-      });
-
-    } catch (error) {
-      console.error('[MapLibre] Failed to initialize map:', error);
-      setIsMapInitializing(false);
-      toast.error('Failed to load map. Please try again.');
-    }
-  };
-
-  // Cleanup map on unmount
+  // ─── Handle pending product from event ───
   useEffect(() => {
-    return () => {
-      console.log('[MapLibre] Cleaning up map...');
-      if (map.current) {
-        try {
-          map.current.remove();
-        } catch (e) {
-          console.warn('[MapLibre] Error removing map:', e);
-        }
-        map.current = null;
-        marker.current = null;
-      }
-      if (geolocationTimeoutRef.current) {
-        clearTimeout(geolocationTimeoutRef.current);
-        geolocationTimeoutRef.current = null;
-      }
-      setIsMapInitializing(false);
-    };
-  }, []);
-
-  // Initialize map when location picker opens
-  useEffect(() => {
-    if (showLocationPicker && hasValidApiKey && maplibregl && !isMapInitializing) {
-      console.log('[MapLibre] Location picker opened, initializing map...');
-      const timer = setTimeout(() => {
-        initMap();
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-    
-    if (!showLocationPicker && map.current) {
-      console.log('[MapLibre] Location picker closed, cleaning up...');
-      try {
-        map.current.remove();
-        map.current = null;
-        marker.current = null;
-      } catch (e) {
-        console.warn('[MapLibre] Error removing map on close:', e);
-      }
-      setIsMapInitializing(false);
-    }
-  }, [showLocationPicker, hasValidApiKey, maplibregl]);
-
-  // Update marker position
-  const updateMarkerPosition = (lat, lng) => {
-    if (marker.current) {
-      marker.current.setLngLat([lng, lat]);
-    }
-    if (map.current) {
-      map.current.flyTo({
-        center: [lng, lat],
-        zoom: 15,
-        essential: true
-      });
-    }
-  };
-
-  // ============================================
-  // LOCATION FUNCTIONS
-  // ============================================
-
-  const searchAddress = async (query) => {
-    if (!query || query.length < 3) {
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    try {
-      const response = await fetch(
-        `${MAPTILER_CONFIG.geocodingUrl}/${encodeURIComponent(query)}.json?key=${maptilerApiKey}&limit=5&language=en&country=lk`
-      );
+    if (pendingProductId && productStock[pendingProductId] !== undefined) {
+      const maxStock = productStock[pendingProductId] || 0;
+      const currentQty = orderData.items[pendingProductId] || 0;
       
-      if (!response.ok) {
-        throw new Error('Geocoding request failed');
-      }
-
-      const data = await response.json();
-      
-      if (data.features && data.features.length > 0) {
-        const results = data.features.map(feature => ({
-          label: feature.place_name || feature.text,
-          latitude: feature.geometry.coordinates[1],
-          longitude: feature.geometry.coordinates[0],
-          formatted: feature.place_name || feature.text,
-          context: feature.context?.map(c => c.text).join(', ') || ''
+      if (currentQty < maxStock) {
+        setOrderData(prev => ({
+          ...prev,
+          items: {
+            ...prev.items,
+            [pendingProductId]: Math.min(currentQty + 1, maxStock),
+          },
         }));
-        setSearchResults(results);
-        console.log('[Geocoding] Results:', results);
       } else {
-        setSearchResults([]);
+        toast.error(`Only ${maxStock} units available for this product`);
       }
-    } catch (error) {
-      console.error('[Geocoding] Error:', error);
-      setSearchResults([]);
-      try {
-        const fallbackResponse = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=lk`
-        );
-        const fallbackData = await fallbackResponse.json();
-        if (fallbackData && fallbackData.length > 0) {
-          const results = fallbackData.map(item => ({
-            label: item.display_name,
-            latitude: parseFloat(item.lat),
-            longitude: parseFloat(item.lon),
-            formatted: item.display_name,
-            context: ''
-          }));
-          setSearchResults(results);
-        }
-      } catch (fallbackError) {
-        console.warn('[Geocoding] Fallback failed:', fallbackError);
-      }
-    } finally {
-      setIsSearching(false);
+      setPendingProductId(null);
     }
-  };
+  }, [pendingProductId, productStock, orderData.items]);
 
-  const selectSearchResult = (result) => {
-    const { latitude, longitude, label } = result;
-    setOrderData(prev => ({
-      ...prev,
-      latitude: latitude,
-      longitude: longitude,
-      locationAddress: label
-    }));
-    setLocationInput(label);
-    updateMarkerPosition(latitude, longitude);
-    setSearchQuery(label);
-    setSearchResults([]);
-    
-    if (orderData.deliveryType === "HOME_DELIVERY") {
-      handleDeliveryFeeCalculation(label);
-    }
-    
-    toast.success('Location selected!');
-  };
-
-  const reverseGeocodeLocation = async (lat, lng) => {
-    console.log('[reverseGeocode] Called with:', lat, lng);
-    
-    try {
-      setOrderData(prev => ({
-        ...prev,
-        latitude: lat,
-        longitude: lng
-      }));
-      
-      updateMarkerPosition(lat, lng);
-      
-      let address = null;
-      let formattedAddress = null;
-      
-      if (hasValidApiKey) {
-        try {
-          console.log('[reverseGeocode] Trying MapTiler API...');
-          const response = await fetch(
-            `${MAPTILER_CONFIG.geocodingUrl}/${lng},${lat}.json?key=${maptilerApiKey}&language=en`
-          );
-          
-          if (response.ok) {
-            const data = await response.json();
-            if (data.features && data.features.length > 0) {
-              const feature = data.features[0];
-              formattedAddress = feature.place_name || feature.text;
-              address = formattedAddress
-                .replace(/,\s*[A-Za-z\s]+District/g, '')
-                .replace(/,\s*[A-Za-z\s]+Province/g, '')
-                .replace(/,\s*\d{5}/g, '')
-                .trim();
-              
-              if (!address.includes('Sri Lanka')) {
-                address = `${address}, Sri Lanka`;
-              }
-              console.log('[reverseGeocode] MapTiler result:', address);
-            }
-          }
-        } catch (e) {
-          console.warn('MapTiler reverse geocode failed:', e.message);
-        }
-      }
-
-      if (!address || address === 'Sri Lanka') {
-        try {
-          console.log('[reverseGeocode] Falling back to Nominatim...');
-          const response = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&accept-language=en`,
-            {
-              headers: { 'User-Agent': 'HanthanaWater/1.0' }
-            }
-          );
-          const data = await response.json();
-          
-          if (data.display_name && data.display_name !== 'Sri Lanka') {
-            address = data.display_name
-              .replace(/,\s*[A-Za-z\s]+District/g, '')
-              .replace(/,\s*[A-Za-z\s]+Province/g, '')
-              .replace(/,\s*\d{5}/g, '')
-              .trim();
-            
-            if (!address.includes('Sri Lanka')) {
-              address = `${address}, Sri Lanka`;
-            }
-            formattedAddress = data.display_name;
-            console.log('[reverseGeocode] Nominatim result:', address);
-          }
-        } catch (e) {
-          console.warn('Nominatim fallback failed:', e.message);
-        }
-      }
-
-      if (!address || address === 'Sri Lanka') {
-        address = `${lat.toFixed(4)}, ${lng.toFixed(4)}, Sri Lanka`;
-        formattedAddress = address;
-        console.log('[reverseGeocode] Using coordinate fallback:', address);
-      }
-
-      address = address.replace(/, Sri Lanka, Sri Lanka$/, ', Sri Lanka');
-      address = address.replace(/^Sri Lanka, /, '');
-      
-      console.log('[reverseGeocode] Final location address:', address);
-
-      setOrderData(prev => ({
-        ...prev,
-        locationAddress: address,
-        latitude: lat,
-        longitude: lng
-      }));
-      
-      setLocationInput(address);
-
-      if (orderData.deliveryType === "HOME_DELIVERY") {
-        await handleDeliveryFeeCalculation(address);
-      }
-
-      setLocationError(null);
-      toast.success('Location selected!');
-      return true;
-    } catch (error) {
-      console.error('[reverseGeocode] Error:', error);
-      setLocationError('Failed to get address for this location');
-      toast.error('Failed to get address');
-      return false;
-    }
-  };
-
-  const getUserCurrentLocation = () => {
-    console.log('[getUserCurrentLocation] Button clicked');
-    
-    if (!navigator.geolocation) {
-      console.error('[getUserCurrentLocation] Geolocation not supported');
-      toast.error('Geolocation is not supported by your browser');
-      return;
-    }
-
-    if (isGettingLocation) {
-      console.log('[getUserCurrentLocation] Already getting location');
-      return;
-    }
-
-    console.log('[getUserCurrentLocation] Starting location request...');
-    setIsGettingLocation(true);
-    setLocationError(null);
-    
-    toast.loading('Getting your location...', { id: 'location-loading' });
-
-    if (geolocationTimeoutRef.current) {
-      clearTimeout(geolocationTimeoutRef.current);
-      geolocationTimeoutRef.current = null;
-    }
-
-    geolocationTimeoutRef.current = setTimeout(() => {
-      console.log('[getUserCurrentLocation] Location request timed out');
-      toast.dismiss('location-loading');
-      setIsGettingLocation(false);
-      setLocationError('Location request timed out. Please enter address manually.');
-      toast.error('Location request timed out. Please try again or enter manually.');
-      geolocationTimeoutRef.current = null;
-    }, 15000);
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        if (geolocationTimeoutRef.current) {
-          clearTimeout(geolocationTimeoutRef.current);
-          geolocationTimeoutRef.current = null;
-        }
-
-        console.log('[getUserCurrentLocation] Location received!');
-        console.log('[getUserCurrentLocation] Coordinates:', position.coords);
-        const { latitude, longitude, accuracy } = position.coords;
-        
-        toast.dismiss('location-loading');
-        console.log(`Accuracy: ${accuracy} meters`);
-        
-        await reverseGeocodeLocation(latitude, longitude);
-        setIsGettingLocation(false);
-      },
-      (error) => {
-        if (geolocationTimeoutRef.current) {
-          clearTimeout(geolocationTimeoutRef.current);
-          geolocationTimeoutRef.current = null;
-        }
-
-        console.error('[getUserCurrentLocation] Geolocation error:', error);
-        toast.dismiss('location-loading');
-        
-        let message = 'Unable to get your location. Please enter address manually.';
-        let logMessage = '';
-        
-        switch(error.code) {
-          case error.PERMISSION_DENIED:
-            message = 'Location permission denied. Please allow location access in your browser settings.';
-            logMessage = 'Permission denied';
-            break;
-          case error.POSITION_UNAVAILABLE:
-            message = 'Location unavailable. Please check your GPS or enter address manually.';
-            logMessage = 'Position unavailable';
-            break;
-          case error.TIMEOUT:
-            message = 'Location request timed out. Please try again or enter manually.';
-            logMessage = 'Timeout';
-            break;
-          default:
-            message = `Location error: ${error.message}`;
-            logMessage = error.message;
-        }
-        
-        console.log('[getUserCurrentLocation] Error details:', logMessage);
-        setLocationError(message);
-        toast.error(message, { duration: 6000 });
-        setIsGettingLocation(false);
-        
-        if (error.code !== error.PERMISSION_DENIED) {
-          console.log('[getUserCurrentLocation] Retrying with lower accuracy...');
-          setTimeout(() => {
-            retryGetLocation();
-          }, 2000);
-        }
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 60000
-      }
-    );
-  };
-
-  const retryGetLocation = () => {
-    console.log('[retryGetLocation] Retrying with lower accuracy...');
-    
-    if (!navigator.geolocation) {
-      setIsGettingLocation(false);
-      return;
-    }
-    
-    const retryToastId = toast.loading('Retrying location...', { 
-      id: 'location-retry' 
-    });
-
-    const retryTimeout = setTimeout(() => {
-      toast.dismiss(retryToastId);
-      toast.error('Unable to get location. Please enter address manually.', { duration: 5000 });
-      setIsGettingLocation(false);
-    }, 10000);
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        clearTimeout(retryTimeout);
-        toast.dismiss(retryToastId);
-        
-        const { latitude, longitude } = position.coords;
-        console.log('[retryGetLocation] Location received:', { latitude, longitude });
-        
-        toast.success('Location found!', { duration: 2000 });
-        await reverseGeocodeLocation(latitude, longitude);
-        setIsGettingLocation(false);
-      },
-      (error) => {
-        clearTimeout(retryTimeout);
-        toast.dismiss(retryToastId);
-        console.error('[retryGetLocation] Failed:', error.message);
-        toast.error('Unable to get location. Please enter address manually.', { duration: 5000 });
-        setIsGettingLocation(false);
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 8000,
-        maximumAge: 120000
-      }
-    );
-  };
-
-  // ============================================
-  // DELIVERY FEE CALCULATION
-  // ============================================
-
-  const handleDeliveryFeeCalculation = async (address) => {
-    if (!address || address.trim().length < 5) {
-      setDeliveryCharge(0);
-      setDeliveryDistance(0);
-      setDeliveryDuration(0);
-      setDeliveryFeeMessage('Enter a valid address');
-      return;
-    }
-
-    console.log('[FloatingOrderButton] Calculating delivery fee for:', address);
-    setIsCalculatingFee(true);
-
-    try {
-      const response = await calculateDeliveryFee(address, subtotal);
-      console.log('[FloatingOrderButton] Fee response:', response);
-      
-      if (response.success && response.data) {
-        const { delivery_fee, distance_km, duration_minutes, message } = response.data;
-        setDeliveryCharge(delivery_fee || 0);
-        setDeliveryDistance(distance_km || 0);
-        setDeliveryDuration(duration_minutes || 0);
-        setDeliveryFeeMessage(message || '');
-        
-        console.log('[FloatingOrderButton] Fee calculated:', {
-          delivery_fee,
-          distance_km,
-          duration_minutes
-        });
-      } else {
-        setDeliveryCharge(0);
-        setDeliveryDistance(0);
-        setDeliveryDuration(0);
-        setDeliveryFeeMessage('Using default delivery charge');
-      }
-    } catch (error) {
-      console.error('[FloatingOrderButton] Failed to calculate delivery fee:', error);
-      setDeliveryCharge(0);
-      setDeliveryDistance(0);
-      setDeliveryDuration(0);
-      setDeliveryFeeMessage('Using default delivery charge');
-    } finally {
-      setIsCalculatingFee(false);
-    }
-  };
-
-  // ============================================
-  // ORDER LOGIC
-  // ============================================
-
-  useEffect(() => {
-  const fetchData = async () => {
-    if (!isOpen) return;
-    
-    try {
-      // Fetch products
-      const { data: productsData } = await supabase
-        .from("products")
-        .select("id, name, type, unit_price, image_url")
-        .order("name");
-      
-      setProducts(productsData || []);
-      
-      // Fetch inventory stock
-      const { data: inventoryData } = await supabase
-        .from("inventory")
-        .select("product_id, current_stock");
-      
-      const stockMap = {};
-      inventoryData?.forEach(item => {
-        stockMap[item.product_id] = item.current_stock || 0;
-      });
-      setProductStock(stockMap);
-      
-      // Handle pending product if exists
-      if (pendingProductId) {
-        const maxStock = stockMap[pendingProductId] || 0;
-        const currentQty = orderData.items[pendingProductId] || 0;
-        
-        if (currentQty < maxStock) {
-          setOrderData(prev => ({
-            ...prev,
-            items: {
-              ...prev.items,
-              [pendingProductId]: Math.min(currentQty + 1, maxStock),
-            },
-          }));
-        } else {
-          toast.error(`Only ${maxStock} units available for this product`);
-        }
-        setPendingProductId(null);
-      }
-      
-      // Fetch user address if logged in
-      if (user) {
-        const { data: userData, error } = await supabase
-          .from("users")
-          .select("address")
-          .eq("id", user.id)
-          .single();
-        
-        if (error) {
-          console.warn('[FloatingOrderButton] Error fetching user address:', error);
-          return;
-        }
-        
-        if (userData?.address) {
-          console.log('[FloatingOrderButton] Found saved address:', userData.address);
-          setSavedAddress({ address: userData.address });
-          setOrderData(prev => ({ 
-            ...prev, 
-            address: userData.address 
-          }));
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    }
-  };
-
-  // Event handler for opening modal
-  const handler = (e) => {
-    if (!user) {
-      onLoginRequired();
-      return;
-    }
-    setIsOpen(true);
-    setStep(1);
-    setSelectedPaymentMethod("CASH");
-    if (e.detail?.productId) {
-      setPendingProductId(e.detail.productId);
-    }
-  };
-
-  window.addEventListener("open-order-modal", handler);
-  
-  // Fetch data when modal opens
-  if (isOpen) {
-    fetchData();
-  }
-
-  return () => {
-    window.removeEventListener("open-order-modal", handler);
-  };
-}, [isOpen, user, onLoginRequired, pendingProductId]);
-
-  useEffect(() => {
-    if (orderData.deliveryType === "HOME_DELIVERY") {
-      const deliveryAddress = orderData.locationAddress || orderData.address;
-      if (deliveryAddress) {
-        handleDeliveryFeeCalculation(deliveryAddress);
-      }
-    }
-  }, [orderData.deliveryType, orderData.locationAddress, orderData.address]);
-
-  useEffect(() => {
-    let total = 0;
-    products.forEach(p => { const qty = orderData.items[p.id] || 0; total += qty * p.unit_price; });
-    setSubtotal(total);
-  }, [orderData.items, products]);
-
+  // ─── Handlers ───
   const handleQuantity = (productId, increment) => {
     const currentStock = productStock[productId] || 0;
     const currentQty = orderData.items[productId] || 0;
     
-    // Check if trying to add more than available stock
     if (increment > 0 && currentQty >= currentStock) {
       toast.error(`Only ${currentStock} units available in stock`);
       return;
     }
     
-    // Check if trying to remove below 0
     if (increment < 0 && currentQty <= 0) {
       return;
     }
@@ -854,7 +464,6 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
 
   const handleNext = () => {
     if (step === 1) {
-      // Check if any items exceed stock
       for (const [productId, qty] of Object.entries(orderData.items)) {
         const stock = productStock[Number(productId)] || 0;
         if (qty > stock) {
@@ -925,239 +534,330 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
       map.current = null;
     }
     setIsGettingLocation(false);
-    setProductStock({});
   };
 
-  const initiatePayHerePayment = async (order) => {
-    try {
-      setIsPaymentProcessing(true);
-      setLoading(true);
-
-      const total = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? deliveryCharge : 0);
-      
-      const { data: customer } = await supabase
-        .from("users")
-        .select("name, email, phone")
-        .eq("id", user.id)
-        .single();
-
-      const orderRef = String(order.id).padStart(6, "0");
-      const amount = Number(total).toFixed(2);
-
-      const hash = generatePayHereHash(
-        PAYHERE_CONFIG.merchantId,
-        orderRef,
-        amount,
-        "LKR",
-        PAYHERE_CONFIG.merchantSecret
-      );
-
-      await supabase.from("payments").insert({
-        order_id: order.id,
-        amount: total,
-        payment_method: "ONLINE",
-        status: "PENDING",
-        transaction_id: `TXN-${Date.now()}`,
-      });
-
-      const formData = {
-        merchant_id: PAYHERE_CONFIG.merchantId,
-        order_id: orderRef,
-        items: `Water Order #${order.id}`,
-        amount: amount,
-        currency: "LKR",
-        hash: hash,
-        first_name: customer?.name?.split(" ")[0] || "Customer",
-        last_name: customer?.name?.split(" ").slice(1).join(" ") || " ",
-        email: customer?.email || user.email || "",
-        phone: customer?.phone || "",
-        address: orderData.address || "No Address",
-        city: "Colombo",
-        country: "Sri Lanka",
-        delivery_address: orderData.locationAddress || orderData.address || "No Address",
-        delivery_city: "Colombo",
-        delivery_country: "Sri Lanka",
-        custom_1: `OrderID:${order.id}`,
-        return_url: PAYHERE_CONFIG.returnUrl,
-        cancel_url: PAYHERE_CONFIG.cancelUrl,
-        notify_url: PAYHERE_CONFIG.notifyUrl,
-      };
-
-      const form = document.createElement("form");
-      form.method = "POST";
-      form.action = `${PAYHERE_CONFIG.baseUrl}/pay/checkout`;
-
-      Object.entries(formData).forEach(([key, value]) => {
-        const input = document.createElement("input");
-        input.type = "hidden";
-        input.name = key;
-        input.value = String(value);
-        form.appendChild(input);
-      });
-
-      document.body.appendChild(form);
-      form.submit();
-      
-    } catch (error) {
-      console.error("Payment setup exception error:", error);
-      toast.error("Failed to initiate payment.");
-      setIsPaymentProcessing(false);
-      setLoading(false);
+  const handleConfirm = async () => {
+    if (!user) { 
+      onLoginRequired(); 
+      return; 
     }
-  };
 
-  // ============================================
-  // INVOICE DOWNLOAD
-  // ============================================
-  const downloadInvoice = async () => {
-    if (!invoiceContainerRef.current) return;
-    try {
-      const canvas = await html2canvas(invoiceContainerRef.current, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        useCORS: true,
-        logging: false,
-      });
-      const link = document.createElement('a');
-      link.download = `invoice-${orderId}.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
-    } catch (error) {
-      console.error('Invoice download error:', error);
-      toast.error('Failed to download invoice');
-    }
-  };
+    const orderItems = [];
+    let hasStockIssue = false;
+    let stockErrorMessage = '';
 
-const handleConfirm = async () => {
-  if (!user) { 
-    onLoginRequired(); 
-    return; 
-  }
-
-  // Check stock before confirming
-  const orderItems = [];
-  let hasStockIssue = false;
-  let stockErrorMessage = '';
-
-  products.forEach(p => {
-    const qty = orderData.items[p.id] || 0;
-    if (qty > 0) {
-      const stock = productStock[p.id] || 0;
-      if (qty > stock) {
-        hasStockIssue = true;
-        stockErrorMessage += `\n${p.name}: Requested ${qty}, Available ${stock}`;
+    products.forEach(p => {
+      const qty = orderData.items[p.id] || 0;
+      if (qty > 0) {
+        const stock = productStock[p.id] || 0;
+        if (qty > stock) {
+          hasStockIssue = true;
+          stockErrorMessage += `\n${p.name}: Requested ${qty}, Available ${stock}`;
+        }
+        orderItems.push({ 
+          product_id: p.id, 
+          quantity: Math.min(qty, stock),
+          sub_total: Math.min(qty, stock) * p.unit_price 
+        });
       }
-      orderItems.push({ 
-        product_id: p.id, 
-        quantity: Math.min(qty, stock),
-        sub_total: Math.min(qty, stock) * p.unit_price 
-      });
-    }
-  });
+    });
 
-  if (hasStockIssue) {
-    toast.error(`Insufficient stock for:${stockErrorMessage}`);
-    return;
-  }
-
-  if (orderItems.length === 0) { 
-    toast.error("No items selected."); 
-    return; 
-  }
-
-  setLoading(true);
-
-  try {
-    const isOnline = orderData.deliveryType === "HOME_DELIVERY" || selectedPaymentMethod === "ONLINE";
-
-    const apiItems = orderItems.map(item => ({
-      productId: item.product_id,
-      quantity: item.quantity
-    }));
-
-    const deliveryAddress = orderData.locationAddress || orderData.address;
-
-    const requestData = {
-      customerId: user.id,
-      orderType: orderData.deliveryType,
-      paymentMethod: isOnline ? "ONLINE" : "CASH",
-      deliveryAddress: deliveryAddress,
-      items: apiItems,
-      latitude: orderData.latitude,
-      longitude: orderData.longitude
-    };
-
-    console.log('📝 Full request data:', JSON.stringify(requestData, null, 2));
-
-    const response = await api.post('/orders', requestData);
-
-    console.log('📝 API response:', response.data);
-
-    if (!response.data.success) {
-      throw new Error(response.data.message || 'Failed to create order');
-    }
-
-    const order = response.data.order;
-    setOrderId(order.id);
-    setOrderDetails(order);
-
-    if (response.data.code === 'INSUFFICIENT_STOCK') {
-      toast.error(response.data.message);
-      setLoading(false);
+    if (hasStockIssue) {
+      toast.error(`Insufficient stock for:${stockErrorMessage}`);
       return;
     }
 
-    if (isOnline) {
-      await initiatePayHerePayment(order);
-    } else {
-      // ✅ PICKUP + CASH - Navigate to confirmation page
-      const formattedItems = orderItems.map(item => {
-        const product = products.find(p => p.id === item.product_id);
-        return {
-          id: item.product_id,
-          name: product?.name || 'Product',
-          quantity: item.quantity,
-          unit_price: product?.unit_price || 0,
-          subtotal: item.sub_total
-        };
-      });
-
-      const totalAmount = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? deliveryCharge : 0);
-
-      // ✅ RESET THE ORDER BEFORE NAVIGATING
-      resetOrder();
-      
-      // Then navigate
-      navigate('/pickup-confirmation', {
-        state: {
-          orderId: order.id,
-          orderedItems: formattedItems,
-          subtotal: subtotal,
-          total: totalAmount,
-          orderData: orderData
-        }
-      });
-      
-      setLoading(false);
-      toast.success("Order placed successfully!");
+    if (orderItems.length === 0) { 
+      toast.error("No items selected."); 
+      return; 
     }
 
-  } catch (error) {
-    console.error("Order process failure exception:", error);
-    
-    if (error.response && error.response.data) {
-      const data = error.response.data;
-      if (data.code === 'INSUFFICIENT_STOCK' || data.message?.includes('Insufficient stock')) {
-        toast.error(data.message);
+    setLoading(true);
+
+    try {
+      const isOnline = orderData.deliveryType === "HOME_DELIVERY" || selectedPaymentMethod === "ONLINE";
+
+      const apiItems = orderItems.map(item => ({
+        productId: item.product_id,
+        quantity: item.quantity
+      }));
+
+      const deliveryAddress = orderData.locationAddress || orderData.address;
+
+      const requestData = {
+        customerId: user.id,
+        orderType: orderData.deliveryType,
+        paymentMethod: isOnline ? "ONLINE" : "CASH",
+        deliveryAddress: deliveryAddress,
+        items: apiItems,
+        latitude: orderData.latitude,
+        longitude: orderData.longitude
+      };
+
+      // Create order using mutation
+      const result = await createOrderMutation.mutateAsync(requestData);
+
+      if (!result.success) {
+        throw new Error(result.message || 'Failed to create order');
+      }
+
+      const order = result.order;
+      setOrderId(order.id);
+      setOrderDetails(order);
+
+      if (result.code === 'INSUFFICIENT_STOCK') {
+        toast.error(result.message);
         setLoading(false);
         return;
       }
+
+      if (isOnline) {
+        setIsPaymentProcessing(true);
+        await createPaymentMutation.mutateAsync({ 
+          orderId: order.id, 
+          amount: total,
+          order: order
+        });
+      } else {
+        const formattedItems = orderItems.map(item => {
+          const product = products.find(p => p.id === item.product_id);
+          return {
+            id: item.product_id,
+            name: product?.name || 'Product',
+            quantity: item.quantity,
+            unit_price: product?.unit_price || 0,
+            subtotal: item.sub_total
+          };
+        });
+
+        const totalAmount = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? deliveryCharge : 0);
+
+        resetOrder();
+        
+        navigate('/pickup-confirmation', {
+          state: {
+            orderId: order.id,
+            orderedItems: formattedItems,
+            subtotal: subtotal,
+            total: totalAmount,
+            orderData: orderData
+          }
+        });
+        
+        setLoading(false);
+        toast.success("Order placed successfully!");
+      }
+
+    } catch (error) {
+      console.error("Order process failure:", error);
+      
+      if (error.response && error.response.data) {
+        const data = error.response.data;
+        if (data.code === 'INSUFFICIENT_STOCK' || data.message?.includes('Insufficient stock')) {
+          toast.error(data.message);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      toast.error(error.message || "Failed to place order.");
+      setLoading(false);
     }
+  };
+
+  const getUserCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error('Geolocation is not supported by your browser');
+      return;
+    }
+
+    if (isGettingLocation) return;
+
+    setIsGettingLocation(true);
+    setLocationError(null);
     
-    toast.error(error.message || "Failed to place order.");
-    setLoading(false);
-  }
-};
+    toast.loading('Getting your location...', { id: 'location-loading' });
+
+    if (geolocationTimeoutRef.current) {
+      clearTimeout(geolocationTimeoutRef.current);
+    }
+
+    geolocationTimeoutRef.current = setTimeout(() => {
+      toast.dismiss('location-loading');
+      setIsGettingLocation(false);
+      setLocationError('Location request timed out. Please enter address manually.');
+      toast.error('Location request timed out. Please try again or enter manually.');
+      geolocationTimeoutRef.current = null;
+    }, 15000);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        if (geolocationTimeoutRef.current) {
+          clearTimeout(geolocationTimeoutRef.current);
+          geolocationTimeoutRef.current = null;
+        }
+
+        const { latitude, longitude } = position.coords;
+        
+        toast.dismiss('location-loading');
+        
+        await reverseGeocodeLocation(latitude, longitude);
+        setIsGettingLocation(false);
+      },
+      (error) => {
+        if (geolocationTimeoutRef.current) {
+          clearTimeout(geolocationTimeoutRef.current);
+          geolocationTimeoutRef.current = null;
+        }
+
+        toast.dismiss('location-loading');
+        
+        let message = 'Unable to get your location. Please enter address manually.';
+        
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            message = 'Location permission denied. Please allow location access in your browser settings.';
+            break;
+          case error.POSITION_UNAVAILABLE:
+            message = 'Location unavailable. Please check your GPS or enter address manually.';
+            break;
+          case error.TIMEOUT:
+            message = 'Location request timed out. Please try again or enter manually.';
+            break;
+          default:
+            message = `Location error: ${error.message}`;
+        }
+        
+        setLocationError(message);
+        toast.error(message, { duration: 6000 });
+        setIsGettingLocation(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000
+      }
+    );
+  };
+
+  const reverseGeocodeLocation = async (lat, lng) => {
+    try {
+      setOrderData(prev => ({
+        ...prev,
+        latitude: lat,
+        longitude: lng
+      }));
+      
+      updateMarkerPosition(lat, lng);
+      
+      let address = null;
+      
+      if (MAPTILER_CONFIG.apiKey) {
+        try {
+          const response = await fetch(
+            `${MAPTILER_CONFIG.geocodingUrl}/${lng},${lat}.json?key=${MAPTILER_CONFIG.apiKey}&language=en`
+          );
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.features && data.features.length > 0) {
+              const feature = data.features[0];
+              address = feature.place_name || feature.text;
+              address = address
+                .replace(/,\s*[A-Za-z\s]+District/g, '')
+                .replace(/,\s*[A-Za-z\s]+Province/g, '')
+                .replace(/,\s*\d{5}/g, '')
+                .trim();
+              
+              if (!address.includes('Sri Lanka')) {
+                address = `${address}, Sri Lanka`;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('MapTiler reverse geocode failed:', e.message);
+        }
+      }
+
+      if (!address || address === 'Sri Lanka') {
+        try {
+          const response = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=18&accept-language=en`,
+            {
+              headers: { 'User-Agent': 'HanthanaWater/1.0' }
+            }
+          );
+          const data = await response.json();
+          
+          if (data.display_name && data.display_name !== 'Sri Lanka') {
+            address = data.display_name
+              .replace(/,\s*[A-Za-z\s]+District/g, '')
+              .replace(/,\s*[A-Za-z\s]+Province/g, '')
+              .replace(/,\s*\d{5}/g, '')
+              .trim();
+            
+            if (!address.includes('Sri Lanka')) {
+              address = `${address}, Sri Lanka`;
+            }
+          }
+        } catch (e) {
+          console.warn('Nominatim fallback failed:', e.message);
+        }
+      }
+
+      if (!address || address === 'Sri Lanka') {
+        address = `${lat.toFixed(4)}, ${lng.toFixed(4)}, Sri Lanka`;
+      }
+
+      address = address.replace(/, Sri Lanka, Sri Lanka$/, ', Sri Lanka');
+      address = address.replace(/^Sri Lanka, /, '');
+
+      setOrderData(prev => ({
+        ...prev,
+        locationAddress: address,
+        latitude: lat,
+        longitude: lng
+      }));
+      
+      setLocationInput(address);
+      setLocationError(null);
+      toast.success('Location selected!');
+      return true;
+    } catch (error) {
+      console.error('[reverseGeocode] Error:', error);
+      setLocationError('Failed to get address for this location');
+      toast.error('Failed to get address');
+      return false;
+    }
+  };
+
+  const updateMarkerPosition = (lat, lng) => {
+    if (marker.current) {
+      marker.current.setLngLat([lng, lat]);
+    }
+    if (map.current) {
+      map.current.flyTo({
+        center: [lng, lat],
+        zoom: 15,
+        essential: true
+      });
+    }
+  };
+
+  const selectSearchResult = (result) => {
+    const { latitude, longitude, label } = result;
+    setOrderData(prev => ({
+      ...prev,
+      latitude: latitude,
+      longitude: longitude,
+      locationAddress: label
+    }));
+    setLocationInput(label);
+    updateMarkerPosition(latitude, longitude);
+    setSearchQuery(label);
+    setSearchResults([]);
+    toast.success('Location selected!');
+  };
 
   const hasLocationSelected = () => {
     return orderData.latitude && orderData.longitude;
@@ -1166,12 +866,48 @@ const handleConfirm = async () => {
   const getProduct = (id) => products.find(p => p.id === id);
   const orderedItems = Object.entries(orderData.items)
     .filter(([_, qty]) => qty > 0)
-    .map(([id, qty]) => ({ ...getProduct(Number(id)), quantity: qty, subtotal: qty * (getProduct(Number(id))?.unit_price || 0), stock: productStock[Number(id)] || 0 }));
+    .map(([id, qty]) => ({ 
+      ...getProduct(Number(id)), 
+      quantity: qty, 
+      subtotal: qty * (getProduct(Number(id))?.unit_price || 0), 
+      stock: productStock[Number(id)] || 0 
+    }));
 
   const total = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? deliveryCharge : 0);
   const itemCount = Object.values(orderData.items).reduce((a, b) => a + b, 0);
 
-  // ✅ Helper to render delivery charge with loading state
+  const hasLowStock = (productId) => {
+    const stock = productStock[productId] || 0;
+    return stock > 0 && stock < 25;
+  };
+
+  const isOutOfStock = (productId) => {
+    return (productStock[productId] || 0) <= 0;
+  };
+
+  // ─── Event listener for opening modal ───
+  useEffect(() => {
+    const handler = (e) => {
+      if (!user) {
+        onLoginRequired();
+        return;
+      }
+      setIsOpen(true);
+      setStep(1);
+      setSelectedPaymentMethod("CASH");
+      if (e.detail?.productId) {
+        setPendingProductId(e.detail.productId);
+      }
+    };
+
+    window.addEventListener("open-order-modal", handler);
+    
+    return () => {
+      window.removeEventListener("open-order-modal", handler);
+    };
+  }, [user, onLoginRequired]);
+
+  // ─── Render helper for delivery charge ───
   const renderDeliveryCharge = () => {
     if (isCalculatingFee) {
       return (
@@ -1183,21 +919,17 @@ const handleConfirm = async () => {
     }
     
     if (deliveryCharge === 0 && !isCalculatingFee) {
-      return <span className="text-green-600"></span>;
+      return <span className="text-green-600">Free</span>;
     }
     
     return <span>Rs. {deliveryCharge.toFixed(2)}</span>;
   };
 
-  // Check if any item has low stock
-  const hasLowStock = (productId) => {
-    const stock = productStock[productId] || 0;
-    return stock > 0 && stock < 25;
-  };
+  const isPending = loading || isPaymentProcessing;
 
   return (
     <>
-      {/* Trigger Button */}
+      {/* ─── Trigger Button ─── */}
       <motion.button
         onClick={() => {
           if (!user) onLoginRequired();
@@ -1220,7 +952,7 @@ const handleConfirm = async () => {
         <span className="font-bold tracking-wide">ORDER NOW</span>
       </motion.button>
 
-      {/* Main Checkout Wizard */}
+      {/* ─── Main Checkout Wizard ─── */}
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -1244,7 +976,7 @@ const handleConfirm = async () => {
                 .order-scroll::-webkit-scrollbar-thumb:hover { background: #1e3a8a; }
               `}</style>
 
-              {/* Title Section */}
+              {/* ─── Title Section ─── */}
               <div className="sticky top-0 bg-white z-10 flex items-center justify-between p-6 border-b border-gray-100 rounded-t-3xl">
                 <div className="flex items-center gap-3">
                   {step === 4 ? <CircleCheck className="w-6 h-6 text-green-500" /> : <ShoppingCart className="w-6 h-6 text-blue-600" />}
@@ -1259,11 +991,11 @@ const handleConfirm = async () => {
                 )}
               </div>
 
-              {/* Main Content */}
+              {/* ─── Main Content ─── */}
               <div className="flex-1 overflow-y-auto order-scroll p-6 space-y-6">
                 {step !== 4 && (
                   <>
-                    {/* Progress Steps */}
+                    {/* ─── Progress Steps ─── */}
                     <div className="flex items-center justify-center gap-2">
                       {[1, 2, 3].map((s) => (
                         <div key={s} className="flex items-center">
@@ -1275,84 +1007,89 @@ const handleConfirm = async () => {
                       ))}
                     </div>
 
-                    {/* Step 1: Products */}
+                    {/* ─── Step 1: Products ─── */}
                     {step === 1 && (
                       <div>
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-lg font-semibold text-gray-700">Choose Your Water</h3>
                           <span className="text-sm text-gray-400">{products.length} products</span>
                         </div>
-                        <div className="space-y-3 max-h-72 overflow-y-auto order-scroll pr-2">
-                          {products.map((product) => {
-                            const qty = orderData.items[product.id] || 0;
-                            const stock = productStock[product.id] || 0;
-                            const isLowStock = stock > 0 && stock < 25;
-                            const isOutOfStock = stock <= 0;
-                            
-                            return (
-                              <motion.div
-                                key={product.id}
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${qty > 0 ? "border-blue-300 bg-blue-50/50" : isOutOfStock ? "border-red-200 bg-red-50/30 opacity-60" : "border-gray-100 bg-white hover:border-blue-200"}`}
-                              >
-                                <div className="flex items-center gap-4 flex-1 min-w-0">
-                                  {product.image_url ? (
-                                    <img src={product.image_url} alt={product.name} className="w-12 h-12 object-cover rounded-lg" />
-                                  ) : (
-                                    <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg flex items-center justify-center text-blue-600">
-                                      <Droplet className="w-6 h-6" />
+                        {productsLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                          </div>
+                        ) : (
+                          <div className="space-y-3 max-h-72 overflow-y-auto order-scroll pr-2">
+                            {products.map((product) => {
+                              const qty = orderData.items[product.id] || 0;
+                              const stock = productStock[product.id] || 0;
+                              const lowStock = stock > 0 && stock < 25;
+                              const outOfStock = stock <= 0;
+                              
+                              return (
+                                <motion.div
+                                  key={product.id}
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className={`flex items-center justify-between p-3 rounded-xl border transition-all ${qty > 0 ? "border-blue-300 bg-blue-50/50" : outOfStock ? "border-red-200 bg-red-50/30 opacity-60" : "border-gray-100 bg-white hover:border-blue-200"}`}
+                                >
+                                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                                    {product.image_url ? (
+                                      <img src={product.image_url} alt={product.name} className="w-12 h-12 object-cover rounded-lg" />
+                                    ) : (
+                                      <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-blue-200 rounded-lg flex items-center justify-center text-blue-600">
+                                        <Droplet className="w-6 h-6" />
+                                      </div>
+                                    )}
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="font-medium text-gray-800 truncate">{product.name}</p>
+                                        {lowStock && (
+                                          <span className="text-xs font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap">
+                                            <AlertTriangle className="w-3 h-3" />
+                                            Only {stock} left
+                                          </span>
+                                        )}
+                                        {outOfStock && (
+                                          <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                            Out of Stock
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs text-gray-500">Rs. {product.unit_price.toFixed(2)}</p>
                                     </div>
-                                  )}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <p className="font-medium text-gray-800 truncate">{product.name}</p>
-                                      {/* 🔴 Stock Alert - Shows when stock < 25 */}
-                                      {isLowStock && (
-                                        <span className="text-xs font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap">
-                                          <AlertTriangle className="w-3 h-3" />
-                                          Only {stock} left
-                                        </span>
-                                      )}
-                                      {isOutOfStock && (
-                                        <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full whitespace-nowrap">
-                                          Out of Stock
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-xs text-gray-500">Rs. {product.unit_price.toFixed(2)}</p>
                                   </div>
-                                </div>
-                                <div className="flex items-center gap-2 ml-2">
-                                  <button 
-                                    onClick={() => handleQuantity(product.id, -1)} 
-                                    disabled={qty === 0 || isOutOfStock}
-                                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xl font-bold transition ${
-                                      qty > 0 && !isOutOfStock
-                                        ? "bg-gray-200 hover:bg-gray-300 text-gray-700" 
-                                        : "bg-gray-100 text-gray-300 cursor-not-allowed"
-                                    }`}
-                                  >
-                                    <Minus className="w-6 h-6" />
-                                  </button>
-                                  <span className="w-6 text-center font-semibold">{qty}</span>
-                                  <button 
-                                    onClick={() => handleQuantity(product.id, 1)} 
-                                    disabled={isOutOfStock || qty >= stock}
-                                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xl font-bold transition ${
-                                      !isOutOfStock && qty < stock
-                                        ? "bg-blue-600 hover:bg-blue-700 text-white" 
-                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                                    }`}
-                                    title={qty >= stock ? "Maximum available stock reached" : ""}
-                                  >
-                                    <Plus className="w-6 h-6" />
-                                  </button>
-                                </div>
-                              </motion.div>
-                            );
-                          })}
-                        </div>
+                                  <div className="flex items-center gap-2 ml-2">
+                                    <button 
+                                      onClick={() => handleQuantity(product.id, -1)} 
+                                      disabled={qty === 0 || outOfStock}
+                                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xl font-bold transition ${
+                                        qty > 0 && !outOfStock
+                                          ? "bg-gray-200 hover:bg-gray-300 text-gray-700" 
+                                          : "bg-gray-100 text-gray-300 cursor-not-allowed"
+                                      }`}
+                                    >
+                                      <Minus className="w-6 h-6" />
+                                    </button>
+                                    <span className="w-6 text-center font-semibold">{qty}</span>
+                                    <button 
+                                      onClick={() => handleQuantity(product.id, 1)} 
+                                      disabled={outOfStock || qty >= stock}
+                                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xl font-bold transition ${
+                                        !outOfStock && qty < stock
+                                          ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                                          : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                      }`}
+                                      title={qty >= stock ? "Maximum available stock reached" : ""}
+                                    >
+                                      <Plus className="w-6 h-6" />
+                                    </button>
+                                  </div>
+                                </motion.div>
+                              );
+                            })}
+                          </div>
+                        )}
                         <div className="mt-4 flex items-center justify-between border-t border-gray-100 pt-4">
                           <span className="text-sm text-gray-500">Items: {itemCount}</span>
                           <span className="text-lg font-bold">Rs. {subtotal.toFixed(2)}</span>
@@ -1360,7 +1097,7 @@ const handleConfirm = async () => {
                       </div>
                     )}
 
-                    {/* Step 2: Delivery Method with Location Selection */}
+                    {/* ─── Step 2: Delivery Method ─── */}
                     {step === 2 && (
                       <div>
                         <h3 className="text-lg font-semibold text-gray-700 mb-4">Delivery Method</h3>
@@ -1381,19 +1118,21 @@ const handleConfirm = async () => {
 
                           {orderData.deliveryType === "HOME_DELIVERY" && (
                             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="ml-12 space-y-3">
-                              {/* Saved Address */}
                               <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                   <Home className="inline w-4 h-4 mr-1 text-green-600" />
                                   Your Saved Address
                                 </label>
                                 <div className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-700">
-                                  {orderData.address || "No saved address found"}
+                                  {addressLoading ? (
+                                    <span className="text-gray-400">Loading...</span>
+                                  ) : (
+                                    orderData.address || "No saved address found"
+                                  )}
                                 </div>
                                 <p className="text-xs text-gray-400 mt-1">This is your registered address from your profile</p>
                               </div>
 
-                              {/* Location Selection */}
                               <div className="border-t border-gray-200 pt-3">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
                                   <MapPin className="inline w-4 h-4 mr-1 text-blue-600" />
@@ -1414,7 +1153,8 @@ const handleConfirm = async () => {
                                             longitude: null,
                                             locationAddress: ""
                                           }));
-                                          searchAddress(e.target.value);
+                                          setIsSearching(true);
+                                          searchAddressMutation.mutate(e.target.value);
                                         }
                                       }}
                                       placeholder="Type your delivery location or use map..."
@@ -1452,7 +1192,6 @@ const handleConfirm = async () => {
                                   </button>
                                 </div>
 
-                                {/* Search Results */}
                                 {searchResults.length > 0 && !hasLocationSelected() && (
                                   <div className="mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                                     {searchResults.map((result, index) => (
@@ -1473,7 +1212,6 @@ const handleConfirm = async () => {
                                   </div>
                                 )}
 
-                                {/* Selected Location Display */}
                                 {hasLocationSelected() && (
                                   <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl p-3">
                                     <div className="flex items-start gap-2">
@@ -1481,9 +1219,6 @@ const handleConfirm = async () => {
                                       <div>
                                         <p className="text-sm font-medium text-blue-800">Location Selected</p>
                                         <p className="text-sm text-blue-700">{orderData.locationAddress}</p>
-                                        {/* <p className="text-xs text-blue-500 mt-1">
-                                          📍 {orderData.latitude.toFixed(6)}, {orderData.longitude.toFixed(6)}
-                                        </p> */}
                                         <button
                                           onClick={() => {
                                             setOrderData(prev => ({
@@ -1512,7 +1247,6 @@ const handleConfirm = async () => {
                                 )}
                               </div>
 
-                              {/* Delivery Fee Details */}
                               {deliveryDistance > 0 && hasLocationSelected() && (
                                 <div className="flex items-center gap-4 text-xs bg-blue-50 p-2 rounded-lg">
                                   <span className="text-blue-700 flex items-center gap-1">
@@ -1545,7 +1279,7 @@ const handleConfirm = async () => {
                       </div>
                     )}
 
-                    {/* Step 3: Review */}
+                    {/* ─── Step 3: Review ─── */}
                     {step === 3 && (
                       <div>
                         <h3 className="text-lg font-semibold text-gray-700 mb-4">Review Your Order</h3>
@@ -1590,18 +1324,12 @@ const handleConfirm = async () => {
                                   {deliveryDistance > 0 && (
                                     <p className="text-xs text-gray-400">Distance: {deliveryDistance.toFixed(1)} km</p>
                                   )}
-                                  {/* {orderData.latitude && orderData.longitude && (
-                                    <p className="text-xs text-gray-400">
-                                      📍 {orderData.latitude.toFixed(6)}, {orderData.longitude.toFixed(6)}
-                                    </p>
-                                  )} */}
                                 </>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        {/* Payment Method */}
                         <div className="mt-4">
                           <label className="block text-sm font-medium text-gray-700 mb-3">Payment Method</label>
                           {orderData.deliveryType === "HOME_DELIVERY" ? (
@@ -1612,33 +1340,33 @@ const handleConfirm = async () => {
                           ) : (
                             <div className="grid grid-cols-2 gap-3">
                               <button 
-                                  type="button"
-                                  onClick={() => setSelectedPaymentMethod("CASH")} 
-                                  className={`p-4 border-2 rounded-xl flex flex-col items-center justify-center transition-all ${
-                                      selectedPaymentMethod === "CASH" 
-                                          ? "border-blue-500 bg-blue-50 text-blue-900" 
-                                          : "border-gray-200 hover:border-blue-200 text-gray-700"
-                                  }`}
+                                type="button"
+                                onClick={() => setSelectedPaymentMethod("CASH")} 
+                                className={`p-4 border-2 rounded-xl flex flex-col items-center justify-center transition-all ${
+                                  selectedPaymentMethod === "CASH" 
+                                    ? "border-blue-500 bg-blue-50 text-blue-900" 
+                                    : "border-gray-200 hover:border-blue-200 text-gray-700"
+                                }`}
                               >
-                                  <Banknote className="w-6 h-6 mb-2 text-green-600" />
-                                  <p className="font-medium">Cash</p>
-                                  <p className="text-xs text-gray-400">Pay at pickup</p>
+                                <Banknote className="w-6 h-6 mb-2 text-green-600" />
+                                <p className="font-medium">Cash</p>
+                                <p className="text-xs text-gray-400">Pay at pickup</p>
                               </button>
 
                               <button 
-                                  type="button"
-                                  onClick={() => setSelectedPaymentMethod("ONLINE")} 
-                                  className={`p-4 border-2 rounded-xl flex flex-col items-center justify-center transition-all ${
-                                      selectedPaymentMethod === "ONLINE" 
-                                          ? "border-blue-500 bg-blue-50 text-blue-900" 
-                                          : "border-gray-200 hover:border-blue-200 text-gray-700"
-                                  }`}
+                                type="button"
+                                onClick={() => setSelectedPaymentMethod("ONLINE")} 
+                                className={`p-4 border-2 rounded-xl flex flex-col items-center justify-center transition-all ${
+                                  selectedPaymentMethod === "ONLINE" 
+                                    ? "border-blue-500 bg-blue-50 text-blue-900" 
+                                    : "border-gray-200 hover:border-blue-200 text-gray-700"
+                                }`}
                               >
-                                  <CreditCard className="w-6 h-6 mb-2 text-blue-600" />
-                                  <p className="font-medium">Online</p>
-                                  <p className="text-xs text-gray-400">Pay via PayHere</p>
+                                <CreditCard className="w-6 h-6 mb-2 text-blue-600" />
+                                <p className="font-medium">Online</p>
+                                <p className="text-xs text-gray-400">Pay via PayHere</p>
                               </button>
-                          </div>
+                            </div>
                           )}
                         </div>
 
@@ -1650,7 +1378,7 @@ const handleConfirm = async () => {
                   </>
                 )}
 
-                {/* Step 4: Success for ONLINE payments only */}
+                {/* ─── Step 4: Success ─── */}
                 {step === 4 && (
                   <div className="text-center py-8">
                     <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-500">
@@ -1666,7 +1394,7 @@ const handleConfirm = async () => {
                 )}
               </div>
 
-              {/* Navigation Footer */}
+              {/* ─── Navigation Footer ─── */}
               {step !== 4 && !isPaymentProcessing && (
                 <div className="sticky bottom-0 bg-white p-4 border-t border-gray-100 rounded-b-3xl flex items-center gap-3">
                   {step > 1 && (
@@ -1688,7 +1416,7 @@ const handleConfirm = async () => {
                 </div>
               )}
 
-              {/* Payment Processing */}
+              {/* ─── Payment Processing ─── */}
               {isPaymentProcessing && (
                 <div className="p-8 text-center">
                   <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto" />
@@ -1700,7 +1428,7 @@ const handleConfirm = async () => {
         )}
       </AnimatePresence>
 
-      {/* Location Picker Modal */}
+      {/* ─── Location Picker Modal ─── */}
       <AnimatePresence>
         {showLocationPicker && (
           <motion.div
@@ -1717,7 +1445,7 @@ const handleConfirm = async () => {
               className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Location Picker Header */}
+              {/* ─── Location Picker Header ─── */}
               <div className="sticky top-0 bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between rounded-t-2xl">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
@@ -1736,9 +1464,8 @@ const handleConfirm = async () => {
                 </button>
               </div>
 
-              {/* Location Picker Content */}
+              {/* ─── Location Picker Content ─── */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {/* Search Input */}
                 <div className="relative">
                   <div className="flex gap-2">
                     <div className="relative flex-1">
@@ -1754,7 +1481,8 @@ const handleConfirm = async () => {
                               longitude: null,
                               locationAddress: ""
                             }));
-                            searchAddress(e.target.value);
+                            setIsSearching(true);
+                            searchAddressMutation.mutate(e.target.value);
                           }
                         }}
                         placeholder="Type your delivery location or use map..."
@@ -1785,7 +1513,6 @@ const handleConfirm = async () => {
                     </button>
                   </div>
 
-                  {/* Search Results */}
                   {searchResults.length > 0 && !hasLocationSelected() && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto z-10">
                       {searchResults.map((result, index) => (
@@ -1807,8 +1534,8 @@ const handleConfirm = async () => {
                   )}
                 </div>
 
-                {/* Map Container */}
-                {hasValidApiKey ? (
+                {/* ─── Map Container ─── */}
+                {MAPTILER_CONFIG.apiKey ? (
                   <div className="w-full h-64 rounded-xl overflow-hidden bg-gray-100 border border-gray-200 relative">
                     <div ref={mapContainer} style={mapContainerStyle} />
                     {!map.current && maplibregl && (
@@ -1836,7 +1563,6 @@ const handleConfirm = async () => {
                   📍 Drag the marker or click on the map to select your delivery location
                 </p>
 
-                {/* GPS Status Message */}
                 {isGettingLocation && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
                     <Loader2 className="w-5 h-5 text-blue-600 animate-spin mx-auto mb-1" />
@@ -1845,7 +1571,6 @@ const handleConfirm = async () => {
                   </div>
                 )}
 
-                {/* Selected Location Display */}
                 {hasLocationSelected() && (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-3">
                     <p className="text-sm font-medium text-green-800">Selected Location</p>
@@ -1856,7 +1581,6 @@ const handleConfirm = async () => {
                   </div>
                 )}
 
-                {/* Manual Entry Fallback */}
                 <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
                   <p className="text-xs text-gray-500 mb-1">Having trouble with GPS?</p>
                   <button
@@ -1874,7 +1598,7 @@ const handleConfirm = async () => {
                 </div>
               </div>
 
-              {/* Footer */}
+              {/* ─── Footer ─── */}
               <div className="sticky bottom-0 bg-white border-t border-gray-100 px-6 py-4 flex gap-3 rounded-b-2xl">
                 <button
                   onClick={() => setShowLocationPicker(false)}

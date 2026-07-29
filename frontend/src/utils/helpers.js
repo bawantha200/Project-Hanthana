@@ -1,8 +1,13 @@
 export const formatCurrency = (amount) => {
+  if (amount === undefined || amount === null || isNaN(amount)) return 'Rs. 0.00';
+
   return new Intl.NumberFormat("en-LK", {
     style: "currency",
     currency: "LKR",
-  }).format(amount);
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })
+    .format(amount)
 };
 
 export const getStatusColor = (status) => {

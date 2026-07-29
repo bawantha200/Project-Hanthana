@@ -63,14 +63,23 @@ const getMessageStats = async () => {
 const getRecentOrders = async (limit = 5) => {
   const { data: orders, error } = await supabase
     .from('orders')
-    .select('id, order_status, total_amount, created_at, customer_name')
+    .select(`
+      id, 
+      order_status, 
+      total_amount, 
+      created_at, 
+      customer_name,
+      customer_id,
+      users ( name )
+    `)
     .order('created_at', { ascending: false })
     .limit(limit);
+
   if (error) throw error;
 
   return orders.map(o => ({
     id: `ORD-${o.id}`,
-    customer: o.customer_name || 'Unknown',
+    customer: o.customer_name || o.users?.name || 'Unknown',
     amount: o.total_amount,
     status: o.order_status,
     createdAt: o.created_at,

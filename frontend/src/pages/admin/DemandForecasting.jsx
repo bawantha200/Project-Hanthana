@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Droplets,
   Waves,
@@ -15,6 +16,7 @@ import {
   Calendar,
   ChevronDown,
   Filter,
+  RefreshCw,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -34,10 +36,19 @@ import {
   getHistoricalVsPredicted,
   seedHistoricalForecastsFromCSV,
   parseCsv,
-  getProductStock,               
+  getProductStock,
   getStockLevels,
 } from '../../lib/forecastService';
 
+// ─── Query Keys ───
+const QUERY_KEYS = {
+  PRODUCTS: ['forecast', 'products'],
+  FUTURE_DEMAND: ['forecast', 'futureDemand'],
+  CHART_DATA: (productId) => ['forecast', 'chart', productId],
+  STOCK_DATA: ['forecast', 'stock'],
+};
+
+// ─── Constants ───
 const TYPE_STYLES = {
   SEALED: {
     label: 'Sealed',
@@ -51,6 +62,7 @@ const TYPE_STYLES = {
   },
 };
 
+// ─── Helper Functions ───
 function fmtDate(d) {
   const date = typeof d === 'string' ? new Date(d) : d;
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -63,200 +75,214 @@ function recommendedBatch(predicted) {
   return Math.ceil(predicted * 1.1);
 }
 
+// ─── KPI Card Component ───
+function KpiCard({ icon, label, value, sub, accent }) {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col gap-3 hover:shadow-md transition">
+      <div className="flex items-center gap-3">
+        <div
+          className={`p-2.5 rounded-xl bg-gradient-to-br ${accent} text-white shadow`}
+        >
+          {icon}
+        </div>
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          {label}
+        </span>
+      </div>
+      <div className="text-xl font-bold text-slate-800 truncate">{value}</div>
+      {sub && <div className="text-xs text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+// ─── Main Component ───
 export default function DemandForecasting() {
-  const [products, setProducts] = useState([]);
+  const queryClient = useQueryClient();
+
+  // ─── State ───
   const [typeFilter, setTypeFilter] = useState('ALL');
   const [selectedProductId, setSelectedProductId] = useState(null);
-  const [futureDemand, setFutureDemand] = useState([]);
-  const [chartData, setChartData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState(null);
+  const [productionFilter, setProductionFilter] = useState('ALL');
+  const [productionTypeFilter, setProductionTypeFilter] = useState('ALL');
   const [showCsvModal, setShowCsvModal] = useState(false);
   const [csvText, setCsvText] = useState('');
   const [csvStatus, setCsvStatus] = useState(null);
-  const [productionFilter, setProductionFilter] = useState('ALL');
-  const [productionTypeFilter, setProductionTypeFilter] = useState('ALL');
-  const [stockData, setStockData] = useState([]);
-  const [stockAlert, setStockAlert] = useState(false);
-  const [totalStock, setTotalStock] = useState(0);
 
-  const loadProducts = async (filter) => {
-    const data = await fetchProducts(filter);
-    setProducts(data);
-    if (data.length && !data.find((p) => p.id === selectedProductId)) {
-      setSelectedProductId(data[0].id);
-    }
-    return data;
-  };
-  const loadStockData = async () => {
-  try {
-    const data = await getProductStock();
-    setStockData(data);
-    
-    // Calculate total stock
-    const total = data.reduce((sum, item) => sum + (item.current_stock || 0), 0);
-    setTotalStock(total);
-    
-    // Check if any product is low on stock
-    const hasLowStock = data.some(item => 
-      item.current_stock <= item.reorder_level
-    );
-    setStockAlert(hasLowStock);
-  } catch (error) {
-    console.error('Error loading stock:', error);
-  }
-};
+  // ─── React Query: Fetch Products ───
+  const {
+    data: products = [],
+    isLoading: productsLoading,
+    isFetching: productsFetching,
+    error: productsError,
+    refetch: refetchProducts,
+  } = useQuery({
+    queryKey: QUERY_KEYS.PRODUCTS,
+    queryFn: () => fetchProducts(typeFilter),
+    staleTime: 120000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 300000,
+    placeholderData: (previousData) => previousData,
+  });
 
-const loadFuture = async () => {
-  try {
-    const data = await get7DayFutureDemandAllProducts();
-    console.log('📊 Raw future demand data:', data);
-    console.log('📊 Number of records:', data.length);
-    
-    // Check today's data specifically
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const todayData = data.filter(f => f.forecast_date === todayStr);
-    console.log('📊 Today\'s data:', todayData);
-    console.log('📊 Today\'s actual sales:', todayData.reduce((sum, f) => sum + (f.actual_sales || 0), 0));
-    console.log('📊 Today\'s predicted:', todayData.reduce((sum, f) => sum + (f.predicted_demand || 0), 0));
-    
-    setFutureDemand(data);
-  } catch (error) {
-    console.error('❌ Error loading future demand:', error);
-    setError(error.message);
-  }
-};
+  // ─── React Query: Fetch Future Demand ───
+  const {
+    data: futureDemand = [],
+    isLoading: futureLoading,
+    isFetching: futureFetching,
+    error: futureError,
+    refetch: refetchFuture,
+  } = useQuery({
+    queryKey: QUERY_KEYS.FUTURE_DEMAND,
+    queryFn: get7DayFutureDemandAllProducts,
+    staleTime: 60000,
+    gcTime: 180000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 120000,
+    placeholderData: (previousData) => previousData,
+  });
 
-  const loadChart = async (productId) => {
-    if (!productId) {
-      setChartData([]);
-      return;
-    }
-    const data = await getHistoricalVsPredicted(productId, 30);
-    setChartData(data);
-  };
+  // ─── React Query: Fetch Chart Data ───
+  const {
+    data: chartData = [],
+    isLoading: chartLoading,
+    error: chartError,
+    refetch: refetchChart,
+  } = useQuery({
+    queryKey: QUERY_KEYS.CHART_DATA(selectedProductId),
+    queryFn: () => getHistoricalVsPredicted(selectedProductId, 30),
+    enabled: !!selectedProductId,
+    staleTime: 60000,
+    gcTime: 180000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 120000,
+    placeholderData: (previousData) => previousData,
+  });
 
-const refreshAll = async (filter = typeFilter) => {
-  setLoading(true);
-  setError(null);
-  try {
-    const prods = await loadProducts(filter);
-    await loadFuture();
-    await loadStockData();  // ← Add this
-    const targetId =
-      selectedProductId && prods.find((p) => p.id === selectedProductId)
-        ? selectedProductId
-        : prods[0]?.id;
-    if (targetId) await loadChart(targetId);
-  } catch (e) {
-    setError(e.message || 'Failed to load data');
-  } finally {
-    setLoading(false);
-  }
-};
+  // ─── React Query: Fetch Stock Data ───
+  const {
+    data: stockData = [],
+    isLoading: stockLoading,
+    isFetching: stockFetching,
+    error: stockError,
+    refetch: refetchStock,
+  } = useQuery({
+    queryKey: QUERY_KEYS.STOCK_DATA,
+    queryFn: getProductStock,
+    staleTime: 60000,
+    gcTime: 180000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 120000,
+    placeholderData: (previousData) => previousData,
+  });
 
-  useEffect(() => {
-    refreshAll('ALL');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ─── React Query: Run Prediction Mutation ───
+  const runPredictionMutation = useMutation({
+    mutationFn: calculateAndSaveDailyForecast,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.FUTURE_DEMAND });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CHART_DATA(selectedProductId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.STOCK_DATA });
+      toast.success('Prediction completed successfully!');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Prediction failed');
+    },
+  });
 
-  const handleRunPrediction = async () => {
-    setRunning(true);
-    setError(null);
-    try {
-      await calculateAndSaveDailyForecast();
-      await refreshAll();
-    } catch (e) {
-      setError(e.message || 'Prediction failed');
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  const handleSelectProduct = async (id) => {
-    setSelectedProductId(id);
-    setLoading(true);
-    try {
-      await loadChart(id);
-    } catch (e) {
-      setError(e.message || 'Failed to load chart');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleTypeFilter = async (filter) => {
-    setTypeFilter(filter);
-    setLoading(true);
-    setError(null);
-    try {
-      const prods = await loadProducts(filter);
-      const targetId = prods[0]?.id || null;
-      setSelectedProductId(targetId);
-      await loadFuture();
-      if (targetId) await loadChart(targetId);
-      else setChartData([]);
-    } catch (e) {
-      setError(e.message || 'Failed to filter');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCsvUpload = async () => {
-    setCsvStatus({ state: 'working', message: 'Parsing and uploading...' });
-    try {
+  // ─── React Query: CSV Upload Mutation ───
+  const csvUploadMutation = useMutation({
+    mutationFn: async (csvText) => {
       const rows = parseCsv(csvText);
       if (!rows.length) throw new Error('No rows found in CSV');
-      const count = await seedHistoricalForecastsFromCSV(rows);
+      return await seedHistoricalForecastsFromCSV(rows);
+    },
+    onSuccess: (count) => {
       setCsvStatus({ state: 'success', message: `Uploaded ${count} rows successfully.` });
       setCsvText('');
-      await refreshAll();
-    } catch (e) {
-      setCsvStatus({ state: 'error', message: e.message || 'Upload failed' });
-    }
-  };
-
-const kpis = useMemo(() => {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const todayRows = futureDemand.filter((f) => f.forecast_date === todayStr);
-  const total7 = futureDemand.reduce((sum, f) => sum + (f.predicted_demand || 0), 0);
-  const todayPredicted = todayRows.reduce((s, f) => s + (f.predicted_demand || 0), 0);
-  const todayActual = todayRows.reduce((s, f) => s + (f.actual_sales || 0), 0);
-
-  const perProduct = new Map();
-  futureDemand.forEach((f) => {
-    const productData = f.product || f.products;
-    const cur = perProduct.get(f.product_id) || { 
-      id: f.product_id, 
-      name: productData?.name, 
-      total: 0 
-    };
-    cur.total += f.predicted_demand || 0;
-    perProduct.set(f.product_id, cur);
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PRODUCTS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.FUTURE_DEMAND });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.CHART_DATA(selectedProductId) });
+      toast.success(`${count} rows uploaded successfully!`);
+    },
+    onError: (error) => {
+      setCsvStatus({ state: 'error', message: error.message || 'Upload failed' });
+      toast.error(error.message || 'Upload failed');
+    },
   });
-  const top = [...perProduct.values()].sort((a, b) => b.total - a.total)[0] || null;
 
-  // ✅ Real stock data
-  const totalStockValue = stockData.reduce((sum, item) => sum + (item.current_stock || 0), 0);
-  const stockAlertStatus = stockData.some(item => 
-    item.current_stock <= item.reorder_level
-  );
+  // ─── Handlers ───
+  const handleTypeFilter = useCallback(async (filter) => {
+    setTypeFilter(filter);
+    setSelectedProductId(null);
+    await refetchProducts();
+    if (products.length) {
+      setSelectedProductId(products[0]?.id);
+    }
+  }, [refetchProducts, products]);
 
-  return { 
-    total7, 
-    todayPredicted, 
-    todayActual, 
-    top, 
-    stockAlert: stockAlertStatus, 
-    assumedStock: totalStockValue || 500  // Fallback to 500 if no stock data
-  };
-}, [futureDemand, stockData]);
+  const handleSelectProduct = useCallback((id) => {
+    setSelectedProductId(id);
+    if (id) {
+      refetchChart();
+    }
+  }, [refetchChart]);
+
+  const handleRunPrediction = useCallback(() => {
+    runPredictionMutation.mutate();
+  }, [runPredictionMutation]);
+
+  const handleRefreshAll = useCallback(() => {
+    refetchProducts();
+    refetchFuture();
+    refetchStock();
+    if (selectedProductId) {
+      refetchChart();
+    }
+  }, [refetchProducts, refetchFuture, refetchStock, refetchChart, selectedProductId]);
+
+  const handleCsvUpload = useCallback(() => {
+    setCsvStatus({ state: 'working', message: 'Parsing and uploading...' });
+    csvUploadMutation.mutate(csvText);
+  }, [csvText, csvUploadMutation]);
+
+  // ─── Memoized Computations ───
+  const kpis = useMemo(() => {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayRows = futureDemand.filter((f) => f.forecast_date === todayStr);
+    const total7 = futureDemand.reduce((sum, f) => sum + (f.predicted_demand || 0), 0);
+    const todayPredicted = todayRows.reduce((s, f) => s + (f.predicted_demand || 0), 0);
+    const todayActual = todayRows.reduce((s, f) => s + (f.actual_sales || 0), 0);
+
+    const perProduct = new Map();
+    futureDemand.forEach((f) => {
+      const productData = f.product || f.products;
+      const cur = perProduct.get(f.product_id) || { 
+        id: f.product_id, 
+        name: productData?.name, 
+        total: 0 
+      };
+      cur.total += f.predicted_demand || 0;
+      perProduct.set(f.product_id, cur);
+    });
+    const top = [...perProduct.values()].sort((a, b) => b.total - a.total)[0] || null;
+
+    const totalStockValue = stockData.reduce((sum, item) => sum + (item.current_stock || 0), 0);
+    const stockAlertStatus = stockData.some(item => 
+      item.current_stock <= item.reorder_level
+    );
+
+    return { 
+      total7, 
+      todayPredicted, 
+      todayActual, 
+      top, 
+      stockAlert: stockAlertStatus, 
+      assumedStock: totalStockValue || 500
+    };
+  }, [futureDemand, stockData]);
 
   const productionRows = useMemo(() => {
-    console.log('🔍 Processing futureDemand for production:', futureDemand);
-    
     return futureDemand
       .filter((f) => {
         const hasProduct = f.product || f.products;
@@ -268,7 +294,6 @@ const kpis = useMemo(() => {
       })
       .map((f) => {
         const productData = f.product || f.products;
-        
         return {
           id: `${f.product_id}-${f.forecast_date}`,
           productId: f.product_id,
@@ -285,12 +310,10 @@ const kpis = useMemo(() => {
   const filteredProductionRows = useMemo(() => {
     let filtered = productionRows;
     
-    // Filter by product
     if (productionFilter !== 'ALL') {
       filtered = filtered.filter(row => row.productId === parseInt(productionFilter));
     }
     
-    // Filter by type
     if (productionTypeFilter !== 'ALL') {
       filtered = filtered.filter(row => row.type === productionTypeFilter);
     }
@@ -300,9 +323,45 @@ const kpis = useMemo(() => {
 
   const selectedProduct = products.find((p) => p.id === selectedProductId) || null;
 
+  const isLoading = productsLoading || futureLoading || stockLoading;
+  const isRefreshing = productsFetching || futureFetching || stockFetching;
+  const isRunning = runPredictionMutation.isPending;
+  const isUploading = csvUploadMutation.isPending;
+
+  // ─── Loading State ───
+  if (isLoading && products.length === 0 && futureDemand.length === 0) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-cyan-600 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-500 text-sm">Loading forecasting data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Error State ───
+  if (productsError || futureError || stockError) {
+    const error = productsError || futureError || stockError;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 p-8">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700 max-w-2xl mx-auto">
+          <h3 className="font-semibold text-lg mb-2">Error Loading Data</h3>
+          <p>{error.message || 'Failed to load data'}</p>
+          <button
+            onClick={handleRefreshAll}
+            className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-cyan-50 to-blue-50 text-slate-800">
-      {/* Header */}
+      {/* ─── Header ─── */}
       <header className="relative overflow-hidden bg-gradient-to-r from-cyan-700 via-blue-700 to-slate-800 text-white">
         <div className="absolute inset-0 opacity-20 pointer-events-none">
           <Waves className="absolute -top-10 -right-10 w-72 h-72 text-cyan-200" />
@@ -324,11 +383,19 @@ const kpis = useMemo(() => {
           </div>
           <div className="flex flex-wrap gap-3">
             <button
+              onClick={handleRefreshAll}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/20 text-white font-semibold border border-white/30 hover:bg-white/30 transition disabled:opacity-50"
+            >
+              <RefreshCw className="w-4 h-4" className={isRefreshing ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+            <button
               onClick={handleRunPrediction}
-              disabled={running}
+              disabled={isRunning}
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-blue-700 font-semibold shadow-lg hover:bg-cyan-50 transition disabled:opacity-60"
             >
-              {running ? (
+              {isRunning ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Play className="w-4 h-4" />
@@ -350,17 +417,21 @@ const kpis = useMemo(() => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {error && (
+        {/* ─── Error Display ─── */}
+        {productsError && (
           <div className="flex items-center gap-3 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700">
             <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-            <span className="text-sm">{error}</span>
-            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <span className="text-sm">{productsError.message}</span>
+            <button 
+              onClick={() => refetchProducts()} 
+              className="ml-auto text-red-400 hover:text-red-600"
+            >
               <X className="w-4 h-4" />
             </button>
           </div>
         )}
 
-        {/* KPI Cards */}
+        {/* ─── KPI Cards ─── */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
             icon={<TrendingUp className="w-5 h-5" />}
@@ -388,11 +459,11 @@ const kpis = useMemo(() => {
             label="Stock Alert Status"
             value={kpis.stockAlert ? 'Low Stock' : 'Sufficient'}
             accent={kpis.stockAlert ? 'from-amber-500 to-red-500' : 'from-emerald-500 to-teal-500'}
-            sub={`Assumed stock: ${kpis.assumedStock} units`}
+            sub={`Current stock: ${kpis.assumedStock} units`}
           />
         </section>
 
-        {/* Filters */}
+        {/* ─── Filters ─── */}
         <section className="flex flex-col md:flex-row md:items-end gap-4">
           <div>
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
@@ -438,7 +509,7 @@ const kpis = useMemo(() => {
           </div>
         </section>
 
-        {/* Chart */}
+        {/* ─── Chart ─── */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 sm:p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -448,11 +519,12 @@ const kpis = useMemo(() => {
               </h2>
               <p className="text-sm text-slate-500">
                 {selectedProduct ? selectedProduct.name : 'Select a product'} · last 30 days
+                {chartLoading && ' (loading...)'}
               </p>
             </div>
           </div>
           <div className="h-80 w-full">
-            {loading ? (
+            {chartLoading ? (
               <div className="h-full flex items-center justify-center text-slate-400">
                 <Loader2 className="w-6 h-6 animate-spin" />
               </div>
@@ -505,17 +577,18 @@ const kpis = useMemo(() => {
           </div>
         </section>
 
-        {/* Production Plan Table with Filters */}
+        {/* ─── Production Plan Table ─── */}
         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="px-5 sm:px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-2">
               <Cog className="w-5 h-5 text-cyan-600" />
               <h2 className="text-lg font-semibold text-slate-800">7-Day Future Production Plan</h2>
+              {futureFetching && (
+                <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+              )}
             </div>
             
-            {/* Filters */}
             <div className="flex flex-wrap items-center gap-2">
-              {/* Product Filter */}
               <select
                 value={productionFilter}
                 onChange={(e) => setProductionFilter(e.target.value)}
@@ -529,6 +602,15 @@ const kpis = useMemo(() => {
                 ))}
               </select>
               
+              <select
+                value={productionTypeFilter}
+                onChange={(e) => setProductionTypeFilter(e.target.value)}
+                className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              >
+                <option value="ALL">All Types</option>
+                <option value="SEALED">Sealed</option>
+                <option value="REFILL">Refill</option>
+              </select>
               
               {(productionFilter !== 'ALL' || productionTypeFilter !== 'ALL') && (
                 <button
@@ -599,7 +681,7 @@ const kpis = useMemo(() => {
         </section>
       </main>
 
-      {/* CSV Modal */}
+      {/* ─── CSV Modal ─── */}
       {showCsvModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
@@ -656,35 +738,20 @@ const kpis = useMemo(() => {
               </button>
               <button
                 onClick={handleCsvUpload}
-                disabled={!csvText.trim()}
+                disabled={!csvText.trim() || isUploading}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 text-white text-sm font-semibold hover:bg-cyan-700 disabled:opacity-50"
               >
-                <UploadCloud className="w-4 h-4" />
+                {isUploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <UploadCloud className="w-4 h-4" />
+                )}
                 Upload
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function KpiCard({ icon, label, value, sub, accent }) {
-  return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col gap-3 hover:shadow-md transition">
-      <div className="flex items-center gap-3">
-        <div
-          className={`p-2.5 rounded-xl bg-gradient-to-br ${accent} text-white shadow`}
-        >
-          {icon}
-        </div>
-        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-          {label}
-        </span>
-      </div>
-      <div className="text-xl font-bold text-slate-800 truncate">{value}</div>
-      {sub && <div className="text-xs text-slate-400">{sub}</div>}
     </div>
   );
 }
