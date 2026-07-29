@@ -325,22 +325,28 @@ export default function Home() {
                       </p>
                     )}
 
-                    <div className="mt-4 flex items-center justify-between">
-                      <span className="text-2xl font-bold text-blue-600">
-                        LKR {Number(product.unit_price).toFixed(2)}
-                      </span>
-                      <button
-                        onClick={() =>
-                          window.dispatchEvent(
-                            new CustomEvent("open-order-modal", { detail: { productId: product.id } })
-                          )
-                        }
-                        className="inline-flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors duration-200"
-                      >
-                        Add
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                  {/* Price - Full Width */}
+                  <div className="mt-3">
+                    <span className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-600 whitespace-nowrap">
+                      Rs. {Number(product.unit_price).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2
+                      })}
+                    </span>
+                  </div>
+
+                  {/* Button - Full Width */}
+                  <button
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("open-order-modal", { detail: { productId: product.id } })
+                      )
+                    }
+                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-95"
+                  >
+                    Add to Order
+                  <Plus className="w-4 h-4" />
+                  </button>
                   </div>
                 </motion.div>
               ))}

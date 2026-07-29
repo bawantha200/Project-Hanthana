@@ -25,6 +25,9 @@ import {
   Eye,
   EyeOff,
   CheckCircle,
+  Wrench,
+  Calendar,
+  MessageSquare,
 } from "lucide-react";
 import FloatingOrderButton from "../components/FloatingOrderButton";
 import { useAuth } from "../context/AuthContext";
@@ -37,7 +40,7 @@ const NOTIFICATION_ICONS = {
   inventory: Package,
   payment: DollarSign,
   system: Settings,
-  maintenance: Settings,
+  maintenance: Wrench,
 };
 
 const timeAgo = (dateString) => {
@@ -223,7 +226,7 @@ const quickLinks = [
 ];
 
 // ─── Navbar Component ──────────────────────────────────────────
-function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
+function Navbar({ showLoginModal, setShowLoginModal, maintenanceActive }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCustomer, setIsCustomer] = useState(false);
@@ -238,13 +241,14 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   const [showPassword, setShowPassword] = useState(false);
   const [touchedFields, setTouchedFields] = useState({ email: false, password: false });
   const [loginError, setLoginError] = useState("");
+  const [userRole, setUserRole] = useState("");
   
   // Modal states
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailureModal, setShowFailureModal] = useState(false);
   const [failureMessage, setFailureMessage] = useState('');
   const [isRedirecting, setIsRedirecting] = useState(false);
-
+  
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, login, loginWithGoogle } = useAuth();
@@ -254,41 +258,71 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
     setTouchedFields(prev => ({ ...prev, [fieldName]: true }));
   };
 
+  // Validate email
+  const validateEmail = (value) => {
+    if (!value.trim()) {
+      return { isValid: false, message: 'Email address is required' };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return { isValid: false, message: 'Please enter a valid email address' };
+    }
+    return { isValid: true, message: '' };
+  };
+
+  // Validate password
+  const validatePassword = (value) => {
+    if (!value.trim()) {
+      return { isValid: false, message: 'Password is required' };
+    }
+    return { isValid: true, message: '' };
+  };
+
+  // Check if field has error
+  const hasFieldError = (fieldName) => {
+    if (fieldName === 'email') {
+      return touchedFields.email && !email.trim();
+    }
+    if (fieldName === 'password') {
+      return touchedFields.password && !password.trim();
+    }
+    return false;
+  };
+
   // ── Fetch settings ──
   useEffect(() => {
     const fetchSettings = async () => {
-  try {
-    const token = localStorage.getItem("token");
-    const headers = {};
-    if (token) headers.Authorization = `Bearer ${token}`;
+      try {
+        const token = localStorage.getItem("token");
+        const headers = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
 
-    const response = await fetch("http://localhost:5000/api/settings/public", {
-      headers,
-    });
-    const data = await response.json();
+        const response = await fetch("http://localhost:5000/api/settings/public", {
+          headers,
+        });
+        const data = await response.json();
 
-    if (data.success && data.data.general) {
-      const general = data.data.general;
-      setSettings({
-        companyName: general.companyName || defaultSettings.companyName,
-        contactPhone:
-          general.contactPhone ||
-          general.companyPhone ||
-          defaultSettings.contactPhone,
-        contactEmail:
-          general.contactEmail ||
-          general.companyEmail ||
-          defaultSettings.contactEmail,
-        address: general.address || defaultSettings.address,
-        services: general.services || defaultSettings.services,
-      });
-    }
-  } catch (error) {
-    console.error("Fetch settings error:", error);
-  } finally {
-    setSettingsLoading(false);
-  }
-  };
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            companyName: general.companyName || defaultSettings.companyName,
+            contactPhone:
+              general.contactPhone ||
+              general.companyPhone ||
+              defaultSettings.contactPhone,
+            contactEmail:
+              general.contactEmail ||
+              general.companyEmail ||
+              defaultSettings.contactEmail,
+            address: general.address || defaultSettings.address,
+            services: general.services || defaultSettings.services,
+          });
+        }
+      } catch (error) {
+        console.error("Fetch settings error:", error);
+      } finally {
+        setSettingsLoading(false);
+      }
+    };
 
     fetchSettings();
   }, []);
@@ -359,12 +393,12 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   const isActive = (path) => location.pathname === path;
 
   const getNavLinks = () => {
-  const links = [...baseNavLinks];
-  if (user && user.role_name === 'CUSTOMER') {
-    links.push({ name: "My Orders", path: "/orders" });
-  }
-  return links;
-};
+    const links = [...baseNavLinks];
+    if (user && user.role_name === 'CUSTOMER') {
+      links.push({ name: "My Orders", path: "/orders" });
+    }
+    return links;
+  };
 
   const fetchUnreadCount = async () => {
     try {
@@ -380,13 +414,13 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   };
 
   useEffect(() => {
-  if (!user) {
-    setUnreadCount(0);
-    return;
-  }
-  fetchUnreadCount();
-  const interval = setInterval(fetchUnreadCount, 30000);
-  return () => clearInterval(interval);
+    if (!user) {
+      setUnreadCount(0);
+      return;
+    }
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
   }, [user]);
 
   const handleToggle = () => {
@@ -411,13 +445,17 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
       // Mark both fields as touched for validation
       setTouchedFields({ email: true, password: true });
       
-      // Validate required fields
-      if (!email.trim()) {
-        setLoginError('Email address is required');
+      // Validate email
+      const emailValidation = validateEmail(email);
+      if (!emailValidation.isValid) {
+        setLoginError(emailValidation.message);
         return;
       }
-      if (!password.trim()) {
-        setLoginError('Password is required');
+
+      // Validate password
+      const passwordValidation = validatePassword(password);
+      if (!passwordValidation.isValid) {
+        setLoginError(passwordValidation.message);
         return;
       }
 
@@ -464,25 +502,35 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
         login(data.user, data.session.access_token, data.permissions || []);
         setShowLoginModal(false);
         
+        // Get user role
+        const targetRole = data.user.role?.toUpperCase() || 'CUSTOMER';
+        setUserRole(targetRole);
+        
         // Show success modal
         setShowSuccessModal(true);
-        setIsRedirecting(true);
         
-        const targetRole = data.user.role?.toUpperCase();
-        
-        // Set timeout for navigation - wait 2.5 seconds
-        setTimeout(() => {
-          setShowSuccessModal(false);
+        // If CUSTOMER, no redirect needed - just show welcome
+        if (targetRole === 'CUSTOMER') {
           setIsRedirecting(false);
-          
-          if (targetRole === 'ADMIN') {
-            navigate('/app/dashboard', { replace: true });
-          } else if (targetRole === 'RIDER'){
-            navigate('/app/rider-dashboard', { replace: true });
-          } else {
-            navigate('/', { replace: true });
-          }
-        }, 2500);
+          // Auto close after 2.5 seconds
+          setTimeout(() => {
+            setShowSuccessModal(false);
+          }, 2500);
+        } else {
+          // For ADMIN/RIDER - show redirecting
+          setIsRedirecting(true);
+          // Set timeout for navigation - wait 2.5 seconds
+          setTimeout(() => {
+            setShowSuccessModal(false);
+            setIsRedirecting(false);
+            
+            if (targetRole === 'ADMIN') {
+              navigate('/app/dashboard', { replace: true });
+            } else if (targetRole === 'RIDER'){
+              navigate('/app/rider-dashboard', { replace: true });
+            }
+          }, 2500);
+        }
 
         setLoading(false);
       } catch (error) {
@@ -511,12 +559,12 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
   return (
     <>
       <nav
-  className={`relative left-0 right-0 z-[60] transition-all duration-300 ${
-    isScrolled
-      ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
-      : "bg-white shadow-sm"
-  }`}
->
+        className={`relative left-0 right-0 z-[60] transition-all duration-300 ${
+          isScrolled
+            ? "bg-white/80 backdrop-blur-lg shadow-lg border-b border-blue-100/50"
+            : "bg-white shadow-sm"
+        }`}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 lg:h-18">
             {/* Logo */}
@@ -865,7 +913,7 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                   </div>
                 )}
 
-                <form onSubmit={handleLogin} className="space-y-5">
+                <form onSubmit={handleLogin} className="space-y-5" noValidate>
                   {/* Email Field */}
                   <div>
                     <div className="flex justify-between items-center mb-1.5">
@@ -874,33 +922,32 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                       </label>
                     </div>
                     <div className={`relative transition-all duration-200 ${
-                      touchedFields.email && !email.trim() 
+                      hasFieldError('email')
                         ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
                         : ''
                     }`}>
                       <Mail className={`absolute left-3 top-3.5 h-5 w-5 ${
-                        touchedFields.email && !email.trim() ? 'text-red-500' : 'text-gray-400'
+                        hasFieldError('email') ? 'text-red-500' : 'text-gray-400'
                       }`} />
                       <input
                         type="email"
-                        required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         onBlur={() => handleFieldBlur('email')}
                         className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                          touchedFields.email && !email.trim() 
+                          hasFieldError('email')
                             ? 'border-red-500 bg-red-50' 
                             : 'border-gray-200'
                         }`}
                         placeholder="name@example.com"
                       />
-                      {touchedFields.email && !email.trim() && (
+                      {hasFieldError('email') && (
                         <div className="absolute right-3 top-3.5">
                           <AlertTriangle size={18} className="text-red-500" />
                         </div>
                       )}
                     </div>
-                    {touchedFields.email && !email.trim() && (
+                    {hasFieldError('email') && (
                       <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                         <AlertCircle size={12} />
                         Email address is required
@@ -916,21 +963,20 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                       </label>
                     </div>
                     <div className={`relative transition-all duration-200 ${
-                      touchedFields.password && !password.trim() 
+                      hasFieldError('password')
                         ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
                         : ''
                     }`}>
                       <Lock className={`absolute left-3 top-3.5 h-5 w-5 ${
-                        touchedFields.password && !password.trim() ? 'text-red-500' : 'text-gray-400'
+                        hasFieldError('password') ? 'text-red-500' : 'text-gray-400'
                       }`} />
                       <input
                         type={showPassword ? 'text' : 'password'}
-                        required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         onBlur={() => handleFieldBlur('password')}
                         className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                          touchedFields.password && !password.trim() 
+                          hasFieldError('password')
                             ? 'border-red-500 bg-red-50' 
                             : 'border-gray-200'
                         }`}
@@ -943,13 +989,13 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                       >
                         {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                       </button>
-                      {touchedFields.password && !password.trim() && (
+                      {hasFieldError('password') && (
                         <div className="absolute right-12 top-3.5">
                           <AlertTriangle size={18} className="text-red-500" />
                         </div>
                       )}
                     </div>
-                    {touchedFields.password && !password.trim() && (
+                    {hasFieldError('password') && (
                       <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                         <AlertCircle size={12} />
                         Password is required
@@ -1032,14 +1078,29 @@ function Navbar({ showLoginModal, setShowLoginModal,maintenanceActive }) {
                 <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <CheckCircle className="w-10 h-10 text-green-600" />
                 </div>
-                <h3 className="text-2xl font-bold text-gray-900">Welcome Back!</h3>
+                
+                {/* Role-based title */}
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {userRole === 'CUSTOMER' ? 'Welcome Back!' : 'Welcome Admin!'}
+                </h3>
+                
+                {/* Role-based message */}
                 <p className="text-gray-500 mt-2">
-                  You have successfully logged in to your account.
+                  {userRole === 'CUSTOMER' 
+                    ? 'You have successfully logged in to your account.' 
+                    : 'You have successfully logged in to the admin panel.'}
                 </p>
+                
+                {/* Show different messages based on role */}
                 <p className="text-sm text-green-600 mt-1 font-medium">
-                  {isRedirecting ? 'Redirecting to dashboard...' : 'Click anywhere to continue'}
+                  {userRole === 'CUSTOMER' 
+                    ? 'You can now start ordering.' 
+                    : isRedirecting 
+                    ? 'Redirecting to dashboard...' 
+                    : 'Click anywhere to continue'}
                 </p>
-                {isRedirecting && (
+                
+                {userRole !== 'CUSTOMER' && isRedirecting && (
                   <div className="mt-4 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
                     <motion.div
                       className="h-full bg-green-600 rounded-full"
@@ -1121,39 +1182,39 @@ function Footer() {
   const [settingsLoading, setSettingsLoading] = useState(true);
 
   useEffect(() => {
-  const fetchSettings = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const headers = {};
-      if (token) headers.Authorization = `Bearer ${token}`;
+    const fetchSettings = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const headers = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
 
-      const response = await fetch("http://localhost:5000/api/settings/public", {
-        headers,
-      });
-      const data = await response.json();
-
-      if (data.success && data.data.general) {
-        const general = data.data.general;
-        setSettings({
-          companyName: general.companyName || defaultSettings.companyName,
-          contactPhone:
-            general.contactPhone ||
-            general.companyPhone ||
-            defaultSettings.contactPhone,
-          contactEmail:
-            general.contactEmail ||
-            general.companyEmail ||
-            defaultSettings.contactEmail,
-          address: general.address || defaultSettings.address,
-          services: general.services || defaultSettings.services,
+        const response = await fetch("http://localhost:5000/api/settings/public", {
+          headers,
         });
+        const data = await response.json();
+
+        if (data.success && data.data.general) {
+          const general = data.data.general;
+          setSettings({
+            companyName: general.companyName || defaultSettings.companyName,
+            contactPhone:
+              general.contactPhone ||
+              general.companyPhone ||
+              defaultSettings.contactPhone,
+            contactEmail:
+              general.contactEmail ||
+              general.companyEmail ||
+              defaultSettings.contactEmail,
+            address: general.address || defaultSettings.address,
+            services: general.services || defaultSettings.services,
+          });
+        }
+      } catch (error) {
+        console.error("Fetch settings error:", error);
+      } finally {
+        setSettingsLoading(false);
       }
-    } catch (error) {
-      console.error("Fetch settings error:", error);
-    } finally {
-      setSettingsLoading(false);
-    }
-  };
+    };
 
     fetchSettings();
   }, []);
@@ -1292,25 +1353,24 @@ export default function CustomerLayout() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
- useEffect(() => {
-  const fetchUpcomingWindows = async () => {
-    try {
-      const response = await fetch('http://localhost:5000/api/maintenance');
-      const data = await response.json();
-      console.log('🔍 Maintenance windows response:', data); // ✅ temporary debug line
-      if (data.success && data.windows?.length > 0) {
-        setUpcomingNotice(data.windows[0]);
-      } else {
-        setUpcomingNotice(null);
+  useEffect(() => {
+    const fetchUpcomingWindows = async () => {
+      try {
+        const response = await fetch('http://localhost:5000/api/maintenance');
+        const data = await response.json();
+        if (data.success && data.windows?.length > 0) {
+          setUpcomingNotice(data.windows[0]);
+        } else {
+          setUpcomingNotice(null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch upcoming maintenance:', err);
       }
-    } catch (err) {
-      console.error('Failed to fetch upcoming maintenance:', err);
-    }
-  };
-  fetchUpcomingWindows();
-  const interval = setInterval(fetchUpcomingWindows, 60000);
-  return () => clearInterval(interval);
-}, []);
+    };
+    fetchUpcomingWindows();
+    const interval = setInterval(fetchUpcomingWindows, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const fetchMaintenanceStatus = async () => {
@@ -1331,8 +1391,7 @@ export default function CustomerLayout() {
     return () => clearInterval(interval);
   }, []);
 
-
-  // ✅ Navbar + Banner ekema actual height eka measure karanawa (guess pixel values nemei)
+  // Navbar + Banner actual height measure
   useLayoutEffect(() => {
     if (!headerRef.current) return;
 
@@ -1357,38 +1416,38 @@ export default function CustomerLayout() {
   }, [user, navigate]);
 
   return (
-    
     <div className="min-h-screen flex flex-col bg-[#F8FAFC]">
+      {/* Navbar + Banner wrapper */}
+      <div ref={headerRef} className="fixed top-0 left-0 right-0 z-[60]">
+        {maintenanceBanner ? (
+          <div className="bg-amber-500 text-white text-sm font-medium px-4 py-2 text-center flex items-center justify-center gap-2">
+            <Wrench size={18} />
+            {maintenanceBanner.message}
+          </div>
+        ) : upcomingNotice ? (
+          <div className="bg-blue-600 text-white text-sm font-medium px-4 py-2 text-center flex items-center justify-center gap-2">
+            <Calendar size={18} />
+            {upcomingNotice.message} — Starting {new Date(upcomingNotice.scheduled_start).toLocaleString()}
+          </div>
+        ) : null}
+        <Navbar
+          showLoginModal={showLoginModal}
+          setShowLoginModal={setShowLoginModal}
+        />
+      </div>
 
-    {/* ✅ Navbar + Banner dekama height measure karanna ref ekaka athule */}
-    <div ref={headerRef} className="fixed top-0 left-0 right-0 z-[60]">
-      {maintenanceBanner ? (
-    <div className="bg-amber-500 text-white text-sm font-medium px-4 py-2 text-center">
-      🛠️ {maintenanceBanner.message}
-    </div>
-  ) : upcomingNotice ? (
-    <div className="bg-blue-600 text-white text-sm font-medium px-4 py-2 text-center">
-      📅 {upcomingNotice.message} — Starting {new Date(upcomingNotice.scheduled_start).toLocaleString()}
-    </div>
-  ) : null}
-      <Navbar
-        showLoginModal={showLoginModal}
-        setShowLoginModal={setShowLoginModal}
-      />
-    </div>
-
-    {/* ✅ main eke padding eka, actual measured height eka use karanawa */}
-    <main
-  className="flex-1"
-  style={{ paddingTop: `${headerHeight}px`, marginTop: '-1px' }}
->
-      <Outlet />
+      {/* Main content with padding based on actual header height */}
+      <main
+        className="flex-1"
+        style={{ paddingTop: `${headerHeight}px`, marginTop: '-1px' }}
+      >
+        <Outlet />
       </main>
       <Footer />
       <FloatingOrderButton
-  onLoginRequired={handleOrderClick}
-  hasMaintenanceBanner={!!maintenanceBanner || !!upcomingNotice}
-/>
+        onLoginRequired={handleOrderClick}
+        hasMaintenanceBanner={!!maintenanceBanner || !!upcomingNotice}
+      />
 
       {/* Auth Prompt Modal */}
       <AnimatePresence>
