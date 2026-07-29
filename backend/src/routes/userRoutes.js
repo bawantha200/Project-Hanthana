@@ -13,15 +13,16 @@ const {
 } = require("../controllers/userController");
 
 const { protect } = require("../middlewares/authMiddleware");
+const upload = require("../middlewares/upload");   // ✅ NEW
 
 // ===== All routes require authentication =====
 router.use(protect);
 
 router.get("/", getUsers);
 router.get("/:id", getUserById);
-router.post("/", createUser);
+router.post("/", upload.single("profileImage"), createUser);        // ✅ NEW
 router.post("/from-employee", createUserFromEmployee);
-router.put("/:id", updateUser);
+router.put("/:id", upload.single("profileImage"), updateUser);       // ✅ NEW
 router.delete("/:id", deleteUser);
 router.patch("/:id/status", updateUserStatus);
 router.patch("/:id/role", updateUserRole);

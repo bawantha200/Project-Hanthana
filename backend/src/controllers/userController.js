@@ -58,7 +58,7 @@ const createUser = async (req, res) => {
     }
 
     const user = await userService.createUser({
-      fullName, email, phone, address, role, password
+      fullName, email, phone, address, role, password, file: req.file   // ✅ NEW
     });
 
     return res.status(201).json({
@@ -68,14 +68,9 @@ const createUser = async (req, res) => {
     });
   } catch (error) {
     console.error('[Users] ❌ Create error:', error);
-
     if (error.message.includes('already exists')) {
-      return res.status(409).json({
-        success: false,
-        message: error.message
-      });
+      return res.status(409).json({ success: false, message: error.message });
     }
-
     return res.status(500).json({
       success: false,
       message: error.message || 'Internal server error'
@@ -137,7 +132,10 @@ const createUserFromEmployee = async (req, res) => {
 const updateUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { fullName, email, phone, address, role, status, password, profileImage } = req.body; // ✅ added profileImage
+    const {
+      fullName, email, phone, address, role, status, password,
+      jobType, hireDate, birthday, gender, nic, marriageStatus   // ✅ NEW
+    } = req.body;
 
     if (!fullName || !email || !role) {
       return res.status(400).json({
@@ -154,7 +152,8 @@ const updateUser = async (req, res) => {
     }
 
     const updated = await userService.updateUser(id, {
-      fullName, email, phone, address, role, status, password, profileImage // ✅ added
+      fullName, email, phone, address, role, status, password, file: req.file,
+      jobType, hireDate, birthday, gender, nic, marriageStatus   // ✅ NEW
     });
 
     return res.status(200).json({

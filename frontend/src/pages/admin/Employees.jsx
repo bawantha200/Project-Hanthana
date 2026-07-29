@@ -675,12 +675,15 @@ export default function Employees() {
   };
 
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    setFormData(prev => ({ ...prev, hiredDate: today }));
-    fetchEmployees();
-    fetchDesignations();
-    fetchRoles();
-  }, []);
+  const today = new Date().toISOString().split('T')[0];
+  setFormData(prev => ({ ...prev, hiredDate: today }));
+
+  (async () => {
+    await fetchEmployees();
+    await fetchDesignations();
+    await fetchRoles();
+  })();
+}, []);
 
   useEffect(() => {
     if (showSuccess) {
@@ -870,18 +873,19 @@ if (newRoleId && newRoleId !== originalRoleId) {
   statusToSend = 'pending';
 }
       
-      const updateData = {
-        name: formData.fullName,
-        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
-        phone: formData.phoneNo,
-        email: formData.email,
-        hireDate: formData.hiredDate,
-        address: formData.address,
-        baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0,
-        status: statusToSend,
-        role_id: formData.role || null
-      };
+     const updateData = {
+  name: formData.fullName,
+  position: formData.designation,        // ✅ ADD THIS LINE — keep position text in sync with designation_id
+  designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+  phone: formData.phoneNo,
+  email: formData.email,
+  hireDate: formData.hiredDate,
+  address: formData.address,
+  baseSalary: parseFloat(formData.baseSalary) || 0,
+  bonus: parseFloat(formData.bonus) || 0,
+  status: statusToSend,
+  role_id: formData.role || null
+};
       
       if (formData.birthday) updateData.birthday = formData.birthday;
       if (formData.gender) updateData.gender = formData.gender;
@@ -2142,7 +2146,7 @@ if (newRoleId && newRoleId !== originalRoleId) {
                     </div>
 
                     {/* Status */}
-                    <div>
+                    {/* <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Circle size={14} className="inline mr-1" /> Status *
                       </label>
@@ -2172,7 +2176,7 @@ if (newRoleId && newRoleId !== originalRoleId) {
                           {validationErrors.status}
                         </p>
                       )}
-                    </div>
+                    </div> */}
 
                     {/* Profile Image */}
                     <div>

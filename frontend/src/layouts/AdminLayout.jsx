@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { NAV_ITEMS } from '../context/AuthContext';
 import {
   LayoutDashboard,
   Package,
@@ -50,48 +51,50 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
 
-const NAV_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/dashboard' },
+
+
+// const NAV_ITEMS = [
+//   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/dashboard' },
   
-  { id: 'sales-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/sales-dashboard' },
-  { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/app/sales-analytics' },
-  { id: 'inventory-dashboard', label: 'Inventory Dashboard', icon: LayoutDashboard, path: '/app/inventory-dashboard' },
-  { id: 'demandforecast-dashboard', label: 'Demand Forecast', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
-  { id: 'jit-dashboard', label: 'JIT Dashboard', icon: Factory, path: '/app/jit-dashboard' },
-  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },   // ✅ methanata gaththa — top section eke
+//   { id: 'sales-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/sales-dashboard' },
+//   { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/app/sales-analytics' },
+//   { id: 'inventory-dashboard', label: 'Inventory Dashboard', icon: LayoutDashboard, path: '/app/inventory-dashboard' },
+//   { id: 'demandforecast-dashboard', label: 'Demand Forecast', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
+//   { id: 'jit-dashboard', label: 'JIT Dashboard', icon: Factory, path: '/app/jit-dashboard' },
+//   { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },   // ✅ methanata gaththa — top section eke
 
-  { id: 'products', label: 'Products', icon: Package, path: '/app/products' },
-  { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/app/inventory' },
-  { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/app/orders' },
-  { id: 'pos', label: 'POS', icon: Clipboard, path: '/app/pos' },
-  { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/app/deliveries' },
-  { id: 'deliveryconfig', label: 'Delivery Configuration', icon: Truck, path: '/app/delivery/config' },
-  { id: 'messages', label: 'Messages', icon: Inbox, path: '/app/messages' },
+//   { id: 'products', label: 'Products', icon: Package, path: '/app/products' },
+//   { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/app/inventory' },
+//   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/app/orders' },
+//   { id: 'pos', label: 'POS', icon: Clipboard, path: '/app/pos' },
+//   { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/app/deliveries' },
+//   { id: 'deliveryconfig', label: 'Delivery Configuration', icon: Truck, path: '/app/delivery/config' },
+//   { id: 'messages', label: 'Messages', icon: Inbox, path: '/app/messages' },
 
-  { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/app/rider-dashboard' },
+//   { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/app/rider-dashboard' },
 
-  { id: 'customers', label: 'Customers', icon: Users, path: '/app/customers' },
+//   { id: 'customers', label: 'Customers', icon: Users, path: '/app/customers' },
 
-  { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, path: '/app/attendance' },
-  { id: 'leave', label: 'Leave', icon: CalendarDays, path: '/app/leave' },
-  { id: 'salaries-ot', label: 'Salaries & OT', icon: DollarSign, path: '/app/salaries-ot' },
+//   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, path: '/app/attendance' },
+//   { id: 'leave', label: 'Leave', icon: CalendarDays, path: '/app/leave' },
+//   { id: 'salaries-ot', label: 'Salaries & OT', icon: DollarSign, path: '/app/salaries-ot' },
 
-  { id: 'employees', label: 'Employees', icon: UserCog, path: '/app/employees' },
-  { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/app/hrm' },
+//   { id: 'employees', label: 'Employees', icon: UserCog, path: '/app/employees' },
+//   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/app/hrm' },
 
-  { id: 'finance', label: 'Finance', icon: DollarSign, path: '/app/finance' },
-  { id: 'invoice', label: 'Invoice', icon: FileText, path: '/app/finance/invoicing-reports' },
-  { id: 'invoice', label: 'Profit', icon: FileText, path: '/app/finance/profit-reports' },
-  { id: 'expenses', label: 'Expenses', icon: BarChart3, path: '/app/finance/expenses' },
+//   { id: 'finance', label: 'Finance', icon: DollarSign, path: '/app/finance' },
+//   { id: 'invoice', label: 'Invoice', icon: FileText, path: '/app/finance/invoicing-reports' },
+//   { id: 'invoice', label: 'Profit', icon: FileText, path: '/app/finance/profit-reports' },
+//   { id: 'expenses', label: 'Expenses', icon: BarChart3, path: '/app/finance/expenses' },
 
-  { id: 'vendors', label: 'Vendors', icon: Store, path: '/app/vendors' },
+//   { id: 'vendors', label: 'Vendors', icon: Store, path: '/app/vendors' },
 
-  { id: 'reports', label: 'Reports', icon: BarChart3, path: '/app/reports' },
-  { id: 'user-management', label: 'User Management', icon: UsersRound, path: '/app/user-management' },
-  { id: 'settings-request', label: 'Settings Requests', icon: FileCheck, path: '/app/settings-requests' },
-  { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/app/manage-permission' },
-  { id: 'settings', label: 'Settings', icon: Settings, path: '/app/settings' },
-];
+//   { id: 'reports', label: 'Reports', icon: BarChart3, path: '/app/reports' },
+//   { id: 'user-management', label: 'User Management', icon: UsersRound, path: '/app/user-management' },
+//   { id: 'settings-request', label: 'Settings Requests', icon: FileCheck, path: '/app/settings-requests' },
+//   { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/app/manage-permission' },
+//   { id: 'settings', label: 'Settings', icon: Settings, path: '/app/settings' },
+// ];
 
 
 
@@ -835,7 +838,7 @@ const defaultSettings = {
 
 // ---------- Main AdminLayout Component ----------
 export default function AdminLayout() {
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -853,7 +856,7 @@ export default function AdminLayout() {
   const [maintenanceBanner, setMaintenanceBanner] = useState(null);
 
   // Permissions & roles
-  const [permissions, setPermissions] = useState([]);
+  
   const [allRoles, setAllRoles] = useState([]);
   const [viewRole, setViewRole] = useState(null);
   const [effectivePermissions, setEffectivePermissions] = useState([]);
@@ -899,22 +902,7 @@ export default function AdminLayout() {
       fetchSettings();
     }, []);
 
-  // Fetch current user's permissions
-  const fetchPermissions = useCallback(async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const res = await fetch('http://localhost:5000/api/auth/permissions', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json();
-    if (res.ok) {
-      console.log('✅ Permissions from API:', data.permissions);
-      setPermissions(data.permissions || []);
-    }
-  } catch (err) {
-    console.error('❌ Fetch permissions error:', err);
-  }
-}, []);
+
 
   const fetchPendingSettingsCount = useCallback(async () => {
   try {
@@ -1017,12 +1005,10 @@ useEffect(() => {
 
   // Load initial data
   useEffect(() => {
-    if (user) {
-      fetchPermissions();
-      if (isAdmin) fetchAllRoles();
-    }
-  }, [user, isAdmin, fetchPermissions, fetchAllRoles]);
-
+  if (user && isAdmin) {
+    fetchAllRoles();
+  }
+}, [user, isAdmin, fetchAllRoles]);
   // When admin switches viewRole, fetch permissions for that role
   useEffect(() => {
     if (isAdmin && viewRole && viewRole !== user.role) {

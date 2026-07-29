@@ -1,7 +1,74 @@
+// ===== AuthContext.jsx =====
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import {
+  LayoutDashboard, Package, ShoppingCart, Truck, Users, UserCog, Briefcase,
+  DollarSign, Store, BarChart3, Settings, Bike, Inbox, FileText, Clipboard,
+  Warehouse, ClipboardCheck, Sliders, CalendarDays, FileCheck, Factory, UsersRound
+} from 'lucide-react';
 
 const AuthContext = createContext(null);
+
+// ── NAV_ITEMS (unique ids, correct paths) ──
+// ===== AuthContext.jsx =====
+export const NAV_ITEMS = [
+  // Specific Modules First (Accountant/Finance/HRM specific routes)
+  { id: 'finance', label: 'Finance', icon: DollarSign, path: '/app/finance' },
+  { id: 'invoice', label: 'Invoice', icon: FileText, path: '/app/finance/invoicing-reports' },
+  { id: 'profit', label: 'Profit', icon: FileText, path: '/app/finance/profit-reports' },
+  { id: 'expenses', label: 'Expenses', icon: BarChart3, path: '/app/finance/expenses' },
+  
+  // Dashboard routes
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/dashboard' },
+  { id: 'sales-dashboard', label: 'Sales Dashboard', icon: LayoutDashboard, path: '/app/sales-dashboard' },
+  { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/app/sales-analytics' },
+  { id: 'inventory-dashboard', label: 'Inventory Dashboard', icon: LayoutDashboard, path: '/app/inventory-dashboard' },
+  { id: 'demandforecast-dashboard', label: 'Demand Forecast', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
+  { id: 'jit-dashboard', label: 'JIT Dashboard', icon: Factory, path: '/app/jit-dashboard' },
+  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },
+
+  // Operational Modules
+  { id: 'products', label: 'Products', icon: Package, path: '/app/products' },
+  { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/app/inventory' },
+  { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/app/orders' },
+  { id: 'pos', label: 'POS', icon: Clipboard, path: '/app/pos' },
+  { id: 'deliveries', label: 'Deliveries', icon: Truck, path: '/app/deliveries' },
+  { id: 'deliveryconfig', label: 'Delivery Configuration', icon: Truck, path: '/app/delivery/config' },
+  { id: 'messages', label: 'Messages', icon: Inbox, path: '/app/messages' },
+  { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/app/rider-dashboard' },
+  { id: 'customers', label: 'Customers', icon: Users, path: '/app/customers' },
+  { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, path: '/app/attendance' },
+  { id: 'leave', label: 'Leave', icon: CalendarDays, path: '/app/leave' },
+  { id: 'salaries-ot', label: 'Salaries & OT', icon: DollarSign, path: '/app/salaries-ot' },
+  { id: 'employees', label: 'Employees', icon: UserCog, path: '/app/employees' },
+  { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/app/hrm' },
+  { id: 'vendors', label: 'Vendors', icon: Store, path: '/app/vendors' },
+  { id: 'reports', label: 'Reports', icon: BarChart3, path: '/app/reports' },
+  { id: 'user-management', label: 'User Management', icon: UsersRound, path: '/app/user-management' },
+  { id: 'settings-request', label: 'Settings Requests', icon: FileCheck, path: '/app/settings-requests' },
+  { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/app/manage-permission' },
+  { id: 'settings', label: 'Settings', icon: Settings, path: '/app/settings' },
+];
+
+const FALLBACK_ROUTE = '/app/dashboard';
+
+/**
+ * Returns the first route (in NAV_ITEMS priority order) that the given permissions grant access to.
+ */
+export function getLandingRouteForPermissions(permissions = []) {
+  // Always prefer the main dashboard if the user has access to it
+  if (permissions.includes('dashboard')) {
+    return '/app/dashboard';
+  }
+
+  const match = NAV_ITEMS.find((item) => permissions.includes(item.id));
+  return match ? match.path : FALLBACK_ROUTE;
+}
+
+// The rest of AuthContext.jsx remains exactly as you have it.
+// (formatUserData, useAuth, AuthProvider, etc.) — no changes needed.
+
+// ...rest of the file stays exactly the same (getRoleColorClass, AuthProvider, etc.)
 
 /**
  * Generates a consistent Tailwind CSS color scheme based on the role name string hashing
@@ -104,8 +171,9 @@ const formatUserData = useCallback((data) => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setUser(formatUserData(result.user)); 
-        setPermissions(result.permissions || []); 
+        console.log('[AUTH DEBUG] full result:', result);
+  setUser(formatUserData(result.user)); 
+  setPermissions(result.permissions || []);  
       } else {
         // Clear stored token and state if token validation fails
         localStorage.removeItem('token');
@@ -151,19 +219,19 @@ const formatUserData = useCallback((data) => {
   /**
    * Manual login handler to persist token and update application state
    */
-  const login = useCallback((userData, sessionOrToken, dynamicPermissions) => {
-    const token = typeof sessionOrToken === 'object' && sessionOrToken !== null
-      ? sessionOrToken.access_token 
-      : sessionOrToken;
+  const login = useCallback(async (userData, sessionOrToken, dynamicPermissions) => {
+  const token = typeof sessionOrToken === 'object' && sessionOrToken !== null
+    ? sessionOrToken.access_token 
+    : sessionOrToken;
 
-    if (token) {
-      localStorage.setItem('token', token);
-      setUser(formatUserData(userData));
-      setPermissions(dynamicPermissions || []);
-    } else {
-      console.error("Login execution failed: Access token missing or malformed");
-    }
-  }, [formatUserData]);
+  if (token) {
+    localStorage.setItem('token', token);
+    setLoading(true);           // ✅ block premature renders
+    await checkAuthStatus();    // ✅ single source of truth — fetch fresh, complete data from backend
+  } else {
+    console.error("Login execution failed: Access token missing or malformed");
+  }
+}, [checkAuthStatus]);
 
   /**
    * Destroys active Supabase session and clears local application state
@@ -337,7 +405,8 @@ const detectUserType = (user) => {
 
   return (
     <AuthContext.Provider value={{ 
-      user, 
+      user,
+      permissions, 
       loading, 
       isAdmin,
       login, 

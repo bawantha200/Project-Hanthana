@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, LogIn, AlertCircle, CheckCircle, Eye, EyeOff, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { getLandingRouteForPermissions } from '../../context/AuthContext';
 
 
 
@@ -91,49 +92,42 @@ const Login = ({ onSuccess, isModal = false }) => {
         return;
       }
 
-      // Login successful
-      login(data.user, data.session.access_token, data.permissions || []);
+// src/pages/auth/Login.jsx (කොටස් පමණක් දක්වා ඇත)
 
-      
-      setShowSuccessModal(true);
-      setIsRedirecting(true);
-      
-      // Guaranteed landing page for the fixed system roles — these always win,
-// regardless of what order their permissions happen to be granted in.
+// ... ඉහත කොටස් එලෙසම ...
 
+// Login සාර්ථක වූ විට (success block)
+login(data.user, data.session.access_token, data.permissions || []);
+setShowSuccessModal(true);
+setIsRedirecting(true);
 
-      const targetRole = data.user.role || data.user.role_name;
-      
-      // Clear any existing timeout
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      
-      // Set timeout for navigation - wait 2.5 seconds
+// Login.jsx (Success block)
+login(data.user, data.session.access_token, data.permissions || []);
+setShowSuccessModal(true);
+setIsRedirecting(true);
+
+const targetRole = String(data.user.role || data.user.role_name || '').toUpperCase();
+const targetPermissions = data.permissions || [];
+
+if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
 timeoutRef.current = setTimeout(() => {
   setShowSuccessModal(false);
   setIsRedirecting(false);
-  
+
   if (isModal && onSuccess) {
     onSuccess();
+  } else if (targetRole === 'CUSTOMER') {
+    window.location.replace('/');
   } else {
-    const roleUpper = String(targetRole || '').toUpperCase();
-    if (roleUpper === 'ADMIN') {
-      navigate('/app/dashboard', { replace: true });
-    } else if (roleUpper === 'RIDER') {
-      navigate('/app/rider-dashboard', { replace: true });
-    } else if (roleUpper === 'SALES_MANAGER') {
-      navigate('/app/sales-dashboard', { replace: true });
-    } else if (roleUpper === 'HR_MANAGER') {
-      navigate('/app/hrm-dashboard', { replace: true });
-    } else if (roleUpper === 'CUSTOMER') {
-      navigate('/', { replace: true });
-    } else {
-      navigate('/app/dashboard', { replace: true });
-    }
+    // Permissions අනුව අදාළ නිවැරදි Landing Route එක සොයාගෙන එතැනට කෙලින්ම යවන්න
+    const targetRoute = getLandingRouteForPermissions(targetPermissions);
+    window.location.replace(targetRoute);
   }
   timeoutRef.current = null;
 }, 2500);
+
+
 
       setLoading(false);
 
