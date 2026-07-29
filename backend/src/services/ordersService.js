@@ -278,7 +278,7 @@ const createOrder = async (orderData) => {
   }
 
   const isCash = paymentMethod === 'CASH';
-  const paymentStatus = isCash ? 'COMPLETED' : 'PENDING';
+  const paymentStatus = 'PENDING';
 
   // ✅ INSERT ORDER - delivery_location should be the customer's address
   console.log('[createOrder] Inserting order with:');
@@ -292,7 +292,7 @@ const createOrder = async (orderData) => {
       order_type: orderType,
       payment_method: paymentMethod,
       payment_status: paymentStatus,
-      order_status: orderType === 'PICKUP' ? 'COMPLETED' : 'PLACED',
+      order_status: orderType === 'PICKUP' ? 'PLACED' : 'COMPLETED',
       total_amount: total,
       delivery_fee: deliveryFee,
       delivery_location: deliveryAddressText, // ✅ This should be the customer's address
@@ -374,7 +374,7 @@ const createOrder = async (orderData) => {
       await deductInventory(items);
       console.log('[createOrder] ✅ Inventory deducted successfully');
 
-      const orderStatus = orderType === 'PICKUP' ? 'COMPLETED' : 'PLACED';
+      const orderStatus = orderType === 'PICKUP' ? 'PLACED' : 'COMPLETED';
       await supabase
         .from('orders')
         .update({
@@ -649,7 +649,7 @@ const completeOrder = async (orderId, items) => {
     return orderData;
   }
 
-  const orderStatus = orderData.order_type === 'PICKUP' ? 'COMPLETED' : 'PLACED';
+  const orderStatus = orderData.order_type === 'PICKUP' ? 'PLACED' : 'COMPLETED';
 
   const { data: order, error: updateError } = await supabase
     .from('orders')

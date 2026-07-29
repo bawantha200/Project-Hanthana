@@ -6,7 +6,7 @@ const CustomTooltip = ({ active, payload }) => {
     return (
       <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-lg border border-gray-100 p-3 text-sm">
         <p className="font-semibold text-gray-900">{payload[0].name}</p>
-        <p style={{ color: payload[0].payload.color }}>₹{payload[0].value.toLocaleString()}</p>
+        <p style={{ color: payload[0].payload.color }}>LKR {payload[0].value.toLocaleString()}</p>
       </div>
     );
   }

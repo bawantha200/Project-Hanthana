@@ -1,18 +1,25 @@
 // frontend/src/components/FloatingOrderButton.jsx
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from "framer-motion";
 import CryptoJS from 'crypto-js';
+import html2canvas from 'html2canvas';
 import {
   Droplet, X, ChevronRight, ChevronLeft, ShoppingCart,
   Home, Store, CreditCard, CheckCircle, Loader2,
   Truck, MapPin, Shield, Lock, CircleCheck, TrendingUp,
-  Crosshair, AlertCircle, Search, Clock, Banknote
+  Crosshair, AlertCircle, Search, Clock, Banknote,
+  Plus,
+  Minus,
+  Printer,
+  Info,
+  AlertTriangle
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../supabaseClient";
 import toast from "react-hot-toast";
 import api from '../services/api';
-import { calculateDeliveryFee } from '../services/ordersService';
+import { calculateDeliveryFee } from '../services/deliveryFeeService';
 
 // PAYHERE CONFIGURATION
 const PAYHERE_CONFIG = {
@@ -50,6 +57,9 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [productStock, setProductStock] = useState({});
+  const [stockErrors, setStockErrors] = useState({});
+  const navigate = useNavigate();
   
   // ORDER DATA - Address (from DB) + Location (user selected)
   const [orderData, setOrderData] = useState({ 
@@ -68,8 +78,10 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   const [step, setStep] = useState(1);
   const [subtotal, setSubtotal] = useState(0);
   const [orderId, setOrderId] = useState(null);
+  const [orderDetails, setOrderDetails] = useState(null);
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState("CASH");
+  const invoiceContainerRef = useRef(null);
   
   // Delivery fee states
   const [deliveryCharge, setDeliveryCharge] = useState(0);
@@ -718,15 +730,33 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
       
       setProducts(productsData || []);
       
+      // Fetch inventory stock
+      const { data: inventoryData } = await supabase
+        .from("inventory")
+        .select("product_id, current_stock");
+      
+      const stockMap = {};
+      inventoryData?.forEach(item => {
+        stockMap[item.product_id] = item.current_stock || 0;
+      });
+      setProductStock(stockMap);
+      
       // Handle pending product if exists
       if (pendingProductId) {
-        setOrderData(prev => ({
-          ...prev,
-          items: {
-            ...prev.items,
-            [pendingProductId]: (prev.items[pendingProductId] || 0) + 1,
-          },
-        }));
+        const maxStock = stockMap[pendingProductId] || 0;
+        const currentQty = orderData.items[pendingProductId] || 0;
+        
+        if (currentQty < maxStock) {
+          setOrderData(prev => ({
+            ...prev,
+            items: {
+              ...prev.items,
+              [pendingProductId]: Math.min(currentQty + 1, maxStock),
+            },
+          }));
+        } else {
+          toast.error(`Only ${maxStock} units available for this product`);
+        }
         setPendingProductId(null);
       }
       
@@ -799,9 +829,22 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
   }, [orderData.items, products]);
 
   const handleQuantity = (productId, increment) => {
+    const currentStock = productStock[productId] || 0;
+    const currentQty = orderData.items[productId] || 0;
+    
+    // Check if trying to add more than available stock
+    if (increment > 0 && currentQty >= currentStock) {
+      toast.error(`Only ${currentStock} units available in stock`);
+      return;
+    }
+    
+    // Check if trying to remove below 0
+    if (increment < 0 && currentQty <= 0) {
+      return;
+    }
+
     setOrderData(prev => {
-      const current = prev.items[productId] || 0;
-      const newQty = Math.max(0, current + increment);
+      const newQty = Math.max(0, currentQty + increment);
       const items = { ...prev.items };
       if (newQty === 0) delete items[productId];
       else items[productId] = newQty;
@@ -811,6 +854,16 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
 
   const handleNext = () => {
     if (step === 1) {
+      // Check if any items exceed stock
+      for (const [productId, qty] of Object.entries(orderData.items)) {
+        const stock = productStock[Number(productId)] || 0;
+        if (qty > stock) {
+          const product = products.find(p => p.id === Number(productId));
+          toast.error(`${product?.name || 'Product'} exceeds available stock (${stock} available)`);
+          return;
+        }
+      }
+      
       if (!Object.values(orderData.items).some(q => q > 0)) {
         toast.error("Please select at least one product.");
         return;
@@ -848,6 +901,7 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
     setLocationInput("");
     setStep(1);
     setOrderId(null);
+    setOrderDetails(null);
     setIsOpen(false);
     setIsPaymentProcessing(false);
     setSelectedPaymentMethod("CASH");
@@ -871,6 +925,7 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
       map.current = null;
     }
     setIsGettingLocation(false);
+    setProductStock({});
   };
 
   const initiatePayHerePayment = async (order) => {
@@ -951,7 +1006,27 @@ const FloatingOrderButton = ({ onLoginRequired,hasMaintenanceBanner}) => {
     }
   };
 
-// frontend/src/components/FloatingOrderButton.jsx - FIXED handleConfirm
+  // ============================================
+  // INVOICE DOWNLOAD
+  // ============================================
+  const downloadInvoice = async () => {
+    if (!invoiceContainerRef.current) return;
+    try {
+      const canvas = await html2canvas(invoiceContainerRef.current, {
+        scale: 2,
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        logging: false,
+      });
+      const link = document.createElement('a');
+      link.download = `invoice-${orderId}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (error) {
+      console.error('Invoice download error:', error);
+      toast.error('Failed to download invoice');
+    }
+  };
 
 const handleConfirm = async () => {
   if (!user) { 
@@ -959,11 +1034,31 @@ const handleConfirm = async () => {
     return; 
   }
 
+  // Check stock before confirming
   const orderItems = [];
+  let hasStockIssue = false;
+  let stockErrorMessage = '';
+
   products.forEach(p => {
     const qty = orderData.items[p.id] || 0;
-    if (qty > 0) orderItems.push({ product_id: p.id, quantity: qty, sub_total: qty * p.unit_price });
+    if (qty > 0) {
+      const stock = productStock[p.id] || 0;
+      if (qty > stock) {
+        hasStockIssue = true;
+        stockErrorMessage += `\n${p.name}: Requested ${qty}, Available ${stock}`;
+      }
+      orderItems.push({ 
+        product_id: p.id, 
+        quantity: Math.min(qty, stock),
+        sub_total: Math.min(qty, stock) * p.unit_price 
+      });
+    }
   });
+
+  if (hasStockIssue) {
+    toast.error(`Insufficient stock for:${stockErrorMessage}`);
+    return;
+  }
 
   if (orderItems.length === 0) { 
     toast.error("No items selected."); 
@@ -975,8 +1070,6 @@ const handleConfirm = async () => {
   try {
     const isOnline = orderData.deliveryType === "HOME_DELIVERY" || selectedPaymentMethod === "ONLINE";
 
-    console.log('📝 [FloatingOrderButton] Calling backend API to create order...');
-    
     const apiItems = orderItems.map(item => ({
       productId: item.product_id,
       quantity: item.quantity
@@ -984,20 +1077,14 @@ const handleConfirm = async () => {
 
     const deliveryAddress = orderData.locationAddress || orderData.address;
 
-    // ✅ Log the data being sent
-    console.log('📝 Sending deliveryAddress:', deliveryAddress);
-    console.log('📝 Sending deliveryCharge:', deliveryCharge);
-    console.log('📝 Sending latitude:', orderData.latitude);
-    console.log('📝 Sending longitude:', orderData.longitude);
-
     const requestData = {
       customerId: user.id,
       orderType: orderData.deliveryType,
       paymentMethod: isOnline ? "ONLINE" : "CASH",
       deliveryAddress: deliveryAddress,
       items: apiItems,
-      latitude: orderData.latitude,   // ✅ Send latitude (may be null)
-      longitude: orderData.longitude  // ✅ Send longitude (may be null)
+      latitude: orderData.latitude,
+      longitude: orderData.longitude
     };
 
     console.log('📝 Full request data:', JSON.stringify(requestData, null, 2));
@@ -1012,6 +1099,7 @@ const handleConfirm = async () => {
 
     const order = response.data.order;
     setOrderId(order.id);
+    setOrderDetails(order);
 
     if (response.data.code === 'INSUFFICIENT_STOCK') {
       toast.error(response.data.message);
@@ -1022,9 +1110,36 @@ const handleConfirm = async () => {
     if (isOnline) {
       await initiatePayHerePayment(order);
     } else {
-      setStep(4);
-      toast.success("Order placed successfully!");
+      // ✅ PICKUP + CASH - Navigate to confirmation page
+      const formattedItems = orderItems.map(item => {
+        const product = products.find(p => p.id === item.product_id);
+        return {
+          id: item.product_id,
+          name: product?.name || 'Product',
+          quantity: item.quantity,
+          unit_price: product?.unit_price || 0,
+          subtotal: item.sub_total
+        };
+      });
+
+      const totalAmount = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? deliveryCharge : 0);
+
+      // ✅ RESET THE ORDER BEFORE NAVIGATING
+      resetOrder();
+      
+      // Then navigate
+      navigate('/pickup-confirmation', {
+        state: {
+          orderId: order.id,
+          orderedItems: formattedItems,
+          subtotal: subtotal,
+          total: totalAmount,
+          orderData: orderData
+        }
+      });
+      
       setLoading(false);
+      toast.success("Order placed successfully!");
     }
 
   } catch (error) {
@@ -1051,7 +1166,7 @@ const handleConfirm = async () => {
   const getProduct = (id) => products.find(p => p.id === id);
   const orderedItems = Object.entries(orderData.items)
     .filter(([_, qty]) => qty > 0)
-    .map(([id, qty]) => ({ ...getProduct(Number(id)), quantity: qty, subtotal: qty * (getProduct(Number(id))?.unit_price || 0) }));
+    .map(([id, qty]) => ({ ...getProduct(Number(id)), quantity: qty, subtotal: qty * (getProduct(Number(id))?.unit_price || 0), stock: productStock[Number(id)] || 0 }));
 
   const total = subtotal + (orderData.deliveryType === "HOME_DELIVERY" ? deliveryCharge : 0);
   const itemCount = Object.values(orderData.items).reduce((a, b) => a + b, 0);
@@ -1072,6 +1187,12 @@ const handleConfirm = async () => {
     }
     
     return <span>Rs. {deliveryCharge.toFixed(2)}</span>;
+  };
+
+  // Check if any item has low stock
+  const hasLowStock = (productId) => {
+    const stock = productStock[productId] || 0;
+    return stock > 0 && stock < 25;
   };
 
   return (
@@ -1164,12 +1285,16 @@ const handleConfirm = async () => {
                         <div className="space-y-3 max-h-72 overflow-y-auto order-scroll pr-2">
                           {products.map((product) => {
                             const qty = orderData.items[product.id] || 0;
+                            const stock = productStock[product.id] || 0;
+                            const isLowStock = stock > 0 && stock < 25;
+                            const isOutOfStock = stock <= 0;
+                            
                             return (
                               <motion.div
                                 key={product.id}
                                 initial={{ opacity: 0, y: 10 }}
                                 animate={{ opacity: 1, y: 0 }}
-                                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${qty > 0 ? "border-blue-300 bg-blue-50/50" : "border-gray-100 bg-white hover:border-blue-200"}`}
+                                className={`flex items-center justify-between p-3 rounded-xl border transition-all ${qty > 0 ? "border-blue-300 bg-blue-50/50" : isOutOfStock ? "border-red-200 bg-red-50/30 opacity-60" : "border-gray-100 bg-white hover:border-blue-200"}`}
                               >
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
                                   {product.image_url ? (
@@ -1180,14 +1305,49 @@ const handleConfirm = async () => {
                                     </div>
                                   )}
                                   <div className="flex-1 min-w-0">
-                                    <p className="font-medium text-gray-800 truncate">{product.name}</p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <p className="font-medium text-gray-800 truncate">{product.name}</p>
+                                      {/* 🔴 Stock Alert - Shows when stock < 25 */}
+                                      {isLowStock && (
+                                        <span className="text-xs font-semibold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full flex items-center gap-1 whitespace-nowrap">
+                                          <AlertTriangle className="w-3 h-3" />
+                                          Only {stock} left
+                                        </span>
+                                      )}
+                                      {isOutOfStock && (
+                                        <span className="text-xs font-semibold text-red-600 bg-red-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                          Out of Stock
+                                        </span>
+                                      )}
+                                    </div>
                                     <p className="text-xs text-gray-500">Rs. {product.unit_price.toFixed(2)}</p>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-2 ml-2">
-                                  <button onClick={() => handleQuantity(product.id, -1)} className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-xl font-bold transition">−</button>
+                                  <button 
+                                    onClick={() => handleQuantity(product.id, -1)} 
+                                    disabled={qty === 0 || isOutOfStock}
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xl font-bold transition ${
+                                      qty > 0 && !isOutOfStock
+                                        ? "bg-gray-200 hover:bg-gray-300 text-gray-700" 
+                                        : "bg-gray-100 text-gray-300 cursor-not-allowed"
+                                    }`}
+                                  >
+                                    <Minus className="w-6 h-6" />
+                                  </button>
                                   <span className="w-6 text-center font-semibold">{qty}</span>
-                                  <button onClick={() => handleQuantity(product.id, 1)} className="w-8 h-8 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center text-xl font-bold transition">+</button>
+                                  <button 
+                                    onClick={() => handleQuantity(product.id, 1)} 
+                                    disabled={isOutOfStock || qty >= stock}
+                                    className={`w-8 h-8 rounded-full flex items-center justify-center text-xl font-bold transition ${
+                                      !isOutOfStock && qty < stock
+                                        ? "bg-blue-600 hover:bg-blue-700 text-white" 
+                                        : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                                    }`}
+                                    title={qty >= stock ? "Maximum available stock reached" : ""}
+                                  >
+                                    <Plus className="w-6 h-6" />
+                                  </button>
                                 </div>
                               </motion.div>
                             );
@@ -1321,9 +1481,9 @@ const handleConfirm = async () => {
                                       <div>
                                         <p className="text-sm font-medium text-blue-800">Location Selected</p>
                                         <p className="text-sm text-blue-700">{orderData.locationAddress}</p>
-                                        <p className="text-xs text-blue-500 mt-1">
+                                        {/* <p className="text-xs text-blue-500 mt-1">
                                           📍 {orderData.latitude.toFixed(6)}, {orderData.longitude.toFixed(6)}
-                                        </p>
+                                        </p> */}
                                         <button
                                           onClick={() => {
                                             setOrderData(prev => ({
@@ -1430,11 +1590,11 @@ const handleConfirm = async () => {
                                   {deliveryDistance > 0 && (
                                     <p className="text-xs text-gray-400">Distance: {deliveryDistance.toFixed(1)} km</p>
                                   )}
-                                  {orderData.latitude && orderData.longitude && (
+                                  {/* {orderData.latitude && orderData.longitude && (
                                     <p className="text-xs text-gray-400">
                                       📍 {orderData.latitude.toFixed(6)}, {orderData.longitude.toFixed(6)}
                                     </p>
-                                  )}
+                                  )} */}
                                 </>
                               )}
                             </div>
@@ -1490,14 +1650,14 @@ const handleConfirm = async () => {
                   </>
                 )}
 
-                {/* Step 4: Success */}
+                {/* Step 4: Success for ONLINE payments only */}
                 {step === 4 && (
                   <div className="text-center py-8">
                     <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto text-green-500">
                       <CheckCircle className="w-12 h-12" />
                     </div>
                     <h3 className="text-2xl font-bold text-gray-800 mt-4">Order Placed Successfully!</h3>
-                    <p className="text-gray-500 mt-2">Order ID: <span className="font-bold">#{orderId}</span></p>
+                    <p className="text-gray-500 mt-2">Order ID: <span className="font-bold">#{String(orderId).padStart(6, '0')}</span></p>
                     <p className="text-sm text-gray-400 mt-1">We'll process your order shortly.</p>
                     <button onClick={resetOrder} className="mt-6 px-8 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition font-medium">
                       Continue Shopping

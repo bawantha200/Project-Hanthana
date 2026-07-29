@@ -180,6 +180,56 @@ const stockController = {
       console.error('syncEmptyStock controller error:', error.message);
       return res.status(500).json({ success: false, message: 'Failed to sync empty stock' });
     }
+  },
+
+  async convertStock(req, res) {
+    try {
+      const { product_id, quantity, conversion_direction, reason, notes } = req.body;
+
+      if (product_id === undefined || product_id === null) {
+        return res.status(400).json({ success: false, message: 'product_id is required' });
+      }
+
+      const qty = Number(quantity);
+      if (!Number.isInteger(qty) || qty <= 0) {
+        return res.status(400).json({ success: false, message: 'quantity must be a positive whole number' });
+      }
+
+      if (!['empty_to_stock', 'stock_to_empty'].includes(conversion_direction)) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'conversion_direction must be "empty_to_stock" or "stock_to_empty"' 
+        });
+      }
+
+      const result = await stockService.convertStock(
+        Number(product_id),
+        qty,
+        conversion_direction,
+        reason || 'correction',
+        notes || ''
+      );
+
+      return res.status(200).json(result);
+    } catch (error) {
+      console.error('convertStock controller error:', error.message);
+      
+      const expectedErrorPatterns = [
+        'Insufficient empty bottles',
+        'Insufficient sealed stock',
+        'Product not found',
+        'Invalid conversion direction',
+        'Quantity must be a positive whole number'
+      ];
+      const isExpected = expectedErrorPatterns.some(pattern =>
+        error.message?.includes(pattern)
+      );
+
+      return res.status(isExpected ? 400 : 500).json({
+        success: false,
+        message: error.message || 'Failed to convert stock'
+      });
+    }
   }
 };
 

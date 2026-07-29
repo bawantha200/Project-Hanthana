@@ -2,13 +2,13 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { getTargetRoute } from '../utils/roleRouting';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import AdminDashboard from '../pages/admin/AdminDashboard';
 import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
@@ -62,6 +62,7 @@ import PaymentCancel from '../pages/customer/PaymentCancel';
 import ForgotPassword from '../pages/customer/ForgotPassword';
 import ResetPassword from '../pages/customer/ResetPassword';
 import SalesAnalytics from '../pages/admin/salesAnalytics';
+import PickupConfirmation from '../pages/customer/PickupConfirmation';
 
 
 /**
@@ -78,18 +79,14 @@ function GuestRoute() {
     );
   }
 
-  // If user is already logged in, redirect them away from login/register
-  // using the exact same rule Login.jsx uses right after a fresh login —
-  // so a CUSTOMER goes Home, but every other role stays out of Home.
   if (user) {
     const role = user.role?.toUpperCase();
-    if (role === 'ADMIN') {
-      return <Navigate to="/app/dashboard" replace />;
-    }
-    else if(role === 'RIDER'){
-      return <Navigate to="/app/rider-dashboard" replace />;
-    }
-    return <Navigate to="/" replace />;
+    if (role === 'ADMIN') return <Navigate to="/app/dashboard" replace />;
+    if (role === 'RIDER') return <Navigate to="/app/rider-dashboard" replace />;
+    if (role === 'SALES_MANAGER') return <Navigate to="/app/sales-dashboard" replace />;
+    if (role === 'HR_MANAGER') return <Navigate to="/app/hrm-dashboard" replace />;
+    if (role === 'CUSTOMER') return <Navigate to="/" replace />;
+    return <Navigate to="/app/dashboard" replace />;
   }
 
   return <Outlet />;
@@ -107,8 +104,9 @@ function AdminRoutes() {
   // Default landing page per role, used both for the index redirect
   // and the catch-all fallback below.
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/app/user-management';
-    if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
+    if (role === 'ADMIN') return '/app/dashboard';
+    if (role === 'SALES_MANAGER') return '/app/sales-dashboard';
+    if (role === 'HR_MANAGER') return '/app/hrm-dashboard';
     return '/app/dashboard';
   };
 
@@ -118,11 +116,13 @@ function AdminRoutes() {
         <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
 
         {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
+        
+
         <Route
           path="dashboard"
           element={
             role === 'ADMIN'
-              ? <Navigate to="/app/user-management" replace />
+              ? <AdminDashboard />   
               : <Dashboard />
           }
         />
@@ -232,6 +232,7 @@ function CustomerRoutes() {
 
         <Route path="payment-result" element={<PaymentResult />} />
         <Route path="payment-cancel" element={<PaymentCancel />} />
+        <Route path="pickup-confirmation" element={<PickupConfirmation />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

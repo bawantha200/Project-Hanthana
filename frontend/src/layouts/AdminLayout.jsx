@@ -50,16 +50,17 @@ import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
 
-// ---------- Navigation Items (each has a permission id) ----------
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/dashboard' },
+  
   { id: 'sales-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/sales-dashboard' },
   { id: 'sales-analytics', label: 'Sales Analytics', icon: BarChart3, path: '/app/sales-analytics' },
-  { id: 'inventory-dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
+  { id: 'inventory-dashboard', label: 'Inventory Dashboard', icon: LayoutDashboard, path: '/app/inventory-dashboard' },
+  { id: 'demandforecast-dashboard', label: 'Demand Forecast', icon: LayoutDashboard, path: '/app/demandforecast-dashboard' },
   { id: 'jit-dashboard', label: 'JIT Dashboard', icon: Factory, path: '/app/jit-dashboard' },
+  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },   // ✅ methanata gaththa — top section eke
+
   { id: 'products', label: 'Products', icon: Package, path: '/app/products' },
-
-
   { id: 'inventory', label: 'Inventory', icon: Warehouse, path: '/app/inventory' },
   { id: 'orders', label: 'Orders', icon: ShoppingCart, path: '/app/orders' },
   { id: 'pos', label: 'POS', icon: Clipboard, path: '/app/pos' },
@@ -70,13 +71,11 @@ const NAV_ITEMS = [
   { id: 'rider-dashboard', label: 'Rider Dashboard', icon: Bike, path: '/app/rider-dashboard' },
 
   { id: 'customers', label: 'Customers', icon: Users, path: '/app/customers' },
- 
 
   { id: 'attendance', label: 'Attendance', icon: ClipboardCheck, path: '/app/attendance' },
   { id: 'leave', label: 'Leave', icon: CalendarDays, path: '/app/leave' },
   { id: 'salaries-ot', label: 'Salaries & OT', icon: DollarSign, path: '/app/salaries-ot' },
 
-  { id: 'hrm-dashboard', label: 'HRM Dashboard', icon: Briefcase, path: '/app/hrm-dashboard' },
   { id: 'employees', label: 'Employees', icon: UserCog, path: '/app/employees' },
   { id: 'hrm', label: 'HRM', icon: Briefcase, path: '/app/hrm' },
 
@@ -92,8 +91,9 @@ const NAV_ITEMS = [
   { id: 'settings-request', label: 'Settings Requests', icon: FileCheck, path: '/app/settings-requests' },
   { id: 'manage-permission', label: 'Manage Permission', icon: Sliders, path: '/app/manage-permission' },
   { id: 'settings', label: 'Settings', icon: Settings, path: '/app/settings' },
-
 ];
+
+
 
 
 
@@ -901,17 +901,20 @@ export default function AdminLayout() {
 
   // Fetch current user's permissions
   const fetchPermissions = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const res = await fetch('http://localhost:5000/api/auth/permissions', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.ok) setPermissions(data.permissions || []);
-    } catch (err) {
-      console.error('Failed to fetch permissions', err);
+  try {
+    const token = localStorage.getItem('token');
+    const res = await fetch('http://localhost:5000/api/auth/permissions', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json();
+    if (res.ok) {
+      console.log('✅ Permissions from API:', data.permissions);
+      setPermissions(data.permissions || []);
     }
-  }, []);
+  } catch (err) {
+    console.error('❌ Fetch permissions error:', err);
+  }
+}, []);
 
   const fetchPendingSettingsCount = useCallback(async () => {
   try {

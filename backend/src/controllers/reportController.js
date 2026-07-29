@@ -81,6 +81,7 @@ const reportController = {
       const { data: salaries, error: salaryError } = await supabase
         .from('salaries')
         .select('total_salary, month')
+        .eq('paid', true)
         .in('month', monthLabels);
 
       if (salaryError) throw salaryError;
@@ -154,6 +155,7 @@ const reportController = {
         const { data, error } = await supabase
           .from('salaries')
           .select('total_salary, month')
+          .eq('paid', true)
           .in('month', labels);
         if (error) throw error;
         salaryRows = data;

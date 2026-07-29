@@ -245,18 +245,17 @@ async function saveFinancialSummary({
   try {
     const { data, error } = await supabase
       .from("financial_summaries")
-      .upsert(
-        {
-          report_date: new Date().toISOString().split("T")[0],
-          total_revenue: totalRevenue,
-          total_expenses: totalExpenses,
-          net_profit: netProfit,
-          period: period.toUpperCase(),
-          period_start: periodStart,
-          period_end: periodEnd,
-        },
-        { onConflict: "period,period_start,period_end" }
-      )
+      .insert({
+        // Full timestamp (not just the date) so multiple reports generated
+        // on the same day can still be ordered correctly by report_date.
+        report_date: new Date().toISOString(),
+        total_revenue: totalRevenue,
+        total_expenses: totalExpenses,
+        net_profit: netProfit,
+        period: period.toUpperCase(),
+        period_start: periodStart,
+        period_end: periodEnd,
+      })
       .select()
       .single();
 
@@ -431,6 +430,7 @@ async function getFinancialSummaries({ limit = 50, offset = 0, period = null } =
     .from("financial_summaries")
     .select("*", { count: "exact" })
     .order("report_date", { ascending: false })
+    .order("id", { ascending: false }) // tiebreaker when report_date is equal
     .range(offset, offset + limit - 1);
 
   if (period) {

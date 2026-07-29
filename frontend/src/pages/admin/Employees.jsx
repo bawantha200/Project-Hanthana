@@ -7,13 +7,15 @@ import {
   UserPlus, FileText, Camera, Image, Building, Clock, DollarSign,
   Circle, CheckCircle, AlertCircle, Loader, Shield, BarChart, Package, 
   Calculator, Truck, Bike, Headphones, Crown, ChevronDown, Wallet, Coins,
-  Settings, List, PlusCircle, Pencil, Trash, Save
+  Settings, List, PlusCircle, Pencil, Trash, Save, Users as UsersIcon,
+  ChevronLeft, ChevronRight
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
 
 const API_URL = 'http://localhost:5000/api/employees';
 const DESIGNATION_API_URL = 'http://localhost:5000/api/designations';
+const ROLES_API_URL = 'http://localhost:5000/api/roles';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -27,17 +29,6 @@ const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
-
-// Default designations as fallback
-const defaultDesignations = [
-  'HR Manager',
-  'Sales Manager',
-  'Inventory Manager',
-  'Accountant',
-  'Cashier',
-  'Delivery Manager',
-  'Driver'
-];
 
 // Summary Cards
 const summaryCards = [
@@ -86,6 +77,12 @@ export default function Employees() {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [roles, setRoles] = useState([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  
+  // ========== PAGINATION STATE ==========
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Validation states
   const [validationErrors, setValidationErrors] = useState({
@@ -102,15 +99,16 @@ export default function Employees() {
     jobType: '',
     baseSalary: '',
     bonus: '',
-    status: ''
+    status: '',
+    role: ''
   });
 
   // Designation CRUD States
-  const [designations, setDesignations] = useState(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
+  const [designations, setDesignations] = useState([]);
   const [showDesignationModal, setShowDesignationModal] = useState(false);
   const [isEditingDesignation, setIsEditingDesignation] = useState(false);
   const [editingDesignationId, setEditingDesignationId] = useState(null);
-  const [designationForm, setDesignationForm] = useState({ name: '' });
+  const [designationForm, setDesignationForm] = useState({ name: '', otRate: 500 });
   const [showDesignationDeleteConfirm, setShowDesignationDeleteConfirm] = useState(false);
   const [designationToDelete, setDesignationToDelete] = useState(null);
   const [designationLoading, setDesignationLoading] = useState(false);
@@ -131,26 +129,105 @@ export default function Employees() {
     profileImage: null,
     baseSalary: '',
     bonus: '',
-    status: 'active'
+    status: 'active',
+    role: ''
   });
 
-  // Validation functions
+  // ========== HELPER FUNCTIONS ==========
+  
+  // Get role display name from employee object
+  const getRoleDisplay = (employee) => {
+    if (!employee) return 'No Role';
+    
+    // If role is an object with role_name property (from join)
+    if (employee.role && typeof employee.role === 'object') {
+      return employee.role.role_name || 'No Role';
+    }
+    // If role is a string
+    if (employee.role && typeof employee.role === 'string') {
+      return employee.role;
+    }
+    // If role_id exists but role object doesn't
+    if (employee.role_id) {
+      const foundRole = roles.find(r => r.id === employee.role_id);
+      return foundRole ? foundRole.role_name : 'No Role';
+    }
+    return 'No Role';
+  };
+
+  // Get role color based on role name
+  const getRoleColor = (employee) => {
+    let roleName = '';
+    
+    if (!employee) return 'bg-gray-50 text-gray-400';
+    
+    if (employee.role && typeof employee.role === 'object') {
+      roleName = employee.role.role_name || '';
+    } else if (employee.role && typeof employee.role === 'string') {
+      roleName = employee.role;
+    } else if (employee.role_id) {
+      const foundRole = roles.find(r => r.id === employee.role_id);
+      roleName = foundRole ? foundRole.role_name : '';
+    }
+    
+    if (!roleName) return 'bg-gray-50 text-gray-400';
+    
+    const lowerRole = roleName.toLowerCase();
+    if (lowerRole === 'admin') return 'bg-purple-50 text-purple-700';
+    if (lowerRole === 'manager') return 'bg-indigo-50 text-indigo-700';
+    if (lowerRole === 'hr') return 'bg-pink-50 text-pink-700';
+    if (lowerRole === 'employee') return 'bg-gray-50 text-gray-700';
+    return 'bg-gray-50 text-gray-700';
+  };
+
+  // Get designation name from employee
+  const getDesignationName = (employee) => {
+    if (!employee) return '';
+    if (employee.designation && typeof employee.designation === 'object') {
+      return employee.designation.designation || '';
+    }
+    return employee.designation || '';
+  };
+
+  const getDesignationId = (employee) => {
+    if (!employee) return null;
+    if (employee.designation && typeof employee.designation === 'object') {
+      return employee.designation.id;
+    }
+    return employee.designation_id || null;
+  };
+
+  // Helper function to get role name by ID
+  const getRoleName = (roleId) => {
+    if (!roleId) return 'No Role';
+    const role = roles.find(r => r.id === roleId);
+    return role ? role.role_name : 'No Role';
+  };
+
+  // ========== VALIDATION FUNCTIONS ==========
+
+  const capitalizeWords = (str) => {
+    return str.replace(/(^|\s)\S/g, (match) => match.toUpperCase());
+  };
+
   const validateEmail = (email) => {
+    const trimmed = email.trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+    return emailRegex.test(trimmed);
   };
 
   const validatePhone = (phone) => {
-    // Sri Lankan phone number validation (10 digits starting with 0)
-    const phoneRegex = /^0[0-9]{9}$/;
-    return phoneRegex.test(phone);
+    const cleaned = phone.trim().replace(/[\s\-()]/g, '');
+    const localRegex = /^0[0-9]{9}$/;
+    const intlRegex = /^\+94[0-9]{9}$/;
+    return localRegex.test(cleaned) || intlRegex.test(cleaned);
   };
 
   const validateNIC = (nic) => {
-    // Sri Lankan NIC validation (old: 9 digits + V/X, new: 12 digits)
-    const oldNICRegex = /^[0-9]{9}[VvXx]$/;
-    const newNICRegex = /^[0-9]{12}$/;
-    return oldNICRegex.test(nic) || newNICRegex.test(nic);
+    const cleaned = nic.trim().toUpperCase();
+    const oldRegex = /^[0-9]{9}[VX]$/;
+    const newRegex = /^[0-9]{12}$/;
+    return oldRegex.test(cleaned) || newRegex.test(cleaned);
   };
 
   const validateFullName = (name) => {
@@ -174,7 +251,7 @@ export default function Employees() {
   };
 
   const validateBirthday = (date) => {
-    if (!date) return true; // Optional field
+    if (!date) return true;
     const today = new Date();
     const birthDate = new Date(date);
     const age = today.getFullYear() - birthDate.getFullYear();
@@ -194,13 +271,13 @@ export default function Employees() {
   };
 
   const validateSalary = (salary) => {
-    if (!salary) return true; // Optional
+    if (!salary) return true;
     const num = parseFloat(salary);
     return !isNaN(num) && num >= 0;
   };
 
   const validateBonus = (bonus) => {
-    if (!bonus) return true; // Optional
+    if (!bonus) return true;
     const num = parseFloat(bonus);
     return !isNaN(num) && num >= 0;
   };
@@ -209,7 +286,6 @@ export default function Employees() {
     return status && status !== '';
   };
 
-  // Real-time field validation
   const validateField = (fieldName, value) => {
     let error = '';
     
@@ -300,7 +376,6 @@ export default function Employees() {
     return error === '';
   };
 
-  // Validate all fields before submit
   const validateForm = () => {
     const fields = [
       'fullName', 'email', 'phoneNo', 'gender', 'designation', 
@@ -310,14 +385,11 @@ export default function Employees() {
     let isValid = true;
     
     fields.forEach(field => {
-      const value = formData[field];
+      const value = field === 'designation' ? formData.designationId : formData[field];
       const isFieldValid = validateField(field, value);
-      if (!isFieldValid) {
-        isValid = false;
-      }
+      if (!isFieldValid) isValid = false;
     });
 
-    // Optional fields validation
     if (formData.nic && !validateField('nic', formData.nic)) {
       isValid = false;
     }
@@ -337,6 +409,38 @@ export default function Employees() {
     return isValid;
   };
 
+  // ========== FETCH ROLES ==========
+  const fetchRoles = async () => {
+    try {
+      setRolesLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await axios.get(ROLES_API_URL, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      console.log('Roles from API:', response.data);
+      if (response.data.success && response.data.data) {
+        setRoles(response.data.data);
+      } else {
+        setRoles([
+          { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
+          { id: 2, role_name: 'MANAGER', description: 'Manager role' },
+          { id: 3, role_name: 'ADMIN', description: 'Administrator' },
+          { id: 4, role_name: 'HR', description: 'Human Resources' }
+        ]);
+      }
+    } catch (err) {
+      console.error('Error fetching roles:', err);
+      setRoles([
+        { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
+        { id: 2, role_name: 'MANAGER', description: 'Manager role' },
+        { id: 3, role_name: 'ADMIN', description: 'Administrator' },
+        { id: 4, role_name: 'HR', description: 'Human Resources' }
+      ]);
+    } finally {
+      setRolesLoading(false);
+    }
+  };
+
   // ========== FETCH DESIGNATIONS ==========
   const fetchDesignations = async () => {
     try {
@@ -348,12 +452,10 @@ export default function Employees() {
       console.log('Designations from API:', response.data);
       if (response.data.success && response.data.data.length > 0) {
         setDesignations(response.data.data);
-      } else {
-        setDesignations(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
       }
     } catch (err) {
       console.error('Error fetching designations:', err);
-      setDesignations(defaultDesignations.map(name => ({ id: Date.now() + Math.random(), name })));
+      setDesignations([]);
     } finally {
       setDesignationLoading(false);
     }
@@ -368,8 +470,13 @@ export default function Employees() {
       return;
     }
 
-    const exists = designations.some(d => 
-      d.name.toLowerCase() === designationForm.name.trim().toLowerCase()
+    if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
+      setError('Please enter a valid OT rate');
+      return;
+    }
+
+    const exists = designations.some(d =>
+      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
 
     if (exists) {
@@ -379,28 +486,33 @@ export default function Employees() {
 
     try {
       setSubmitting(true);
+      setError(null);
       const token = localStorage.getItem('token');
-      const response = await axios.post(DESIGNATION_API_URL, 
-        { name: designationForm.name.trim() },
+      const response = await axios.post(DESIGNATION_API_URL,
+        {
+          designation: designationForm.name.trim(),
+          ot_rate: parseFloat(designationForm.otRate)
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       if (response.data.success) {
         setDesignations([...designations, response.data.data]);
-        setDesignationForm({ name: '' });
+        setDesignationForm({ name: '', otRate: 500 });
         setShowDesignationModal(false);
         showSuccessNotification('Designation added successfully!');
       }
     } catch (err) {
       console.error('Error adding designation:', err);
-      const newDesignation = {
-        id: Date.now() + Math.random(),
-        name: designationForm.name.trim()
-      };
-      setDesignations([...designations, newDesignation]);
-      setDesignationForm({ name: '' });
-      setShowDesignationModal(false);
-      showSuccessNotification('Designation added successfully!');
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError(err.response.data?.message || 'This designation already exists.');
+        } else {
+          setError(err.response.data?.message || 'Failed to add designation.');
+        }
+      } else {
+        setError('Network error. Please check if the server is running.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -413,9 +525,14 @@ export default function Employees() {
       return;
     }
 
-    const exists = designations.some(d => 
-      d.id !== editingDesignationId && 
-      d.name.toLowerCase() === designationForm.name.trim().toLowerCase()
+    if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
+      setError('Please enter a valid OT rate');
+      return;
+    }
+
+    const exists = designations.some(d =>
+      d.id !== editingDesignationId &&
+      d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
 
     if (exists) {
@@ -425,32 +542,40 @@ export default function Employees() {
 
     try {
       setSubmitting(true);
+      setError(null);
       const token = localStorage.getItem('token');
       const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
-        { name: designationForm.name.trim() },
+        {
+          designation: designationForm.name.trim(),
+          ot_rate: parseFloat(designationForm.otRate)
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+
       if (response.data.success) {
-        setDesignations(designations.map(d => 
+        setDesignations(designations.map(d =>
           d.id === editingDesignationId ? response.data.data : d
         ));
-        setDesignationForm({ name: '' });
+        setDesignationForm({ name: '', otRate: 500 });
         setIsEditingDesignation(false);
         setEditingDesignationId(null);
         setShowDesignationModal(false);
         showSuccessNotification('Designation updated successfully!');
+        fetchEmployees();
       }
     } catch (err) {
       console.error('Error updating designation:', err);
-      setDesignations(designations.map(d => 
-        d.id === editingDesignationId ? { ...d, name: designationForm.name.trim() } : d
-      ));
-      setDesignationForm({ name: '' });
-      setIsEditingDesignation(false);
-      setEditingDesignationId(null);
-      setShowDesignationModal(false);
-      showSuccessNotification('Designation updated successfully!');
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError(err.response.data?.message || 'This designation name already exists.');
+        } else if (err.response.status === 404) {
+          setError('Designation not found. It may have been deleted already.');
+        } else {
+          setError(err.response.data?.message || 'Failed to update designation.');
+        }
+      } else {
+        setError('Network error. Please check if the server is running.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -459,41 +584,36 @@ export default function Employees() {
   const handleDeleteDesignation = async () => {
     if (!designationToDelete) return;
 
-    const employeesWithDesignation = employees.filter(
-      e => e.designation === designationToDelete.name
-    );
-
-    if (employeesWithDesignation.length > 0) {
-      setError(`Cannot delete "${designationToDelete.name}" because ${employeesWithDesignation.length} employee(s) have this designation.`);
-      setShowDesignationDeleteConfirm(false);
-      setDesignationToDelete(null);
-      return;
-    }
-
     try {
       setSubmitting(true);
+      setError(null);
       const token = localStorage.getItem('token');
-      await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
+      const response = await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
-      setDesignations(designations.filter(d => d.id !== designationToDelete.id));
-      setShowDesignationDeleteConfirm(false);
-      setDesignationToDelete(null);
-      showSuccessNotification('Designation deleted successfully!');
+
+      if (response.data.success) {
+        setDesignations(designations.filter(d => d.id !== designationToDelete.id));
+        setShowDesignationDeleteConfirm(false);
+        setDesignationToDelete(null);
+        showSuccessNotification('Designation deleted successfully!');
+      }
     } catch (err) {
       console.error('Error deleting designation:', err);
-      setDesignations(designations.filter(d => d.id !== designationToDelete.id));
       setShowDesignationDeleteConfirm(false);
+      if (err.response) {
+        setError(err.response.data?.message || 'Failed to delete designation.');
+      } else {
+        setError('Network error. Please check if the server is running.');
+      }
       setDesignationToDelete(null);
-      showSuccessNotification('Designation deleted successfully!');
     } finally {
       setSubmitting(false);
     }
   };
 
   const openAddDesignationModal = () => {
-    setDesignationForm({ name: '' });
+    setDesignationForm({ name: '', otRate: 500 });
     setIsEditingDesignation(false);
     setEditingDesignationId(null);
     setShowDesignationModal(true);
@@ -501,7 +621,10 @@ export default function Employees() {
   };
 
   const openEditDesignationModal = (designation) => {
-    setDesignationForm({ name: designation.name });
+    setDesignationForm({ 
+      name: designation.designation,
+      otRate: designation.ot_rate || 500
+    });
     setIsEditingDesignation(true);
     setEditingDesignationId(designation.id);
     setShowDesignationModal(true);
@@ -522,6 +645,7 @@ export default function Employees() {
       const response = await axios.get(API_URL, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log('Employees from API:', response.data);
       if (response.data.success) {
         setEmployees(response.data.data);
       }
@@ -539,6 +663,7 @@ export default function Employees() {
     setFormData(prev => ({ ...prev, hiredDate: today }));
     fetchEmployees();
     fetchDesignations();
+    fetchRoles();
   }, []);
 
   useEffect(() => {
@@ -553,29 +678,106 @@ export default function Employees() {
   const totalStaff = employees.length;
   const activeStaff = employees.filter((e) => e.status === 'active').length;
   const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
-  const managers = employees.filter((e) => e.designation?.toLowerCase().includes('manager')).length;
+  
+  const managers = employees.filter((e) => {
+    const desName = getDesignationName(e);
+    const roleName = e.role && typeof e.role === 'object' ? e.role.role_name : e.role || '';
+    return desName.toLowerCase().includes('manager') || 
+           roleName.toLowerCase().includes('manager') ||
+           e.role_id === 2;
+  }).length;
 
   const summaryValues = {
     total: totalStaff,
     active: activeStaff,
     onLeave: onLeaveStaff,
-    managers,
+    managers: managers,
   };
 
-  const allDesignations = designations.map(d => d.name);
+  // Build filter tabs from designations
   const filterTabs = [
     { key: 'All', label: 'All', icon: Filter },
-    ...allDesignations.map(d => ({ key: d, label: d, icon: Briefcase }))
+    ...designations.map(d => ({ key: d.designation, label: d.designation, icon: Briefcase }))
   ];
 
+  // ========== FILTER EMPLOYEES (Status Filter Removed) ==========
   const filteredEmployees = employees.filter((employee) => {
-    const matchesPosition = activeFilter === 'All' || employee.designation === activeFilter;
+    const employeeDesignation = getDesignationName(employee);
+    const matchesPosition = activeFilter === 'All' || employeeDesignation === activeFilter;
     const matchesSearch =
       employee.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      employee.designation?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employeeDesignation.toLowerCase().includes(searchQuery.toLowerCase()) ||
       employee.email?.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesPosition && matchesSearch;
   });
+
+  // ========== PAGINATION ==========
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const paginatedEmployees = filteredEmployees.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeFilter, itemsPerPage]);
+
+  // ========== PAGINATION FUNCTIONS ==========
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(totalPages, page)));
+  };
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  };
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  // Get page numbers to display
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, currentPage - 1);
+      let endPage = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (currentPage >= totalPages - 2) {
+        startPage = totalPages - 3;
+        endPage = totalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < totalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(totalPages);
+    }
+    
+    return pages;
+  };
 
   const handleDelete = async () => {
     if (employeeToDelete) {
@@ -603,10 +805,8 @@ export default function Employees() {
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     
-    // Validate all fields before submission
     if (!validateForm()) {
       setError('Please fix all validation errors before submitting');
-      // Scroll to the first error
       const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
       if (firstErrorField) {
         const element = document.querySelector(`[name="${firstErrorField}"]`);
@@ -625,7 +825,7 @@ export default function Employees() {
       const employeeData = {
         name: formData.fullName,
         position: formData.designation,
-        designation: formData.designation,
+        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
         phone: formData.phoneNo,
         email: formData.email,
         hireDate: formData.hiredDate,
@@ -638,7 +838,8 @@ export default function Employees() {
         profileImage: formData.profileImage || null,
         baseSalary: parseFloat(formData.baseSalary) || 0,
         bonus: parseFloat(formData.bonus) || 0,
-        status: formData.status || 'active'
+        status: formData.status || 'active',
+        role_id: formData.role || null
       };
 
       console.log('Sending employee data:', JSON.stringify(employeeData, null, 2));
@@ -650,8 +851,6 @@ export default function Employees() {
           'Content-Type': 'application/json' 
         }
       });
-
-      console.log('✅ Response from server:', response.data);
       
       if (response.data.success) {
         setEmployees([...employees, response.data.data]);
@@ -660,8 +859,7 @@ export default function Employees() {
         showSuccessNotification('Employee added successfully!');
       }
     } catch (err) {
-      console.error('❌ Error adding employee:', err);
-      console.error('❌ Error response:', err.response?.data);
+      console.error('Error adding employee:', err);
       if (err.response) {
         if (err.response.status === 409) {
           setError('An employee with this email already exists. Please use a different email address.');
@@ -681,7 +879,6 @@ export default function Employees() {
   const handleEditEmployee = async (e) => {
     e.preventDefault();
     
-    // Validate all fields before submission
     if (!validateForm()) {
       setError('Please fix all validation errors before submitting');
       const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
@@ -698,17 +895,31 @@ export default function Employees() {
     try {
       setSubmitting(true);
       setError(null);
+
+      let statusToSend = formData.status;
+
+      const originalRoleId = selectedEmployee?.role_id 
+        ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
+              ? selectedEmployee.role.id 
+              : null);
+
+      const newRoleId = formData.role ? parseInt(formData.role) : null;
+
+      if (newRoleId && newRoleId !== originalRoleId) {
+        statusToSend = 'pending';
+      }
       
       const updateData = {
         name: formData.fullName,
-        designation: formData.designation,
+        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
         phone: formData.phoneNo,
         email: formData.email,
         hireDate: formData.hiredDate,
         address: formData.address,
         baseSalary: parseFloat(formData.baseSalary) || 0,
         bonus: parseFloat(formData.bonus) || 0,
-        status: formData.status || 'active'
+        status: statusToSend,
+        role_id: formData.role || null
       };
       
       if (formData.birthday) updateData.birthday = formData.birthday;
@@ -733,7 +944,11 @@ export default function Employees() {
         setShowDetailModal(false);
         setSelectedEmployee(response.data.data);
         resetForm();
-        showSuccessNotification('Employee updated successfully!');
+        showSuccessNotification(
+          statusToSend === 'pending' && selectedEmployee?.status === 'rejected'
+            ? 'Employee re-activated — pending account creation!'
+            : 'Employee updated successfully!'
+        );
       }
     } catch (err) {
       console.error('Error updating employee:', err);
@@ -772,7 +987,8 @@ export default function Employees() {
       profileImage: null,
       baseSalary: '',
       bonus: '',
-      status: 'active'
+      status: 'active',
+      role: ''
     });
     setValidationErrors({
       fullName: '',
@@ -788,7 +1004,8 @@ export default function Employees() {
       jobType: '',
       baseSalary: '',
       bonus: '',
-      status: ''
+      status: '',
+      role: ''
     });
     setError(null);
   };
@@ -800,7 +1017,9 @@ export default function Employees() {
 
   const openEditForm = (employee) => {
     setSelectedEmployee(employee);
-    const selectedDesignation = designations.find(d => d.name === employee.designation);
+    const desId = getDesignationId(employee);
+    const desName = getDesignationName(employee);
+    
     setFormData({
       fullName: employee.name || '',
       birthday: employee.birthday || '',
@@ -808,8 +1027,8 @@ export default function Employees() {
       gender: employee.gender || '',
       nic: employee.nic || '',
       phoneNo: employee.phone || '',
-      designation: employee.designation || '',
-      designationId: selectedDesignation ? selectedDesignation.id.toString() : '',
+      designation: desName || '',
+      designationId: desId ? desId.toString() : '',
       address: employee.address || '',
       marriageStatus: employee.marriage_status || '',
       hiredDate: employee.hire_date || '',
@@ -817,9 +1036,9 @@ export default function Employees() {
       profileImage: employee.profile_image || null,
       baseSalary: employee.base_salary || employee.baseSalary || '',
       bonus: employee.bonus || '',
-      status: employee.status || 'active'
+      status: employee.status || 'active',
+      role: employee.role_id || ''
     });
-    // Clear validation errors when editing
     setValidationErrors({
       fullName: '',
       email: '',
@@ -834,7 +1053,8 @@ export default function Employees() {
       jobType: '',
       baseSalary: '',
       bonus: '',
-      status: ''
+      status: '',
+      role: ''
     });
     setShowCreateForm(true);
     setShowDetailModal(false);
@@ -859,6 +1079,9 @@ export default function Employees() {
 
   const currentTab = filterTabs.find(tab => tab.key === activeFilter) || filterTabs[0];
   const CurrentIcon = currentTab.icon;
+
+  // Check if designations are loaded
+  const isDesignationsLoaded = designations.length > 0;
 
   if (loading) {
     return (
@@ -950,9 +1173,10 @@ export default function Employees() {
           })}
         </motion.div>
 
-        {/* Filter Dropdown & Search */}
+        {/* Filter Dropdown & Search - Status Filter Removed */}
         <motion.div variants={itemVariants} className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
+            
             <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
               <Briefcase size={16} className="text-gray-400" />
               <span>Designation:</span>
@@ -1016,17 +1240,36 @@ export default function Employees() {
                 </>
               )}
             </div>
+
           </div>
 
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search employees..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
-            />
+          <div className="flex items-center gap-3">
+            {/* Items per page selector */}
+            <select
+              value={itemsPerPage}
+              onChange={(e) => {
+                setItemsPerPage(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="px-2 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+            >
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search employees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all w-56 bg-white"
+              />
+            </div>
           </div>
         </motion.div>
 
@@ -1038,6 +1281,7 @@ export default function Employees() {
                 <tr>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Employee</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Designation</th>
+                  <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Role</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Phone</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Email</th>
                   <th className="px-5 py-3 text-left text-sm font-semibold text-gray-600">Hire Date</th>
@@ -1047,8 +1291,8 @@ export default function Employees() {
                 </tr>
               </thead>
               <tbody>
-                {filteredEmployees.length > 0 ? (
-                  filteredEmployees.map((employee) => (
+                {paginatedEmployees.length > 0 ? (
+                  paginatedEmployees.map((employee) => (
                     <tr
                       key={employee.id}
                       onClick={() => openDetailModal(employee)}
@@ -1070,7 +1314,12 @@ export default function Employees() {
                       </td>
                       <td className="px-5 py-4">
                         <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                          {employee.designation || 'N/A'}
+                          {getDesignationName(employee) || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${getRoleColor(employee)}`}>
+                          {getRoleDisplay(employee)}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-gray-600">{employee.phone}</td>
@@ -1089,7 +1338,7 @@ export default function Employees() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="8" className="text-center py-10 text-gray-500">
+                    <td colSpan="9" className="text-center py-10 text-gray-500">
                       <Users size={36} className="mx-auto mb-3 text-gray-300" />
                       <p className="font-medium text-gray-400">No employees found</p>
                       <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filter criteria</p>
@@ -1099,6 +1348,55 @@ export default function Employees() {
               </tbody>
             </table>
           </div>
+          
+          {/* ========== ENHANCED PAGINATION CONTROLS ========== */}
+          {filteredEmployees.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/30 gap-3">
+              <span className="text-xs text-gray-500">
+                Showing <span className="font-medium">{(currentPage - 1) * itemsPerPage + 1}</span>–
+                <span className="font-medium">{Math.min(currentPage * itemsPerPage, filteredEmployees.length)}</span> of{' '}
+                <span className="font-medium">{filteredEmployees.length}</span> employees
+              </span>
+              
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <button
+                  onClick={goToPrevPage}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  <ChevronLeft size={14} />
+                  Prev
+                </button>
+                
+                {getPageNumbers().map((page, index) => (
+                  typeof page === 'number' ? (
+                    <button
+                      key={index}
+                      onClick={() => goToPage(page)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                        currentPage === page
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'border border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ) : (
+                    <span key={index} className="px-1 text-gray-400">…</span>
+                  )
+                ))}
+                
+                <button
+                  onClick={goToNextPage}
+                  disabled={currentPage === totalPages}
+                  className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  Next
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </motion.div>
       </motion.div>
 
@@ -1116,7 +1414,7 @@ export default function Employees() {
               onClick={() => {
                 if (!submitting) {
                   setShowDesignationModal(false);
-                  setDesignationForm({ name: '' });
+                  setDesignationForm({ name: '', otRate: 500 });
                   setIsEditingDesignation(false);
                   setEditingDesignationId(null);
                   setError(null);
@@ -1135,7 +1433,7 @@ export default function Employees() {
                   onClick={() => {
                     if (!submitting) {
                       setShowDesignationModal(false);
-                      setDesignationForm({ name: '' });
+                      setDesignationForm({ name: '', otRate: 500 });
                       setIsEditingDesignation(false);
                       setEditingDesignationId(null);
                       setError(null);
@@ -1165,7 +1463,7 @@ export default function Employees() {
                       <input
                         type="text"
                         value={designationForm.name}
-                        onChange={(e) => setDesignationForm({ name: e.target.value })}
+                        onChange={(e) => setDesignationForm({ ...designationForm, name: e.target.value })}
                         placeholder="Enter designation name"
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
                         required
@@ -1176,23 +1474,68 @@ export default function Employees() {
                       </p>
                     </div>
 
-                    {/* Display existing designations */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Clock size={14} className="inline mr-1" /> OT Rate (LKR/hour) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={designationForm.otRate}
+                        onChange={(e) => setDesignationForm({ ...designationForm, otRate: e.target.value })}
+                        placeholder="Enter OT rate per hour"
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-400 transition-all"
+                        required
+                        disabled={submitting}
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        This rate will be used for OT calculations for employees with this designation
+                      </p>
+                    </div>
+
+                    {/* Display existing designations with OT rates */}
                     <div className="mt-4">
                       <label className="block text-xs font-medium text-gray-600 mb-2">
                         <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
                       </label>
-                      <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="max-h-48 overflow-y-auto p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
                         {designations.length > 0 ? (
                           designations.map((d) => (
-                            <span
+                            <div
                               key={d.id}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-medium"
+                              className="flex items-center justify-between p-2 bg-white rounded-lg hover:bg-gray-50 transition-colors border border-gray-100"
                             >
-                              {d.name}
-                            </span>
+                              <div className="flex-1">
+                                <span className="text-sm font-medium text-gray-700">{d.designation}</span>
+                                <span className="ml-3 text-xs text-blue-600 font-medium">
+                                  OT: {d.ot_rate ? `Rs. ${parseFloat(d.ot_rate).toFixed(2)}/hr` : 'Rs. 500.00/hr'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => openEditDesignationModal(d)}
+                                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                  title="Edit Designation"
+                                  disabled={submitting}
+                                >
+                                  <Pencil size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openDeleteDesignationConfirm(d)}
+                                  className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Delete Designation"
+                                  disabled={submitting}
+                                >
+                                  <Trash size={14} />
+                                </button>
+                              </div>
+                            </div>
                           ))
                         ) : (
-                          <span className="text-xs text-gray-400">No designations available</span>
+                          <p className="text-sm text-gray-400 text-center py-2">No designations added yet</p>
                         )}
                       </div>
                     </div>
@@ -1204,7 +1547,7 @@ export default function Employees() {
                       onClick={() => {
                         if (!submitting) {
                           setShowDesignationModal(false);
-                          setDesignationForm({ name: '' });
+                          setDesignationForm({ name: '', otRate: 500 });
                           setIsEditingDesignation(false);
                           setEditingDesignationId(null);
                           setError(null);
@@ -1236,45 +1579,6 @@ export default function Employees() {
                     </motion.button>
                   </div>
                 </form>
-
-                {/* Designation List with Edit/Delete */}
-                <div className="mt-6 pt-4 border-t border-gray-100">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
-                    <List size={16} className="text-gray-400" />
-                    Manage Designations
-                  </h3>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {designations.map((d) => (
-                      <div
-                        key={d.id}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                      >
-                        <span className="text-sm font-medium text-gray-700">{d.name}</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => openEditDesignationModal(d)}
-                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="Edit Designation"
-                            disabled={submitting}
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => openDeleteDesignationConfirm(d)}
-                            className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete Designation"
-                            disabled={submitting}
-                          >
-                            <Trash size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {designations.length === 0 && (
-                      <p className="text-sm text-gray-400 text-center py-4">No designations added yet</p>
-                    )}
-                  </div>
-                </div>
               </div>
             </motion.div>
           </>
@@ -1313,13 +1617,13 @@ export default function Employees() {
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Designation</h3>
                   <p className="text-sm text-gray-500 mb-4">
                     Are you sure you want to delete designation{' '}
-                    <span className="font-semibold text-gray-900">"{designationToDelete.name}"</span>?
+                    <span className="font-semibold text-gray-900">"{designationToDelete.designation}"</span>?
                   </p>
                   <p className="text-xs text-amber-600 bg-amber-50 p-3 rounded-lg mb-4">
                     ⚠️ This designation will be removed from the system.
-                    {employees.filter(e => e.designation === designationToDelete.name).length > 0 && (
+                    {employees.filter(e => getDesignationName(e) === designationToDelete.designation).length > 0 && (
                       <span className="block mt-1 text-red-600">
-                        Warning: {employees.filter(e => e.designation === designationToDelete.name).length} employee(s) have this designation!
+                        Warning: {employees.filter(e => getDesignationName(e) === designationToDelete.designation).length} employee(s) have this designation!
                       </span>
                     )}
                   </p>
@@ -1359,7 +1663,7 @@ export default function Employees() {
       </AnimatePresence>
 
       {/* ============================================ */}
-      {/* EMPLOYEE ADD/EDIT MODAL - WITH STATUS FIELD */}
+      {/* EMPLOYEE ADD/EDIT MODAL */}
       {/* ============================================ */}
       <AnimatePresence>
         {showCreateForm && (
@@ -1420,8 +1724,9 @@ export default function Employees() {
                         name="fullName"
                         value={formData.fullName}
                         onChange={(e) => {
-                          setFormData({ ...formData, fullName: e.target.value });
-                          validateField('fullName', e.target.value);
+                          const capitalized = capitalizeWords(e.target.value);
+                          setFormData({ ...formData, fullName: capitalized });
+                          validateField('fullName', capitalized);
                         }}
                         onBlur={(e) => validateField('fullName', e.target.value)}
                         placeholder="Enter full name"
@@ -1482,8 +1787,9 @@ export default function Employees() {
                         name="email"
                         value={formData.email}
                         onChange={(e) => {
-                          setFormData({ ...formData, email: e.target.value });
-                          validateField('email', e.target.value);
+                          const val = e.target.value;
+                          setFormData({ ...formData, email: val });
+                          validateField('email', val);
                         }}
                         onBlur={(e) => validateField('email', e.target.value)}
                         placeholder="Enter email"
@@ -1547,8 +1853,9 @@ export default function Employees() {
                         name="nic"
                         value={formData.nic}
                         onChange={(e) => {
-                          setFormData({ ...formData, nic: e.target.value });
-                          if (e.target.value) validateField('nic', e.target.value);
+                          const val = e.target.value.toUpperCase().trim();
+                          setFormData({ ...formData, nic: val });
+                          if (val) validateField('nic', val);
                         }}
                         onBlur={(e) => {
                           if (e.target.value) validateField('nic', e.target.value);
@@ -1579,8 +1886,9 @@ export default function Employees() {
                         name="phoneNo"
                         value={formData.phoneNo}
                         onChange={(e) => {
-                          setFormData({ ...formData, phoneNo: e.target.value });
-                          validateField('phoneNo', e.target.value);
+                          const val = e.target.value.replace(/\s/g, '');
+                          setFormData({ ...formData, phoneNo: val });
+                          validateField('phoneNo', val);
                         }}
                         onBlur={(e) => validateField('phoneNo', e.target.value)}
                         placeholder="Enter phone number (e.g., 0712345678)"
@@ -1614,13 +1922,13 @@ export default function Employees() {
                           setFormData({ 
                             ...formData, 
                             designationId: selectedId,
-                            designation: selectedDesignation ? selectedDesignation.name : '' 
+                            designation: selectedDesignation ? selectedDesignation.designation : '' 
                           });
-                          validateField('designation', selectedDesignation ? selectedDesignation.name : '');
+                          validateField('designation', selectedDesignation ? selectedDesignation.designation : '');
                         }}
                         onBlur={(e) => {
                           const selectedDesignation = designations.find(d => d.id.toString() === e.target.value);
-                          validateField('designation', selectedDesignation ? selectedDesignation.name : '');
+                          validateField('designation', selectedDesignation ? selectedDesignation.designation : '');
                         }}
                         className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
                           validationErrors.designation 
@@ -1633,7 +1941,7 @@ export default function Employees() {
                         <option value="">Select Designation</option>
                         {designations.map((d) => (
                           <option key={d.id} value={d.id.toString()}>
-                            {d.name}
+                            {d.designation}
                           </option>
                         ))}
                       </select>
@@ -1776,6 +2084,44 @@ export default function Employees() {
                       )}
                     </div>
 
+                    {/* Role Type - Fetched from Database */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <Shield size={14} className="inline mr-1" /> Role Type
+                      </label>
+                      <select
+                        name="role"
+                        value={formData.role}
+                        onChange={(e) => {
+                          setFormData({ ...formData, role: e.target.value });
+                          validateField('role', e.target.value);
+                        }}
+                        onBlur={(e) => validateField('role', e.target.value)}
+                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
+                          validationErrors.role 
+                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
+                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                        }`}
+                        disabled={submitting || rolesLoading}
+                      >
+                        <option value="">No Role</option>
+                        {roles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.role_name}
+                          </option>
+                        ))}
+                      </select>
+                      {validationErrors.role && (
+                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          {validationErrors.role}
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">
+                        {rolesLoading ? 'Loading roles...' : 'Select a role for the employee (optional)'}
+                      </p>
+                    </div>
+
                     {/* Base Salary */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
@@ -1806,7 +2152,6 @@ export default function Employees() {
                           {validationErrors.baseSalary}
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">Monthly base salary in LKR</p>
                     </div>
 
                     {/* Bonus */}
@@ -1839,41 +2184,6 @@ export default function Employees() {
                           {validationErrors.bonus}
                         </p>
                       )}
-                      <p className="text-xs text-gray-400 mt-1">Monthly bonus or incentives</p>
-                    </div>
-
-                    {/* Status - NEW FIELD WITH CORRECT OPTIONS */}
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                        <Circle size={14} className="inline mr-1" /> Status *
-                      </label>
-                      <select
-                        name="status"
-                        value={formData.status}
-                        onChange={(e) => {
-                          setFormData({ ...formData, status: e.target.value });
-                          validateField('status', e.target.value);
-                        }}
-                        onBlur={(e) => validateField('status', e.target.value)}
-                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
-                          validationErrors.status 
-                            ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400' 
-                            : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
-                        }`}
-                        required
-                        disabled={submitting}
-                      >
-                        <option value="active">Active</option>
-                        <option value="on_leave">On Leave</option>
-                        <option value="inactive">Inactive</option>
-                      </select>
-                      {validationErrors.status && (
-                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
-                          <AlertCircle size={12} />
-                          {validationErrors.status}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-400 mt-1">Current employment status</p>
                     </div>
 
                     {/* Profile Image */}
@@ -1910,7 +2220,6 @@ export default function Employees() {
                     </div>
                   </div>
 
-                  {/* Validation Summary */}
                   {Object.values(validationErrors).some(error => error) && (
                     <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                       <p className="text-sm text-amber-700 flex items-center gap-2">
@@ -1940,7 +2249,7 @@ export default function Employees() {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
+                      disabled={submitting || !isDesignationsLoaded}
                     >
                       {submitting ? (
                         <>
@@ -2002,11 +2311,26 @@ export default function Employees() {
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold">{selectedEmployee.name}</h2>
-                      <p className="text-blue-100 mt-1">{selectedEmployee.designation}</p>
+                      <p className="text-blue-100 mt-1">{getDesignationName(selectedEmployee)}</p>
                       <div className="flex items-center gap-3 mt-2">
                         <StatusBadge status={selectedEmployee.status} />
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/20 backdrop-blur-sm text-white">
+                          {getRoleDisplay(selectedEmployee)}
+                        </span>
                       </div>
                     </div>
+                    
+                    {selectedEmployee.status === 'rejected' && (
+                      <div className="bg-rose-50 rounded-xl p-4 border border-rose-100 md:col-span-2">
+                        <p className="text-xs text-rose-500 font-medium flex items-center gap-1">
+                          <AlertCircle size={12} className="text-rose-500" /> Reason for Rejection
+                        </p>
+                        <p className="text-sm font-medium text-rose-700 mt-1">
+                          {selectedEmployee.rejection_reason || 'No reason provided'}
+                        </p>
+                      </div>
+                    )}
+                    
                     <div className="ml-auto flex gap-3">
                       <button
                         onClick={(e) => {
@@ -2045,7 +2369,15 @@ export default function Employees() {
                           <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
                             <BriefcaseIcon size={12} className="text-blue-500" /> Designation
                           </p>
-                          <p className="text-sm font-semibold text-gray-900 mt-1">{selectedEmployee.designation}</p>
+                          <p className="text-sm font-semibold text-gray-900 mt-1">{getDesignationName(selectedEmployee)}</p>
+                        </div>
+                        <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors">
+                          <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
+                            <Shield size={12} className="text-blue-500" /> Role
+                          </p>
+                          <p className="text-sm font-semibold text-gray-900 mt-1">
+                            {getRoleDisplay(selectedEmployee)}
+                          </p>
                         </div>
                         <div className="bg-gray-50 rounded-xl p-4 hover:bg-gray-100 transition-colors">
                           <p className="text-xs text-gray-400 font-medium flex items-center gap-1">
