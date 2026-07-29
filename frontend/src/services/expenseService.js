@@ -4,6 +4,10 @@ import api from './api';
 export const EXPENSE_CATEGORIES = [
   { value: 'VEHICLE', label: 'Vehicle Costs' },
   { value: 'DELIVERY_COST', label: 'Delivery Cost' },
+  { value: 'UTILITY', label: 'Utility Expenses' },
+  { value: 'MAINTENANCE', label: 'Maintenance & Repairs' },
+  { value: 'OFFICE_SUPPLIES', label: 'Office Supplies' },
+  { value: 'ADVERTISING', label: 'Advertising' },
   { value: 'OTHER', label: 'Other' },
 ];
 
