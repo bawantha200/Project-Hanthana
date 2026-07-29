@@ -46,11 +46,14 @@ import AllOrders from '../pages/admin/AllOrders';
 import RecentlyRegistered from '../pages/admin/RecentlyRegistered';
 import SystemActivity from '../pages/admin/SystemActivity';
 import SalesAnalytics from '../pages/admin/salesAnalytics';
+import AccountSettings from '../pages/admin/AccountSettings';
+import VerifyEmail from '../pages/admin/VerifyEmail';
 
 // Auth pages
 import Login from '../pages/auth/Login';
 import Register from '../pages/auth/Register';
 import AuthCallback from '../pages/auth/AuthCallback';
+import CompleteProfile from '../pages/auth/CompleteProfile';
 
 // Customer pages
 import Home from '../pages/customer/Home';
@@ -66,7 +69,11 @@ import PaymentCancel from '../pages/customer/PaymentCancel';
 import ForgotPassword from '../pages/customer/ForgotPassword';
 import ResetPassword from '../pages/customer/ResetPassword';
 
-// ==================== GUEST ROUTE ====================
+
+
+/**
+ * Guest-only wrapper to prevent authenticated users from opening Login & Register pages
+ */
 function GuestRoute() {
   const { user, loading, permissions } = useAuth();
 
@@ -156,6 +163,10 @@ function AdminRoutes() {
         <Route path="rider-dashboard" element={<RiderDashboard />} />
         <Route path="recently-registered" element={<RecentlyRegistered />} />
         <Route path="system-activity" element={<SystemActivity />} />
+        <Route path="account-settings" element={<AccountSettings />} />
+        
+
+        {/* ✅ New HRM Routes */}
         <Route path="attendance" element={<Attendance />} />
         <Route path="leave" element={<Leave />} />
         <Route path="salaries-ot" element={<SalariesOT />} />
@@ -200,7 +211,9 @@ function CustomerRoutes() {
         <Route path="tracking" element={<OrderTracking />} />
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
-
+        <Route path="verify-email/:token" element={<VerifyEmail />} />
+        <Route path="complete-profile" element={<CompleteProfile />} />
+        {/* Protected routes - require authentication */}
         <Route path="orders" element={
           <CustomerProtectedRoute>
             <CustomerOrders />

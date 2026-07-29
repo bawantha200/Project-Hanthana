@@ -190,23 +190,45 @@ export default function Settings() {
   }
 };
 
+
+
+// 1. Initial Load: App Settings Fetching
 useEffect(() => {
-  if (activeTab === 'system') fetchUpcomingWindows();
+  // 💡 Fetch general application settings once on mount
+  fetchSettings();
+}, []);
+
+
+// 2. Tab Routing & Data Fetching (Combined Flow)
+useEffect(() => {
+  // 💡 Early return if user is not yet loaded
+  if (!user) return;
+
+  const currentRole = user?.role?.toString().trim().toUpperCase();
+
+  // Handle default tab setting for administrative roles
+  if (currentRole === 'CEO' || currentRole === 'ADMIN') {
+    // Note: If you want to force 'general' tab on initial user load:
+    setActiveTab('general');
+  }
+}, [user]);
+
+
+// 3. Tab-based Data Fetching with AbortController (Memory Leak Prevention)
+useEffect(() => {
+  // 💡 Only trigger API call when explicitly on the 'system' tab
+  if (activeTab !== 'system') return;
+
+  const controller = new AbortController();
+
+  // Fetch upcoming windows with signal to cancel on unmount/tab change
+  fetchUpcomingWindows({ signal: controller.signal });
+
+  // Cleanup function to prevent race conditions & memory leaks
+  return () => {
+    controller.abort();
+  };
 }, [activeTab]);
-
-  useEffect(() => {
-    if (!user) return;
-    const currentRole = user?.role?.toString().trim().toUpperCase();
-    if (currentRole === 'CEO') {
-      setActiveTab('general');
-    } else if (currentRole === 'ADMIN') {
-      setActiveTab('general');
-    }
-  }, [user]);
-
-  useEffect(() => {
-    fetchSettings();
-  }, []);
 
   // ===== SAVE SETTINGS =====
 const handleSave = async () => {

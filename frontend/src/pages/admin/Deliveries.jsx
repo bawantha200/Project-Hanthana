@@ -1,5 +1,5 @@
 // frontend/src/pages/admin/Deliveries.jsx
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Truck, MapPin, Navigation, User, Clock, CheckCircle2, 
@@ -11,13 +11,21 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import { formatCurrency } from '../../utils/helpers';
 import toast from 'react-hot-toast';
-
-// Import MapView component
 import MapView from '../../components/MapView';
 
+// ─── Query Keys ───
+const QUERY_KEYS = {
+  DELIVERIES: ['deliveries'],
+  DELIVERY: (id) => ['delivery', id],
+  ORDER_DETAILS: (id) => ['order', id, 'details'],
+  DELIVERY_PERSONNEL: ['delivery-personnel'],
+};
+
+// ─── Animation Variants ───
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -31,6 +39,7 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
+// ─── Status Configuration ───
 const statusConfig = {
   PENDING: { label: 'Pending', color: 'bg-gray-100 text-gray-700', icon: Clock, badgeColor: 'bg-gray-500' },
   ASSIGNED: { label: 'Assigned', color: 'bg-blue-100 text-blue-700', icon: UserCheck, badgeColor: 'bg-blue-500' },
@@ -47,14 +56,65 @@ const filterTabs = [
   { key: 'DELIVERED', label: 'Delivered', icon: CheckCircle2 },
 ];
 
-// Pagination constants
 const PAGE_SIZE = 10;
+
+// ─── Helper Functions ───
+const isRefillItem = (item) => {
+  if (!item) return false;
+  
+  const productName = (item.product_name || item.product?.name || item.name || '').toLowerCase();
+  const productType = (item.product?.type || item.type || '').toLowerCase();
+  const productSize = (item.product?.size || item.size || '').toLowerCase();
+  
+  const isRefillType = productType === 'refill' || productType === 'REFILL';
+  const isRefillName = productName.includes('refill') && !productName.includes('sealed');
+  const is19L = productName.includes('19l') || 
+                productName.includes('19 l') ||
+                productSize === '19l' || 
+                productSize === '19 l';
+  
+  return (isRefillType || isRefillName) && is19L;
+};
+
+const getOrderItems = (delivery) => {
+  if (!delivery) return [];
+  if (delivery.order?.items && Array.isArray(delivery.order.items)) {
+    return delivery.order.items;
+  }
+  if (delivery.items && Array.isArray(delivery.items)) {
+    return delivery.items;
+  }
+  if (delivery.order_items && Array.isArray(delivery.order_items)) {
+    return delivery.order_items;
+  }
+  return [];
+};
+
+const getItemName = (item) => {
+  if (!item) return 'Item';
+  return item.product_name || item.product?.name || item.name || 'Product';
+};
+
+const getItemPrice = (item) => {
+  if (!item) return 0;
+  return item.unit_price || item.product?.unit_price || item.price || 0;
+};
+
+const getItemQuantity = (item) => {
+  if (!item) return 0;
+  return item.quantity || 0;
+};
+
+const getItemSubtotal = (item) => {
+  if (!item) return 0;
+  return item.sub_total || item.subTotal || (getItemPrice(item) * getItemQuantity(item));
+};
 
 export default function Deliveries() {
   const navigate = useNavigate();
-  const [deliveries, setDeliveries] = useState([]);
-  const [allDeliveries, setAllDeliveries] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // ─── State ───
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDelivery, setSelectedDelivery] = useState(null);
@@ -62,104 +122,191 @@ export default function Deliveries() {
   const [showModal, setShowModal] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
   const [mapLocation, setMapLocation] = useState({ lat: null, lng: null });
-  const [loadingDetails, setLoadingDetails] = useState(false);
-  
-  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
-
-  // Date filter state
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [dateFilterApplied, setDateFilterApplied] = useState(false);
-  
-  const [stats, setStats] = useState({
-    total: 0,
-    pending: 0,
-    assigned: 0,
-    pickedUp: 0,
-    delivered: 0
+
+  // ─── React Query: Fetch Deliveries ───
+  const {
+    data: deliveriesData = [],
+    isLoading: deliveriesLoading,
+    isFetching: deliveriesFetching,
+    error: deliveriesError,
+    refetch: refetchDeliveries,
+  } = useQuery({
+    queryKey: QUERY_KEYS.DELIVERIES,
+    queryFn: async () => {
+      const response = await api.get('/deliveries');
+      return response.data.deliveries || [];
+    },
+    staleTime: 30000,
+    gcTime: 300000,
+    refetchOnWindowFocus: false,
+    refetchInterval: 60000,
+    placeholderData: (previousData) => previousData,
   });
 
-  useEffect(() => {
-    loadDeliveries();
+  // ─── React Query: Fetch Single Delivery Details ───
+  const fetchDeliveryDetails = useCallback(async (deliveryId) => {
+    const response = await api.get(`/deliveries/${deliveryId}`);
+    return response.data.delivery;
   }, []);
 
-  const loadDeliveries = async () => {
-    try {
-      setLoading(true);
-      const params = {};
+  // ─── React Query: Fetch Order Details ───
+  const fetchOrderDetails = useCallback(async (orderId) => {
+    const response = await api.get(`/orders/${orderId}/details`);
+    return response.data.order;
+  }, []);
 
-      const response = await api.get('/deliveries', { params });
-      if (response.data.success) {
-        const deliveriesData = response.data.deliveries || [];
-        setAllDeliveries(deliveriesData);
-        setDeliveries(deliveriesData);
-        calculateStats(deliveriesData);
-        setCurrentPage(1);
-      } else {
-        setAllDeliveries([]);
-        setDeliveries([]);
-        calculateStats([]);
-      }
-    } catch (error) {
-      console.error('Failed to load deliveries:', error);
-      toast.error('Failed to load deliveries');
-      setAllDeliveries([]);
-      setDeliveries([]);
-      calculateStats([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // ─── React Query: Update Delivery Status ───
+  const updateDeliveryMutation = useMutation({
+    mutationFn: async ({ deliveryId, status }) => {
+      const response = await api.put(`/deliveries/${deliveryId}`, { status });
+      return response.data.delivery;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.DELIVERIES });
+      toast.success('Delivery status updated successfully');
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to update delivery status');
+    },
+  });
 
-  const calculateStats = (deliveriesData) => {
+  // ─── Computed Stats (Memoized) ───
+  const stats = useMemo(() => {
     const data = Array.isArray(deliveriesData) ? deliveriesData : [];
-    
-    setStats({
+    return {
       total: data.length,
       pending: data.filter(d => d.status === 'PENDING').length,
       assigned: data.filter(d => d.status === 'ASSIGNED').length,
       pickedUp: data.filter(d => d.status === 'PICKED_UP').length,
       delivered: data.filter(d => d.status === 'DELIVERED').length
-    });
-  };
+    };
+  }, [deliveriesData]);
 
-  const handleViewDelivery = async (delivery) => {
-    setLoadingDetails(true);
-    try {
-      // Fetch full delivery details with order items
-      const response = await api.get(`/deliveries/${delivery.id}`);
-      if (response.data.success) {
-        const fullDelivery = response.data.delivery;
-        
-        // Fetch order details to get items and delivery fee
-        if (fullDelivery.orderId) {
-          const orderResponse = await api.get(`/orders/${fullDelivery.orderId}/details`);
-          if (orderResponse.data.success) {
-            const orderData = orderResponse.data.order;
-            // Merge order data into delivery
-            fullDelivery.order = {
-              ...fullDelivery.order,
-              ...orderData,
-              items: orderData.items || [],
-              total_amount: orderData.total_amount || orderData.totalAmount || 0,
-              delivery_fee: orderData.delivery_fee || fullDelivery.deliveryFee || 0
-            };
-            setSelectedDeliveryItems(orderData.items || []);
-          }
-        }
-        
-        setSelectedDelivery(fullDelivery);
-        setShowModal(true);
-      } else {
-        toast.error('Failed to load delivery details');
+  // ─── Filtered Deliveries (Memoized) ───
+  const filteredDeliveries = useMemo(() => {
+    const data = Array.isArray(deliveriesData) ? deliveriesData : [];
+    
+    return data.filter((delivery) => {
+      if (!delivery) return false;
+      
+      if (activeFilter !== 'All' && delivery.status !== activeFilter) {
+        return false;
       }
+      
+      const searchLower = searchQuery.toLowerCase();
+      const matchesSearch =
+        (delivery.id || '').toLowerCase().includes(searchLower) ||
+        (delivery.orderId || '').toString().includes(searchLower) ||
+        (delivery.order?.customer?.name || '').toLowerCase().includes(searchLower) ||
+        (delivery.deliveryPerson?.name || '').toLowerCase().includes(searchLower);
+
+      let matchesDate = true;
+      if (dateFilterApplied) {
+        const deliveryDate = new Date(delivery.createdAt || delivery.updatedAt || delivery.deliveryStartTime);
+        const start = startDate ? new Date(startDate) : null;
+        const end = endDate ? new Date(endDate) : null;
+
+        if (start) {
+          start.setHours(0, 0, 0, 0);
+          matchesDate = matchesDate && deliveryDate >= start;
+        }
+        if (end) {
+          end.setHours(23, 59, 59, 999);
+          matchesDate = matchesDate && deliveryDate <= end;
+        }
+      }
+      
+      return matchesSearch && matchesDate;
+    });
+  }, [deliveriesData, activeFilter, searchQuery, dateFilterApplied, startDate, endDate]);
+
+  // ─── Pagination (Memoized) ───
+  const pagination = useMemo(() => {
+    const totalPages = Math.ceil(filteredDeliveries.length / PAGE_SIZE);
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    const paginatedDeliveries = filteredDeliveries.slice(startIndex, startIndex + PAGE_SIZE);
+    return { totalPages, startIndex, paginatedDeliveries };
+  }, [filteredDeliveries, currentPage]);
+
+  // ─── Reset to first page when filters change ───
+  useMemo(() => {
+    setCurrentPage(1);
+  }, [activeFilter, searchQuery, dateFilterApplied]);
+
+  // ─── Handle View Delivery ───
+  const handleViewDelivery = useCallback(async (delivery) => {
+    try {
+      // Fetch full delivery details
+      const fullDelivery = await fetchDeliveryDetails(delivery.id);
+      
+      // Fetch order details to get items
+      if (fullDelivery.orderId) {
+        const orderData = await fetchOrderDetails(fullDelivery.orderId);
+        fullDelivery.order = {
+          ...fullDelivery.order,
+          ...orderData,
+          items: orderData.items || [],
+          total_amount: orderData.total_amount || orderData.totalAmount || 0,
+          delivery_fee: orderData.delivery_fee || fullDelivery.deliveryFee || 0
+        };
+        setSelectedDeliveryItems(orderData.items || []);
+      }
+      
+      setSelectedDelivery(fullDelivery);
+      setShowModal(true);
     } catch (error) {
       console.error('Failed to load delivery details:', error);
       toast.error('Failed to load delivery details');
-    } finally {
-      setLoadingDetails(false);
     }
+  }, [fetchDeliveryDetails, fetchOrderDetails]);
+
+  // ─── Calculate Empty Bottles ───
+  const calculateEmptyBottles = useCallback((delivery) => {
+    if (!delivery) return 0;
+    const items = delivery.order?.items || selectedDeliveryItems || delivery.items || [];
+    if (!items || items.length === 0) return 0;
+    
+    let emptyBottles = 0;
+    items.forEach(item => {
+      if (isRefillItem(item)) {
+        emptyBottles += (item.quantity || 0);
+      }
+    });
+    return emptyBottles;
+  }, [selectedDeliveryItems]);
+
+  // ─── Handlers ───
+  const handleFilterChange = (filterKey) => {
+    setActiveFilter(filterKey);
+    setCurrentPage(1);
+  };
+
+  const handleSearchChange = (e) => {
+    setSearchQuery(e.target.value);
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= pagination.totalPages) {
+      setCurrentPage(newPage);
+      document.querySelector('.deliveries-table-container')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const applyDateFilter = () => {
+    setDateFilterApplied(true);
+    setCurrentPage(1);
+  };
+
+  const clearDateFilter = () => {
+    setStartDate('');
+    setEndDate('');
+    setDateFilterApplied(false);
+    setCurrentPage(1);
   };
 
   const closeModal = () => {
@@ -185,121 +332,6 @@ export default function Deliveries() {
     setTimeout(() => setSelectedDelivery(null), 300);
   };
 
-  // ---------- Date filter handlers ----------
-  const applyDateFilter = () => {
-    setDateFilterApplied(true);
-    setCurrentPage(1);
-  };
-
-  const clearDateFilter = () => {
-    setStartDate('');
-    setEndDate('');
-    setDateFilterApplied(false);
-    setCurrentPage(1);
-  };
-
-  const handleSearchChange = (e) => {
-    setSearchQuery(e.target.value);
-    setCurrentPage(1);
-  };
-
-  const handleFilterChange = (filterKey) => {
-    setActiveFilter(filterKey);
-    setCurrentPage(1);
-  };
-
-  // Helper function to check if an item is a Refill 19L product
-  const isRefillItem = (item) => {
-    if (!item) return false;
-    
-    const productName = (item.product_name || item.product?.name || item.name || '').toLowerCase();
-    const productType = (item.product?.type || item.type || '').toLowerCase();
-    const productSize = (item.product?.size || item.size || '').toLowerCase();
-    
-    // Check if it's a REFILL type (not SEALED)
-    const isRefillType = productType === 'refill' || productType === 'REFILL';
-    
-    // Check if name contains 'refill' and not 'sealed'
-    const isRefillName = productName.includes('refill') && !productName.includes('sealed');
-    
-    // Check if size is 19L
-    const is19L = productName.includes('19l') || 
-                  productName.includes('19 l') ||
-                  productSize === '19l' || 
-                  productSize === '19 l';
-    
-    // Must be a REFILL type AND 19L
-    return (isRefillType || isRefillName) && is19L;
-  };
-
-  // Calculate empty bottles count from order items
-  const calculateEmptyBottles = (delivery) => {
-    if (!delivery) return 0;
-    
-    // Get items from order
-    const items = delivery.order?.items || selectedDeliveryItems || delivery.items || [];
-    
-    if (!items || items.length === 0) return 0;
-    
-    // Count only Refill 19L items
-    let emptyBottles = 0;
-    
-    items.forEach(item => {
-      if (isRefillItem(item)) {
-        const quantity = item.quantity || 0;
-        emptyBottles += quantity;
-      }
-    });
-    
-    return emptyBottles;
-  };
-
-  // Filter deliveries for display
-  const filteredDeliveries = deliveries.filter((delivery) => {
-    if (!delivery) return false;
-    
-    if (activeFilter !== 'All' && delivery.status !== activeFilter) {
-      return false;
-    }
-    
-    const searchLower = searchQuery.toLowerCase();
-    const matchesSearch =
-      (delivery.id || '').toLowerCase().includes(searchLower) ||
-      (delivery.orderId || '').toString().includes(searchLower) ||
-      (delivery.order?.customer?.name || '').toLowerCase().includes(searchLower) ||
-      (delivery.deliveryPerson?.name || '').toLowerCase().includes(searchLower);
-
-    let matchesDate = true;
-    if (dateFilterApplied) {
-      const deliveryDate = new Date(delivery.createdAt || delivery.updatedAt || delivery.deliveryStartTime);
-      const start = startDate ? new Date(startDate) : null;
-      const end = endDate ? new Date(endDate) : null;
-
-      if (start) {
-        start.setHours(0, 0, 0, 0);
-        matchesDate = matchesDate && deliveryDate >= start;
-      }
-      if (end) {
-        end.setHours(23, 59, 59, 999);
-        matchesDate = matchesDate && deliveryDate <= end;
-      }
-    }
-    
-    return matchesSearch && matchesDate;
-  });
-
-  // ---------- Pagination ----------
-  const totalPages = Math.ceil(filteredDeliveries.length / PAGE_SIZE);
-  const startIndex = (currentPage - 1) * PAGE_SIZE;
-  const paginatedDeliveries = filteredDeliveries.slice(startIndex, startIndex + PAGE_SIZE);
-
-  const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      setCurrentPage(newPage);
-      document.querySelector('.deliveries-table-container')?.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
   const renderStatusIcon = (status, size = 12) => {
     const config = statusConfig[status];
     if (config?.icon) {
@@ -309,53 +341,30 @@ export default function Deliveries() {
     return <Clock size={size} />;
   };
 
-  // Helper function to safely get order items
-  const getOrderItems = (delivery) => {
-    if (!delivery) return selectedDeliveryItems || [];
-    
-    if (delivery.order?.items && Array.isArray(delivery.order.items)) {
-      return delivery.order.items;
-    }
-    
-    if (delivery.items && Array.isArray(delivery.items)) {
-      return delivery.items;
-    }
-    
-    if (delivery.order_items && Array.isArray(delivery.order_items)) {
-      return delivery.order_items;
-    }
-    
-    return selectedDeliveryItems || [];
-  };
+  const isLoading = deliveriesLoading;
 
-  // Helper function to get item display name
-  const getItemName = (item) => {
-    if (!item) return 'Item';
-    return item.product_name || item.product?.name || item.name || 'Product';
-  };
-
-  // Helper function to get item price
-  const getItemPrice = (item) => {
-    if (!item) return 0;
-    return item.unit_price || item.product?.unit_price || item.price || 0;
-  };
-
-  // Helper function to get item quantity
-  const getItemQuantity = (item) => {
-    if (!item) return 0;
-    return item.quantity || 0;
-  };
-
-  // Helper function to get item subtotal
-  const getItemSubtotal = (item) => {
-    if (!item) return 0;
-    return item.sub_total || item.subTotal || (getItemPrice(item) * getItemQuantity(item));
-  };
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (deliveriesError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <div className="text-red-500 mb-4">
+          <XCircle size={48} />
+        </div>
+        <h3 className="text-lg font-semibold text-gray-900">Failed to load deliveries</h3>
+        <p className="text-sm text-gray-500 mt-1">{deliveriesError.message}</p>
+        <button
+          onClick={() => refetchDeliveries()}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -368,7 +377,7 @@ export default function Deliveries() {
         animate="visible"
         className="space-y-4 sm:space-y-6"
       >
-        {/* Page Header */}
+        {/* ─── Page Header ─── */}
         <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Deliveries Management</h1>
@@ -377,15 +386,16 @@ export default function Deliveries() {
             </p>
           </div>
           <button
-            onClick={() => loadDeliveries()}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+            onClick={() => refetchDeliveries()}
+            disabled={deliveriesFetching}
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm disabled:opacity-50"
           >
-            <RefreshCw size={16} />
+            <RefreshCw size={16} className={deliveriesFetching ? 'animate-spin' : ''} />
             <span>Refresh</span>
           </button>
         </motion.div>
 
-        {/* Summary Cards */}
+        {/* ─── Summary Cards ─── */}
         <motion.div variants={itemVariants} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
           {[
             { key: 'total', label: 'Total Deliveries', icon: Truck, color: 'blue' },
@@ -424,7 +434,7 @@ export default function Deliveries() {
           })}
         </motion.div>
 
-        {/* Filter Tabs & Search */}
+        {/* ─── Filter Tabs & Search ─── */}
         <motion.div
           variants={itemVariants}
           className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4"
@@ -461,7 +471,7 @@ export default function Deliveries() {
           </div>
         </motion.div>
 
-        {/* Date Filter Row */}
+        {/* ─── Date Filter Row ─── */}
         <motion.div
           variants={itemVariants}
           className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 bg-white rounded-2xl px-3 sm:px-4 py-3 shadow-sm border border-gray-100"
@@ -508,7 +518,7 @@ export default function Deliveries() {
           </div>
         </motion.div>
 
-        {/* Deliveries Table */}
+        {/* ─── Deliveries Table ─── */}
         <motion.div
           variants={itemVariants}
           className="deliveries-table-container bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
@@ -520,11 +530,12 @@ export default function Deliveries() {
               </h2>
               <p className="text-xs text-gray-400 mt-0.5">
                 {filteredDeliveries.length} delivery{filteredDeliveries.length !== 1 ? 'ies' : ''} found
+                {deliveriesFetching && ' (updating...)'}
                 {dateFilterApplied && ' (filtered by date)'}
               </p>
             </div>
             <div className="text-xs text-gray-500">
-              Page {currentPage} of {totalPages || 1}
+              Page {currentPage} of {pagination.totalPages || 1}
             </div>
           </div>
 
@@ -543,7 +554,7 @@ export default function Deliveries() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {paginatedDeliveries.map((delivery, index) => {
+                {pagination.paginatedDeliveries.map((delivery, index) => {
                   const StatusIcon = statusConfig[delivery?.status]?.icon || Clock;
                   const emptyBottles = calculateEmptyBottles(delivery);
                   
@@ -653,7 +664,7 @@ export default function Deliveries() {
           {filteredDeliveries.length > 0 && (
             <div className="px-3 sm:px-6 py-3 sm:py-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="text-xs text-gray-500 text-center sm:text-left">
-                Showing {startIndex + 1} - {Math.min(startIndex + PAGE_SIZE, filteredDeliveries.length)} of {filteredDeliveries.length} deliveries
+                Showing {pagination.startIndex + 1} - {Math.min(pagination.startIndex + PAGE_SIZE, filteredDeliveries.length)} of {filteredDeliveries.length} deliveries
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -668,14 +679,14 @@ export default function Deliveries() {
                   <ChevronLeft size={16} />
                 </button>
                 <div className="flex items-center gap-0.5 sm:gap-1">
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  {Array.from({ length: Math.min(pagination.totalPages, 5) }, (_, i) => {
                     let pageNum;
-                    if (totalPages <= 5) {
+                    if (pagination.totalPages <= 5) {
                       pageNum = i + 1;
                     } else if (currentPage <= 3) {
                       pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
+                    } else if (currentPage >= pagination.totalPages - 2) {
+                      pageNum = pagination.totalPages - 4 + i;
                     } else {
                       pageNum = currentPage - 2 + i;
                     }
@@ -693,23 +704,23 @@ export default function Deliveries() {
                       </button>
                     );
                   })}
-                  {totalPages > 5 && currentPage < totalPages - 2 && (
+                  {pagination.totalPages > 5 && currentPage < pagination.totalPages - 2 && (
                     <>
                       <span className="text-gray-400 text-xs sm:text-sm">...</span>
                       <button
-                        onClick={() => handlePageChange(totalPages)}
+                        onClick={() => handlePageChange(pagination.totalPages)}
                         className="w-6 h-6 sm:w-8 sm:h-8 rounded-lg text-xs sm:text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors"
                       >
-                        {totalPages}
+                        {pagination.totalPages}
                       </button>
                     </>
                   )}
                 </div>
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
+                  disabled={currentPage === pagination.totalPages}
                   className={`p-1.5 sm:p-2 rounded-lg text-sm transition-colors ${
-                    currentPage === totalPages
+                    currentPage === pagination.totalPages
                       ? 'text-gray-300 cursor-not-allowed'
                       : 'text-gray-600 hover:bg-gray-100'
                   }`}
@@ -722,317 +733,32 @@ export default function Deliveries() {
         </motion.div>
       </motion.div>
 
-      {/* View Delivery Modal */}
+      {/* ─── View Delivery Modal ─── */}
       <AnimatePresence>
         {showModal && selectedDelivery && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4"
-            onClick={closeModal}
-          >
-            <motion.div
-              initial={{ scale: 0.9, y: 20, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.9, y: 20, opacity: 0 }}
-              transition={{ type: 'spring', damping: 25 }}
-              className="bg-white rounded-2xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Modal Header */}
-              <div className="sticky top-0 bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-10 rounded-t-2xl">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                    <Truck size={16} className="text-blue-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate">{selectedDelivery.id}</h2>
-                    <p className="text-[10px] sm:text-xs text-gray-500">Delivery Details</p>
-                  </div>
-                </div>
-                <button
-                  onClick={closeModal}
-                  className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
-                >
-                  <X size={18} className="text-gray-500" />
-                </button>
-              </div>
-
-              {/* Modal Content */}
-              <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-                {/* Status Badge */}
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
-                  <div className={`inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium ${statusConfig[selectedDelivery.status]?.color || 'bg-gray-100 text-gray-700'} w-fit`}>
-                    {renderStatusIcon(selectedDelivery.status, 14)}
-                    {statusConfig[selectedDelivery.status]?.label || selectedDelivery.status}
-                  </div>
-                  <span className="text-xs text-gray-400">
-                    Updated: {new Date(selectedDelivery.updatedAt).toLocaleString()}
-                  </span>
-                </div>
-
-                {/* Quick Stats Grid */}
-                <div className="grid grid-cols-2 gap-2 sm:gap-4">
-                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                    <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Order ID</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900">#{selectedDelivery.orderId}</p>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                    <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Delivery Fee</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900">
-                      {formatCurrency(selectedDelivery?.order?.delivery_fee || 0)}
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                    <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Empty Bottles</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900 flex items-center gap-2">
-                      <RotateCcw size={16} className="text-amber-600" />
-                      {calculateEmptyBottles(selectedDelivery)}
-                    </p>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                    <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Total Amount</p>
-                    <p className="text-sm sm:text-base font-semibold text-gray-900">
-                      {formatCurrency(selectedDelivery?.order?.total_amount || 0)}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Two Column Layout */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-                  {/* Customer Information */}
-                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                    <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-                      <User size={14} className="text-blue-600" />
-                      Customer Information
-                    </h3>
-                    <div className="space-y-1.5 sm:space-y-2">
-                      <p className="text-sm sm:text-base font-medium text-gray-900">
-                        {selectedDelivery.order?.customer?.name || 'N/A'}
-                      </p>
-                      <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
-                        <Mail size={12} className="text-gray-400 flex-shrink-0" />
-                        <span className="truncate">{selectedDelivery.order?.customer?.email || 'N/A'}</span>
-                      </p>
-                      <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
-                        <Phone size={12} className="text-gray-400 flex-shrink-0" />
-                        {selectedDelivery.order?.customer?.phone || 'N/A'}
-                      </p>
-                      {selectedDelivery.order?.customer?.address && (
-                        <p className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
-                          <MapPin size={12} className="text-gray-400 mt-0.5 flex-shrink-0" />
-                          <span className="break-words">{selectedDelivery.order.customer.address}</span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Rider Information */}
-                  <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                    <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-                      <Bike size={14} className="text-blue-600" />
-                      Rider Information
-                    </h3>
-                    {selectedDelivery.deliveryPerson ? (
-                      <div className="space-y-1.5 sm:space-y-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
-                            <User size={14} className="text-blue-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm sm:text-base font-medium text-gray-900">
-                              {selectedDelivery.deliveryPerson.name}
-                            </p>
-                            <p className="text-xs text-gray-500">Rider</p>
-                          </div>
-                        </div>
-                        <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
-                          <Phone size={12} className="text-gray-400 flex-shrink-0" />
-                          {selectedDelivery.deliveryPerson.phone || 'N/A'}
-                        </p>
-                        <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
-                          <Mail size={12} className="text-gray-400 flex-shrink-0" />
-                          <span className="truncate">{selectedDelivery.deliveryPerson.email || 'N/A'}</span>
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-gray-400">No rider assigned</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Empty Bottles Summary */}
-                {(() => {
-                  const emptyBottles = calculateEmptyBottles(selectedDelivery);
-                  if (emptyBottles > 0) {
-                    return (
-                      <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
-                            <RotateCcw size={20} className="text-amber-600" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-amber-800">
-                              Empty Bottles to Collect
-                            </p>
-                            <p className="text-sm text-amber-700">
-                              <span className="font-bold">{emptyBottles}</span> empty 19L bottle{emptyBottles !== 1 ? 's' : ''} from Refill 19L orders
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-
-                {/* Delivery Timeline */}
-                <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                  <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-                    <Clock size={14} className="text-blue-600" />
-                    Delivery Timeline
-                  </h3>
-                  <div className="space-y-2 sm:space-y-3">
-                    {selectedDelivery.deliveryStartTime && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
-                        <div>
-                          <p className="text-xs text-gray-400">Started</p>
-                          <p className="text-xs sm:text-sm text-gray-700">
-                            {new Date(selectedDelivery.deliveryStartTime).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {selectedDelivery.deliveryEndTime && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
-                        <div>
-                          <p className="text-xs text-gray-400">Completed</p>
-                          <p className="text-xs sm:text-sm text-gray-700">
-                            {new Date(selectedDelivery.deliveryEndTime).toLocaleString()}
-                          </p>
-                        </div>
-                      </div>
-                    )}
-                    {!selectedDelivery.deliveryStartTime && (
-                      <p className="text-sm text-gray-400">Delivery not started yet</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* View on Map Button in Modal */}
-                {selectedDelivery?.order?.deliveryLocation && (
-                  <button
-                    onClick={() => {
-                      closeModal();
-                      setTimeout(() => handleOpenMap(selectedDelivery), 300);
-                    }}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium hover:bg-emerald-100 transition-colors text-sm border border-emerald-200"
-                  >
-                    <Map size={18} />
-                    View Delivery Location on Map
-                  </button>
-                )}
-
-                {/* Order Items with Refill Badge */}
-                {(() => {
-                  const items = getOrderItems(selectedDelivery);
-                  if (items && items.length > 0) {
-                    let subtotal = 0;
-                    items.forEach(item => {
-                      subtotal += getItemSubtotal(item);
-                    });
-                    
-                    return (
-                      <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                        <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
-                          <Package size={14} className="text-blue-600" />
-                          Order Items
-                        </h3>
-                        <div className="space-y-1.5 sm:space-y-2">
-                          {items.map((item, index) => {
-                            const itemName = getItemName(item);
-                            const quantity = getItemQuantity(item);
-                            const price = getItemPrice(item);
-                            const itemSubtotal = getItemSubtotal(item);
-                            const isRefill = isRefillItem(item);
-                            
-                            return (
-                              <div key={index} className="flex items-center justify-between text-xs sm:text-sm">
-                                <div className="flex items-center gap-2 flex-1 min-w-0">
-                                  <span className="text-gray-600 truncate">{itemName}</span>
-                                  {isRefill && (
-                                    <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                                      <RotateCcw size={10} />
-                                      Refill
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-gray-900 font-medium whitespace-nowrap ml-2">
-                                  {quantity} × {formatCurrency(price)}
-                                  {itemSubtotal > 0 && (
-                                    <span className="text-gray-400 text-[10px] ml-1">
-                                      = {formatCurrency(itemSubtotal)}
-                                    </span>
-                                  )}
-                                </span>
-                              </div>
-                            );
-                          })}
-                          <div className="pt-2 border-t border-gray-200 flex justify-between font-semibold text-sm">
-                            <span className="text-gray-700">Subtotal</span>
-                            <span className="text-gray-900">{formatCurrency(subtotal)}</span>
-                          </div>
-                          {selectedDelivery?.order?.delivery_fee > 0 && (
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">Delivery Fee</span>
-                              <span className="text-gray-900">{formatCurrency(selectedDelivery.order.delivery_fee)}</span>
-                            </div>
-                          )}
-                          <div className="pt-1 border-t border-gray-200 flex justify-between font-bold text-base">
-                            <span className="text-gray-900">Total</span>
-                            <span className="text-blue-600">
-                              {formatCurrency((selectedDelivery?.order?.total_amount || 0))}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
-                      <p className="text-sm text-gray-400 text-center">No items found for this order</p>
-                    </div>
-                  );
-                })()}
-
-                {/* Action Buttons */}
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4 border-t border-gray-100">
-                  <button
-                    onClick={() => {
-                      closeModal();
-                      navigate(`/app/orders/${selectedDelivery.orderId}`);
-                    }}
-                    className="w-full sm:flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
-                  >
-                    View Order Details
-                  </button>
-                  <button
-                    onClick={closeModal}
-                    className="w-full sm:flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
+          <DeliveryModal
+            selectedDelivery={selectedDelivery}
+            selectedDeliveryItems={selectedDeliveryItems}
+            onClose={closeModal}
+            onOpenMap={handleOpenMap}
+            onViewOrder={() => {
+              closeModal();
+              navigate(`/app/orders/${selectedDelivery.orderId}`);
+            }}
+            calculateEmptyBottles={calculateEmptyBottles}
+            renderStatusIcon={renderStatusIcon}
+            getOrderItems={getOrderItems}
+            getItemName={getItemName}
+            getItemPrice={getItemPrice}
+            getItemQuantity={getItemQuantity}
+            getItemSubtotal={getItemSubtotal}
+            isRefillItem={isRefillItem}
+            formatCurrency={formatCurrency}
+          />
         )}
       </AnimatePresence>
 
-      {/* Map Modal - View Delivery Location */}
+      {/* ─── Map Modal ─── */}
       <MapView
         isOpen={showMapModal}
         onClose={closeMapModal}
@@ -1048,5 +774,317 @@ export default function Deliveries() {
         }}
       />
     </>
+  );
+}
+
+// ─── Delivery Modal Component ───
+function DeliveryModal({ 
+  selectedDelivery, 
+  selectedDeliveryItems,
+  onClose, 
+  onOpenMap, 
+  onViewOrder,
+  calculateEmptyBottles,
+  renderStatusIcon,
+  getOrderItems,
+  getItemName,
+  getItemPrice,
+  getItemQuantity,
+  getItemSubtotal,
+  isRefillItem,
+  formatCurrency
+}) {
+  const items = getOrderItems(selectedDelivery);
+  let subtotal = 0;
+  items.forEach(item => {
+    subtotal += getItemSubtotal(item);
+  });
+  const emptyBottles = calculateEmptyBottles(selectedDelivery);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 20, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        exit={{ scale: 0.9, y: 20, opacity: 0 }}
+        transition={{ type: 'spring', damping: 25 }}
+        className="bg-white rounded-2xl max-w-4xl w-full max-h-[95vh] sm:max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-10 rounded-t-2xl">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <Truck size={16} className="text-blue-600" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-gray-900 truncate">{selectedDelivery.id}</h2>
+              <p className="text-[10px] sm:text-xs text-gray-500">Delivery Details</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
+          >
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+
+        {/* Modal Content */}
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+          {/* Status Badge */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+            <div className={`inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium ${statusConfig[selectedDelivery.status]?.color || 'bg-gray-100 text-gray-700'} w-fit`}>
+              {renderStatusIcon(selectedDelivery.status, 14)}
+              {statusConfig[selectedDelivery.status]?.label || selectedDelivery.status}
+            </div>
+            <span className="text-xs text-gray-400">
+              Updated: {new Date(selectedDelivery.updatedAt).toLocaleString()}
+            </span>
+          </div>
+
+          {/* Quick Stats Grid */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-4">
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Order ID</p>
+              <p className="text-sm sm:text-base font-semibold text-gray-900">#{selectedDelivery.orderId}</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Delivery Fee</p>
+              <p className="text-sm sm:text-base font-semibold text-gray-900">
+                {formatCurrency(selectedDelivery?.order?.delivery_fee || 0)}
+              </p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Empty Bottles</p>
+              <p className="text-sm sm:text-base font-semibold text-gray-900 flex items-center gap-2">
+                <RotateCcw size={16} className="text-amber-600" />
+                {emptyBottles}
+              </p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <p className="text-[10px] sm:text-xs text-gray-400 font-medium">Total Amount</p>
+              <p className="text-sm sm:text-base font-semibold text-gray-900">
+                {formatCurrency(selectedDelivery?.order?.total_amount || 0)}
+              </p>
+            </div>
+          </div>
+
+          {/* Two Column Layout */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+            {/* Customer Information */}
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+                <User size={14} className="text-blue-600" />
+                Customer Information
+              </h3>
+              <div className="space-y-1.5 sm:space-y-2">
+                <p className="text-sm sm:text-base font-medium text-gray-900">
+                  {selectedDelivery.order?.customer?.name || 'N/A'}
+                </p>
+                <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                  <Mail size={12} className="text-gray-400 flex-shrink-0" />
+                  <span className="truncate">{selectedDelivery.order?.customer?.email || 'N/A'}</span>
+                </p>
+                <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                  <Phone size={12} className="text-gray-400 flex-shrink-0" />
+                  {selectedDelivery.order?.customer?.phone || 'N/A'}
+                </p>
+                {selectedDelivery.order?.customer?.address && (
+                  <p className="text-xs sm:text-sm text-gray-600 flex items-start gap-2">
+                    <MapPin size={12} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                    <span className="break-words">{selectedDelivery.order.customer.address}</span>
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Rider Information */}
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+                <Bike size={14} className="text-blue-600" />
+                Rider Information
+              </h3>
+              {selectedDelivery.deliveryPerson ? (
+                <div className="space-y-1.5 sm:space-y-2">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+                      <User size={14} className="text-blue-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm sm:text-base font-medium text-gray-900">
+                        {selectedDelivery.deliveryPerson.name}
+                      </p>
+                      <p className="text-xs text-gray-500">Rider</p>
+                    </div>
+                  </div>
+                  <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                    <Phone size={12} className="text-gray-400 flex-shrink-0" />
+                    {selectedDelivery.deliveryPerson.phone || 'N/A'}
+                  </p>
+                  <p className="text-xs sm:text-sm text-gray-600 flex items-center gap-2">
+                    <Mail size={12} className="text-gray-400 flex-shrink-0" />
+                    <span className="truncate">{selectedDelivery.deliveryPerson.email || 'N/A'}</span>
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400">No rider assigned</p>
+              )}
+            </div>
+          </div>
+
+          {/* Empty Bottles Summary */}
+          {emptyBottles > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 sm:p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                  <RotateCcw size={20} className="text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-amber-800">
+                    Empty Bottles to Collect
+                  </p>
+                  <p className="text-sm text-amber-700">
+                    <span className="font-bold">{emptyBottles}</span> empty 19L bottle{emptyBottles !== 1 ? 's' : ''} from Refill 19L orders
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Delivery Timeline */}
+          <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+            <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+              <Clock size={14} className="text-blue-600" />
+              Delivery Timeline
+            </h3>
+            <div className="space-y-2 sm:space-y-3">
+              {selectedDelivery.deliveryStartTime && (
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
+                  <div>
+                    <p className="text-xs text-gray-400">Started</p>
+                    <p className="text-xs sm:text-sm text-gray-700">
+                      {new Date(selectedDelivery.deliveryStartTime).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {selectedDelivery.deliveryEndTime && (
+                <div className="flex items-center gap-3">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
+                  <div>
+                    <p className="text-xs text-gray-400">Completed</p>
+                    <p className="text-xs sm:text-sm text-gray-700">
+                      {new Date(selectedDelivery.deliveryEndTime).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {!selectedDelivery.deliveryStartTime && (
+                <p className="text-sm text-gray-400">Delivery not started yet</p>
+              )}
+            </div>
+          </div>
+
+          {/* View on Map Button */}
+          {selectedDelivery?.order?.deliveryLocation && (
+            <button
+              onClick={() => {
+                onClose();
+                setTimeout(() => onOpenMap(selectedDelivery), 300);
+              }}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-50 text-emerald-700 rounded-lg font-medium hover:bg-emerald-100 transition-colors text-sm border border-emerald-200"
+            >
+              <Map size={18} />
+              View Delivery Location on Map
+            </button>
+          )}
+
+          {/* Order Items */}
+          {items && items.length > 0 ? (
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <h3 className="text-xs sm:text-sm font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
+                <Package size={14} className="text-blue-600" />
+                Order Items
+              </h3>
+              <div className="space-y-1.5 sm:space-y-2">
+                {items.map((item, index) => {
+                  const itemName = getItemName(item);
+                  const quantity = getItemQuantity(item);
+                  const price = getItemPrice(item);
+                  const itemSubtotal = getItemSubtotal(item);
+                  const isRefill = isRefillItem(item);
+                  
+                  return (
+                    <div key={index} className="flex items-center justify-between text-xs sm:text-sm">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="text-gray-600 truncate">{itemName}</span>
+                        {isRefill && (
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full whitespace-nowrap">
+                            <RotateCcw size={10} />
+                            Refill
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-gray-900 font-medium whitespace-nowrap ml-2">
+                        {quantity} × {formatCurrency(price)}
+                        {itemSubtotal > 0 && (
+                          <span className="text-gray-400 text-[10px] ml-1">
+                            = {formatCurrency(itemSubtotal)}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div className="pt-2 border-t border-gray-200 flex justify-between font-semibold text-sm">
+                  <span className="text-gray-700">Subtotal</span>
+                  <span className="text-gray-900">{formatCurrency(subtotal)}</span>
+                </div>
+                {selectedDelivery?.order?.delivery_fee > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Delivery Fee</span>
+                    <span className="text-gray-900">{formatCurrency(selectedDelivery.order.delivery_fee)}</span>
+                  </div>
+                )}
+                <div className="pt-1 border-t border-gray-200 flex justify-between font-bold text-base">
+                  <span className="text-gray-900">Total</span>
+                  <span className="text-blue-600">
+                    {formatCurrency(selectedDelivery?.order?.total_amount || 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-gray-50 rounded-xl p-3 sm:p-4">
+              <p className="text-sm text-gray-400 text-center">No items found for this order</p>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 pt-3 sm:pt-4 border-t border-gray-100">
+            <button
+              onClick={onViewOrder}
+              className="w-full sm:flex-1 px-4 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors text-sm"
+            >
+              View Order Details
+            </button>
+            <button
+              onClick={onClose}
+              className="w-full sm:flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg font-medium hover:bg-gray-200 transition-colors text-sm"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }

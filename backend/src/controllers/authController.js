@@ -2,6 +2,12 @@ const supabase = require('../config/db');
 const supabaseAdmin = supabase.supabaseAdmin;
 
 const jwt = require('jsonwebtoken');
+const {
+  sendEmailChangeVerification,
+  sendEmailChangeConfirmation,
+  sendOldEmailNotification
+} = require('../utils/mailer');
+
 const speakeasy = require('speakeasy');
 const QRCode = require('qrcode');
 const LOCK_DURATION_MINUTES = 15;
@@ -9,6 +15,71 @@ const { logAction } = require('../utils/auditLogger');
 
 // ============================================================
 // ==================== HELPER FUNCTIONS ======================
+/**
+ * @desc    Check if user has a password set
+ * @route   GET /api/auth/check-password
+ * @access  Private
+ */
+const checkPasswordStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const email = req.user.email;
+    
+    console.log('🔍 Checking password status for user:', userId);
+    
+    // Try to get the user from Supabase Auth directly
+    const { data: { user }, error } = await supabase.auth.admin.getUserById(userId);
+    
+    if (error || !user) {
+      console.error('❌ Error getting user:', error);
+      
+      // Fallback: Check if user has an email identity by looking at the user object
+      // If user came from Google, they won't have password
+      // If user came from email, they will have password
+      const isGoogleUser = req.user.provider === 'google' || 
+                          req.user.authProvider === 'google' ||
+                          req.user.app_metadata?.provider === 'google';
+      
+      // If not Google user, assume they have password
+      const hasPassword = !isGoogleUser;
+      
+      console.log('📊 Fallback check:', {
+        isGoogleUser,
+        hasPassword
+      });
+      
+      return res.status(200).json({
+        success: true,
+        hasPassword
+      });
+    }
+    
+    // Check if user has email identity
+    const identities = user.identities || [];
+    const hasEmailIdentity = identities.some(id => id.provider === 'email');
+    const hasEncryptedPassword = user.encrypted_password && user.encrypted_password !== '';
+    
+    const hasPassword = hasEmailIdentity || hasEncryptedPassword;
+    
+    console.log('📊 Password check:', {
+      hasEmailIdentity,
+      hasEncryptedPassword,
+      hasPassword
+    });
+    
+    return res.status(200).json({
+      success: true,
+      hasPassword
+    });
+  } catch (error) {
+    console.error('❌ Error checking password status:', error);
+    return res.status(200).json({
+      success: true,
+      hasPassword: false
+    });
+  }
+};
+
 
 
 /**
@@ -17,27 +88,724 @@ const { logAction } = require('../utils/auditLogger');
  */
 const userHasPassword = async (userId) => {
   try {
-    // Try using supabaseAdmin first, fallback to supabase
-    const client = supabaseAdmin || supabase;
-    const { data: user, error } = await client.auth.admin.getUserById(userId);
-    if (error || !user) return false;
+    // Use supabaseAdmin for admin operations
+    const { data, error } = await supabaseAdmin.auth.admin.getUserById(userId);
     
-    const identities = user.user?.identities || [];
+    if (error || !data) {
+      console.error('Error fetching user:', error);
+      return false;
+    }
     
-    // Check if user has an email identity (means they have a password)
+    // The user object is directly on data
+    const user = data;
+    
+    // Check identities for email provider
+    const identities = user.identities || [];
     const hasEmailIdentity = identities.some(id => id.provider === 'email');
     
-    // Also check if they have password in metadata (backup check)
-    const hasPasswordInMetadata = user.user?.user_metadata?.has_password === true;
+    // Check if encrypted_password exists
+    const hasEncryptedPassword = user.encrypted_password && user.encrypted_password !== '';
     
-    // Return true if they have email identity OR password metadata
-    return hasEmailIdentity || hasPasswordInMetadata;
+    // Check factors
+    const hasPasswordFactor = user.factors?.some(
+      factor => factor.factor_type === 'password'
+    ) || false;
+    
+    // Return true if any indicator shows user has password
+    return hasEmailIdentity || hasEncryptedPassword || hasPasswordFactor;
   } catch (error) {
     console.error('Error checking user password:', error);
     return false;
   }
 };
 
+
+// Add this to authController.js
+const handleEmailConfirmation = async (req, res) => {
+  try {
+    const { user } = req.body;
+    
+    if (!user || !user.email) {
+      return res.status(400).json({ success: false, message: 'Invalid webhook data' });
+    }
+
+    // Update the profile email when email is confirmed
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ email: user.email })
+      .eq('id', user.id);
+
+    if (updateError) {
+      console.error('[PROFILE UPDATE ERROR]', updateError);
+      return res.status(500).json({ success: false, message: 'Failed to update profile' });
+    }
+
+    await logAction(user.id, 'EMAIL_CONFIRMED', { 
+      email: user.email,
+      status: 'verified'
+    }, req);
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Email confirmed and profile updated' 
+    });
+
+  } catch (error) {
+    console.error('[WEBHOOK ERROR]', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+
+// ============================================================
+// ================ NEW REGISTRATION FLOW =====================
+// ============================================================
+
+/**
+ * @desc    Phase 1: Register user with email/password only
+ * @route   POST /api/auth/register/phase1
+ */
+const registerPhase1 = async (req, res) => {
+  try {
+    const { email, password, fullName } = req.body;
+
+    // Validate required fields
+    if (!email || !password || !fullName) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email, password, and full name are required.' 
+      });
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please enter a valid email address.' 
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password must be at least 8 characters.' 
+      });
+    }
+
+    // Check if email already exists
+    const { data: existingUsers, error: checkError } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingUsers) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'An account with this email already exists.' 
+      });
+    }
+
+    // Create temporary registration record
+    const tempToken = jwt.sign(
+      { 
+        email, 
+        password, 
+        fullName,
+        stage: 'phase1_complete'
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '30m' }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: 'Phase 1 complete. Proceed to phase 2.',
+      tempToken,
+      requiresPhase2: true,
+      user: {
+        email,
+        fullName,
+      }
+    });
+
+  } catch (error) {
+    console.error('[REGISTER PHASE 1 ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Phase 2: Complete registration with address and phone
+ * @route   POST /api/auth/register/phase2
+ */
+const registerPhase2 = async (req, res) => {
+  try {
+    const { tempToken, address, phone } = req.body;
+
+    console.log('[REGISTER PHASE 2] Received:', { 
+      tempToken: tempToken ? 'present' : 'missing', 
+      address, 
+      phone 
+    });
+
+    if (!tempToken || !address || !phone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Missing required fields. Please provide your address and phone number.' 
+      });
+    }
+
+    // Decode and verify temp token
+    let decoded;
+    try {
+      decoded = jwt.verify(tempToken, process.env.JWT_SECRET);
+      console.log('[REGISTER PHASE 2] Decoded token:', decoded);
+    } catch (error) {
+      console.error('[REGISTER PHASE 2] Token verification failed:', error);
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Registration session expired. Please start over.' 
+      });
+    }
+
+    if (decoded.stage !== 'phase1_complete') {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid registration session.' 
+      });
+    }
+
+    const { email, password, fullName } = decoded;
+
+    // Clean phone number
+    const cleanedPhone = phone.replace(/\D/g, '');
+    console.log('[REGISTER PHASE 2] Cleaned phone:', cleanedPhone);
+    console.log('[REGISTER PHASE 2] Address:', address);
+
+    // Validate phone number
+    if (cleanedPhone.length < 10 || cleanedPhone.length > 15) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please enter a valid phone number (10-15 digits).' 
+      });
+    }
+
+    // Check if phone number already exists
+    const { data: existingPhoneUser, error: phoneCheckError } = await supabase
+      .from('profiles')
+      .select('id, phone_number')
+      .eq('phone_number', cleanedPhone)
+      .maybeSingle();
+
+    if (phoneCheckError) {
+      console.error('[PHONE CHECK ERROR]', phoneCheckError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Error checking phone number availability.' 
+      });
+    }
+
+    if (existingPhoneUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Phone number ${cleanedPhone} is already registered. Please use a different number.` 
+      });
+    }
+
+    // 1️⃣ Create user in Supabase Auth
+    console.log('[REGISTER PHASE 2] Creating auth user...');
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { 
+          full_name: fullName, 
+          phone_number: cleanedPhone,
+          address: address.trim()
+        }
+      }
+    });
+
+    if (authError) {
+      console.error('[AUTH ERROR]', authError);
+      return res.status(400).json({ 
+        success: false, 
+        message: authError.message 
+      });
+    }
+
+    const authUser = authData.user;
+    if (!authUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User provisioning failed.' 
+      });
+    }
+
+    console.log('[REGISTER PHASE 2] User created successfully:', authUser.id);
+
+    // 2️⃣ Get default role
+    const { data: roleData } = await supabase
+      .from('roles')
+      .select('id')
+      .eq('role_name', 'CUSTOMER')
+      .maybeSingle();
+    const defaultRoleId = roleData ? roleData.id : null;
+
+    // 3️⃣ Wait a moment for the trigger to create the profile
+    // Sometimes the trigger takes a moment to execute
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // 4️⃣ Check if profile exists (created by trigger)
+    const { data: existingProfile, error: checkProfileError } = await supabase
+      .from('profiles')
+      .select('id, full_name, phone_number, address, role_id')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    console.log('[REGISTER PHASE 2] Existing profile from trigger:', existingProfile);
+
+    let profileError = null;
+
+    if (existingProfile) {
+      // ✅ Profile exists (created by trigger) - UPDATE it
+      console.log('[REGISTER PHASE 2] Profile exists (trigger created), updating...');
+      const updateData = {
+        full_name: fullName,
+        phone_number: cleanedPhone,
+        address: address.trim(),
+        role_id: defaultRoleId,
+        email: email
+      };
+      
+      console.log('[REGISTER PHASE 2] Update data:', updateData);
+      
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update(updateData)
+        .eq('id', authUser.id);
+      
+      profileError = updateError;
+      
+      if (!profileError) {
+        console.log('[REGISTER PHASE 2] Profile updated successfully');
+      } else {
+        console.error('[UPDATE PROFILE ERROR]', profileError);
+      }
+    } else {
+      // ❌ Profile doesn't exist - INSERT
+      console.log('[REGISTER PHASE 2] No profile found, creating new...');
+      const profileData = {
+        id: authUser.id,
+        full_name: fullName,
+        phone_number: cleanedPhone,
+        address: address.trim(),
+        role_id: defaultRoleId,
+        email: email
+      };
+      
+      console.log('[REGISTER PHASE 2] Profile data:', profileData);
+      
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert([profileData]);
+      
+      profileError = insertError;
+      
+      if (!profileError) {
+        console.log('[REGISTER PHASE 2] Profile inserted successfully');
+      } else {
+        console.error('[INSERT PROFILE ERROR]', profileError);
+      }
+    }
+
+    if (profileError) {
+      console.error('[PROFILE ERROR]', profileError);
+      
+      // Try to delete the auth user if profile creation failed
+      try {
+        console.log('[REGISTER PHASE 2] Attempting to rollback - deleting auth user...');
+        const supabaseUrl = process.env.SUPABASE_URL;
+        const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        
+        if (supabaseUrl && serviceRoleKey) {
+          await fetch(`${supabaseUrl}/auth/v1/admin/users/${authUser.id}`, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${serviceRoleKey}`,
+              'apikey': serviceRoleKey,
+            }
+          });
+          console.log('[REGISTER PHASE 2] Auth user deleted for rollback');
+        }
+      } catch (deleteError) {
+        console.error('[ROLLBACK ERROR]', deleteError);
+      }
+      
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Account created but profile linking failed. Please try again.',
+        error: profileError.message,
+        details: profileError.details || 'No additional details'
+      });
+    }
+
+    console.log('[REGISTER PHASE 2] Profile created/updated successfully');
+
+    // 5️⃣ Verify the profile was saved correctly
+    const { data: verifyProfile, error: verifyError } = await supabase
+      .from('profiles')
+      .select('id, full_name, phone_number, address, email')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    console.log('[REGISTER PHASE 2] Verified profile:', verifyProfile);
+
+    // 6️⃣ Log registration
+    try {
+      await logAction(authUser.id, 'REGISTERED', { 
+        email,
+        method: 'email_password',
+        phase: 'two_phase'
+      }, req);
+    } catch (logError) {
+      console.error('[LOG ERROR]', logError);
+    }
+
+    // 7️⃣ Create session
+    const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+
+    if (sessionError || !sessionData.session) {
+      console.log('[REGISTER PHASE 2] Session creation failed, but user is registered');
+      return res.status(201).json({
+        success: true,
+        message: 'Registration successful. Please log in.',
+        user: {
+          id: authUser.id,
+          email: authUser.email,
+          fullName,
+          phone: cleanedPhone,
+          address: address.trim(),
+          role: 'CUSTOMER',
+          hasPassword: true
+        }
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful.',
+      session: sessionData.session,
+      user: {
+        id: authUser.id,
+        email: authUser.email,
+        fullName,
+        phone: cleanedPhone,
+        address: address.trim(),
+        role: 'CUSTOMER',
+        hasPassword: true
+      }
+    });
+
+  } catch (error) {
+    console.error('[REGISTER PHASE 2 ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.',
+      error: error.message 
+    });
+  }
+};
+
+/**
+ * @desc    Google Sign-In: Create profile with address and phone
+ * @route   POST /api/auth/google/create-profile
+ */
+const createGoogleUserProfile = async (req, res) => {
+  try {
+    const { address, phone, fullName } = req.body;
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    console.log('[CREATE GOOGLE PROFILE] Received:', { address, phone, fullName, token: !!token });
+
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Authentication required.' 
+      });
+    }
+
+    if (!address || !phone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Address and phone number are required.' 
+      });
+    }
+
+    // Get user from token
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData.user) {
+      console.error('[CREATE GOOGLE PROFILE] Auth error:', authError);
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid session. Please sign in again.' 
+      });
+    }
+
+    const authUser = authData.user;
+    console.log('[CREATE GOOGLE PROFILE] User:', authUser.id, authUser.email);
+
+    // Clean phone number
+    const cleanedPhone = phone.replace(/\D/g, '');
+    console.log('[CREATE GOOGLE PROFILE] Cleaned phone:', cleanedPhone);
+
+    // Validate phone number
+    if (cleanedPhone.length < 10 || cleanedPhone.length > 15) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please enter a valid phone number (10-15 digits).' 
+      });
+    }
+
+    // Check if phone number already exists
+    const { data: existingPhoneUser, error: phoneCheckError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('phone_number', cleanedPhone)
+      .maybeSingle();
+
+    if (phoneCheckError) {
+      console.error('[PHONE CHECK ERROR]', phoneCheckError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Error checking phone number availability.' 
+      });
+    }
+
+    if (existingPhoneUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Phone number ${cleanedPhone} is already registered to another account.` 
+      });
+    }
+
+    // Get default role
+    const { data: roleData } = await supabase
+      .from('roles')
+      .select('id')
+      .eq('role_name', 'CUSTOMER')
+      .maybeSingle();
+    const defaultRoleId = roleData ? roleData.id : null;
+
+    // Check if profile already exists
+    const { data: existingProfile, error: profileCheckError } = await supabase
+      .from('profiles')
+      .select('id, full_name, phone_number, address')
+      .eq('id', authUser.id)
+      .maybeSingle();
+
+    console.log('[CREATE GOOGLE PROFILE] Existing profile:', existingProfile);
+
+    if (profileCheckError) {
+      console.error('[PROFILE CHECK ERROR]', profileCheckError);
+    }
+
+    let profileError;
+
+    if (existingProfile) {
+      // Update existing profile with address and phone
+      console.log('[CREATE GOOGLE PROFILE] Updating existing profile');
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: fullName || existingProfile.full_name || authUser.user_metadata?.full_name || authUser.email.split('@')[0],
+          phone_number: cleanedPhone,
+          address: address.trim(), // ✅ Make sure address is included
+          role_id: defaultRoleId,
+          email: authUser.email
+        })
+        .eq('id', authUser.id);
+      
+      profileError = updateError;
+    } else {
+      // Create new profile with ALL fields including address
+      const profileData = {
+        id: authUser.id,
+        full_name: fullName || authUser.user_metadata?.full_name || authUser.email.split('@')[0],
+        phone_number: cleanedPhone,
+        address: address.trim(), // ✅ Make sure address is included
+        role_id: defaultRoleId,
+        email: authUser.email
+      };
+
+      console.log('[CREATE GOOGLE PROFILE] Creating profile with data:', profileData);
+
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert([profileData]);
+      
+      profileError = insertError;
+    }
+
+    if (profileError) {
+      console.error('[PROFILE ERROR]', profileError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to create profile. Please try again.',
+        error: profileError.message 
+      });
+    }
+
+    console.log('[CREATE GOOGLE PROFILE] Profile saved successfully');
+
+    // Log the action
+    await logAction(authUser.id, 'GOOGLE_PROFILE_COMPLETED', { 
+      email: authUser.email,
+      hasAddress: !!address,
+      hasPhone: !!phone
+    }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile created successfully.',
+      user: {
+        id: authUser.id,
+        email: authUser.email,
+        fullName: fullName || authUser.user_metadata?.full_name,
+        phone: cleanedPhone,
+        address: address.trim(),
+        role: 'CUSTOMER',
+        provider: 'google'
+      }
+    });
+
+  } catch (error) {
+    console.error('[CREATE GOOGLE PROFILE ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Google Sign-In: Update existing profile with address and phone
+ * @route   PUT /api/auth/google/update-profile
+ */
+const updateGoogleUserProfile = async (req, res) => {
+  try {
+    const { address, phone, fullName } = req.body;
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(' ')[1];
+
+    console.log('[UPDATE GOOGLE PROFILE] Received:', { address, phone, fullName, token: !!token });
+
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Authentication required.' 
+      });
+    }
+
+    if (!address || !phone) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Address and phone number are required.' 
+      });
+    }
+
+    // Get user from token
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData.user) {
+      console.error('[UPDATE GOOGLE PROFILE] Auth error:', authError);
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid session. Please sign in again.' 
+      });
+    }
+
+    const authUser = authData.user;
+    console.log('[UPDATE GOOGLE PROFILE] User:', authUser.id);
+
+    // Clean phone number
+    const cleanedPhone = phone.replace(/\D/g, '');
+    console.log('[UPDATE GOOGLE PROFILE] Cleaned phone:', cleanedPhone);
+
+    // Validate phone number
+    if (cleanedPhone.length < 10 || cleanedPhone.length > 15) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please enter a valid phone number (10-15 digits).' 
+      });
+    }
+
+    // Update profile with address and phone
+    const updateData = {
+      phone_number: cleanedPhone,
+      address: address.trim() // ✅ Make sure address is included
+    };
+
+    // Only update fullName if provided
+    if (fullName) {
+      updateData.full_name = fullName;
+    }
+
+    console.log('[UPDATE GOOGLE PROFILE] Updating with data:', updateData);
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update(updateData)
+      .eq('id', authUser.id);
+
+    if (updateError) {
+      console.error('[UPDATE PROFILE ERROR]', updateError);
+      return res.status(400).json({ 
+        success: false, 
+        message: updateError.message 
+      });
+    }
+
+    console.log('[UPDATE GOOGLE PROFILE] Profile updated successfully');
+
+    // Log the action
+    await logAction(authUser.id, 'GOOGLE_PROFILE_UPDATED', { 
+      email: authUser.email,
+      hasAddress: !!address,
+      hasPhone: !!phone
+    }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully.',
+      user: {
+        id: authUser.id,
+        email: authUser.email,
+        fullName: fullName || authUser.user_metadata?.full_name,
+        phone: cleanedPhone,
+        address: address.trim(),
+        role: 'CUSTOMER',
+        provider: 'google'
+      }
+    });
+
+  } catch (error) {
+    console.error('[UPDATE GOOGLE PROFILE ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
 
 /**
  * @desc    Register a new user, create auth credentials, and provision a database profile
@@ -209,48 +977,48 @@ const handleGoogleCallback = async (req, res) => {
     hasPassword = await userHasPassword(authUser.id);
     
     const { data: profileData, error: profileError } = await supabase
-  .from('profiles')
-  .select(`
-    id,
-    full_name,
-    phone_number,
-    address,
-    role_id,
-    status,
-    roles ( role_name )
-  `)
-  .eq('id', authUser.id)
-  .maybeSingle();
+      .from('profiles')
+      .select(`
+        id,
+        full_name,
+        phone_number,
+        address,
+        role_id,
+        status,
+        roles ( role_name )
+      `)
+      .eq('id', authUser.id)
+      .maybeSingle();
 
-if (!profileError && profileData) {
-  profile = profileData;
+    if (!profileError && profileData) {
+      profile = profileData;
 
-  // ✅ block deactivated accounts, same as loginUser does
-  if (profile.status && profile.status !== 'active') {
-    await logAction(profile.id, 'LOGIN_BLOCKED_INACTIVE', { email: authUser.email }, req);
-    return res.status(403).json({
-      success: false,
-      message: 'Your account has been deactivated. Please contact an administrator.',
-    });
-  }
+      // Block deactivated accounts
+      if (profile.status && profile.status !== 'active') {
+        await logAction(profile.id, 'LOGIN_BLOCKED_INACTIVE', { email: authUser.email }, req);
+        return res.status(403).json({
+          success: false,
+          message: 'Your account has been deactivated. Please contact an administrator.',
+        });
+      }
 
-  if (profile.roles && typeof profile.roles === 'object' && profile.roles.role_name) {
-    roleName = profile.roles.role_name;
-  } else if (profile.role_id) {
-    const { data: roleData } = await supabase
-      .from('roles')
-      .select('role_name')
-      .eq('id', profile.role_id)
-      .single();
-    roleName = roleData?.role_name || 'CUSTOMER';
-  }
-}
+      if (profile.roles && typeof profile.roles === 'object' && profile.roles.role_name) {
+        roleName = profile.roles.role_name;
+      } else if (profile.role_id) {
+        const { data: roleData } = await supabase
+          .from('roles')
+          .select('role_name')
+          .eq('id', profile.role_id)
+          .single();
+        roleName = roleData?.role_name || 'CUSTOMER';
+      }
+    }
 
     let isNewUser = false;
     let finalFullName = authUser.user_metadata?.full_name || 
                         authUser.user_metadata?.name || 
                         authUser.email.split('@')[0];
-    let finalPhone = authUser.user_metadata?.phone_number || '';
+    let finalPhone = '';
     let finalAddress = '';
 
     if (!profile) {
@@ -267,20 +1035,34 @@ if (!profileError && profileData) {
         .insert([{
           id: authUser.id,
           full_name: finalFullName,
-          phone_number: finalPhone,
-          address: finalAddress,
+          phone_number: '',
+          address: '',
           role_id: defaultRoleId,
           email: authUser.email
         }]);
       
-      if (insertError) console.error('Profile insert error:', insertError);
+      if (insertError) {
+        console.error('Profile insert error:', insertError);
+      }
     } else {
       finalFullName = profile.full_name || finalFullName;
       finalPhone = profile.phone_number || '';
       finalAddress = profile.address || '';
     }
 
+    // Determine if profile needs completion
+    const needsProfileCompletion = !finalAddress || !finalPhone || 
+                                  finalAddress.trim() === '' || 
+                                  finalPhone.trim() === '';
+
     const finalRole = roleName.toUpperCase();
+
+    console.log('[GOOGLE CALLBACK] Profile check:', {
+      finalAddress,
+      finalPhone,
+      needsProfileCompletion,
+      isNewUser
+    });
 
     return res.status(200).json({
       success: true,
@@ -289,6 +1071,7 @@ if (!profileError && profileData) {
       isNewUser,
       hasPassword,
       authProvider,
+      needsProfileCompletion, // ✅ Send this to frontend
       user: {
         id: authUser.id,
         email: authUser.email,
@@ -608,24 +1391,6 @@ const updateAddress = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Address is required' });
     }
 
-    // CRITICAL: Always require current password for address updates
-    if (!currentPassword) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Current password is required for security.' 
-      });
-    }
-
-    // Verify the password
-    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-      email: req.user.email,
-      password: currentPassword,
-    });
-
-    if (signInError || !signInData.user) {
-      return res.status(401).json({ success: false, message: 'Invalid password' });
-    }
-
     const { error: updateError } = await supabase
       .from('profiles')
       .update({ address })
@@ -847,45 +1612,63 @@ const setPasswordForGoogleUser = async (req, res) => {
  * @route   DELETE /api/auth/account
  */
 
+/**
+ * @desc    Delete user account entirely from Auth and Profiles
+ * @route   DELETE /api/auth/account
+ */
 const deleteAccount = async (req, res) => {
   try {
     const userId = req.user.id;
     const { password } = req.body;
 
-    // Check if user has password
-    const hasPassword = await userHasPassword(userId);
-
-    // If user has password, verify it
-    if (hasPassword) {
-      if (!password) {
-        return res.status(400).json({ 
-          success: false, 
-          message: 'Password is required to delete account.' 
-        });
-      }
-
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: req.user.email,
-        password,
+    // ✅ ALWAYS require password
+    if (!password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password is required to delete your account.' 
       });
-
-      if (signInError || !signInData.user) {
-        return res.status(401).json({ success: false, message: 'Invalid password' });
-      }
     }
 
-    // ✅ STEP 1: Keep audit logs - just remove the user_id reference
-    console.log('🔄 Updating audit logs (keeping history)...');
-    const { error: auditError } = await supabase
+    // ✅ ALWAYS verify password
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      email: req.user.email,
+      password: password,
+    });
+
+    if (signInError || !signInData.user) {
+      console.log('❌ Invalid password attempt for user:', userId);
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid password. Please try again.' 
+      });
+    }
+
+    console.log('✅ Password verified for user:', userId);
+
+    // ✅ STEP 1: Handle audit logs first - set user_id to NULL
+    console.log('🔄 Updating audit logs (removing user reference)...');
+    const { error: auditUpdateError } = await supabase
       .from('audit_logs')
       .update({ user_id: null })
       .eq('user_id', userId);
     
-    if (auditError) {
-      console.warn('⚠️ Audit log update warning:', auditError.message);
-      // If update fails, try soft delete approach
+    if (auditUpdateError) {
+      console.warn('⚠️ Audit log update warning:', auditUpdateError.message);
+      // If update fails, try deleting audit logs
+      console.log('🔄 Attempting to delete audit logs...');
+      const { error: auditDeleteError } = await supabase
+        .from('audit_logs')
+        .delete()
+        .eq('user_id', userId);
+      
+      if (auditDeleteError) {
+        console.error('❌ Failed to handle audit logs:', auditDeleteError);
+        // Continue anyway - we can still try to delete the profile
+      } else {
+        console.log('✅ Audit logs deleted');
+      }
     } else {
-      console.log('✅ Audit logs preserved (user_id set to NULL)');
+      console.log('✅ Audit logs updated (user_id set to NULL)');
     }
 
     // ✅ STEP 2: Delete from profiles
@@ -896,12 +1679,14 @@ const deleteAccount = async (req, res) => {
       .eq('id', userId);
     
     if (profileError) {
-      console.warn('⚠️ Profile delete warning:', profileError.message);
+      console.error('❌ Profile delete error:', profileError);
+      // If profile delete fails, try to delete anyway
+      // The auth user will still be deleted
     } else {
       console.log('✅ Profile deleted');
     }
 
-    // ✅ STEP 3: Delete from auth using REST API
+    // ✅ STEP 3: Delete from auth using admin API
     const supabaseUrl = process.env.SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     
@@ -928,14 +1713,7 @@ const deleteAccount = async (req, res) => {
       console.log(`✅ User ${userId} deleted successfully`);
       return res.status(200).json({ 
         success: true, 
-        message: 'Account deleted permanently. Audit logs preserved.' 
-      });
-    }
-
-    if (response.status === 404) {
-      return res.status(200).json({ 
-        success: true, 
-        message: 'Account already deleted.' 
+        message: 'Account deleted successfully.' 
       });
     }
 
@@ -1050,11 +1828,11 @@ const getUserPermissions = async (req, res) => {
     const userId = req.user.id;
 
     // Get user's role_id from profiles table
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('role_id')
-      .eq('id', userId)
-      .single();
+    // const { data: profile, error: profileError } = await supabase
+    //   .from('profiles')
+    //   .select('role_id')
+    //   .eq('id', userId)
+    //   .single();
 
     if (profileError || !profile) {
       return res.status(200).json({ success: true, permissions: [] });
@@ -1066,7 +1844,7 @@ const getUserPermissions = async (req, res) => {
     // Get user's position_id from employees table
     const { data: employee, error: empError } = await supabase
       .from('employees')
-      .select('position_id')
+      .select('position')
       .eq('profile_id', userId)
       .maybeSingle();
 
@@ -1124,6 +1902,372 @@ const getAllRoles = async (req, res) => {
   } catch (error) {
     console.error('Get all roles error:', error);
     return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * @desc    Change user email with verification
+ * @route   PUT /api/auth/change-email
+ */
+
+const changeEmail = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { newEmail, currentPassword } = req.body;
+
+    // Validate input
+    if (!newEmail) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New email address is required.' 
+      });
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(newEmail)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Please provide a valid email address.' 
+      });
+    }
+
+    if (newEmail === req.user.email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'New email must be different from current email.' 
+      });
+    }
+
+    // Check if user has a password
+    const hasPassword = await userHasPassword(userId);
+    
+    if (hasPassword) {
+      if (!currentPassword) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Current password is required to change email.' 
+        });
+      }
+
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: req.user.email,
+        password: currentPassword,
+      });
+
+      if (signInError || !signInData.user) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Invalid current password.' 
+        });
+      }
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'This account uses Google login. Please change your email through Google account settings.',
+        provider: 'google'
+      });
+    }
+
+    // ✅ Generate verification token (24 hour expiry)
+    const verificationToken = jwt.sign(
+      { 
+        userId: userId, 
+        newEmail: newEmail,
+        oldEmail: req.user.email
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // ✅ Send verification email
+    const verificationLink = `http://localhost:5173/verify-email/${verificationToken}`;
+    
+    try {
+      // Use your existing mailer
+      const { sendEmailChangeVerification } = require('../utils/mailer');
+      
+      await sendEmailChangeVerification({
+        to: newEmail,
+        newEmail: newEmail,
+        oldEmail: req.user.email,
+        userName: req.user.fullName || 'User',
+        verificationLink: verificationLink,
+        token: verificationToken
+      });
+    } catch (emailError) {
+      console.error('❌ Failed to send email:', emailError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to send verification email. Please try again.' 
+      });
+    }
+
+    // ✅ Log the email change request
+    await logAction(userId, 'EMAIL_CHANGE_REQUESTED', { 
+      oldEmail: req.user.email, 
+      newEmail,
+      status: 'pending_verification'
+    }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: `Verification email sent to ${newEmail}. Please check your inbox and click the confirmation link.`,
+      requiresVerification: true,
+      newEmail: newEmail,
+      emailChangePending: true
+    });
+
+  } catch (error) {
+    console.error('[EMAIL CHANGE ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Verify email change
+ * @route   GET /api/auth/verify-email/:token
+ */
+
+const verifyEmailChange = async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+    
+    console.log('🔍 ========== VERIFICATION START ==========');
+    console.log('📝 Token:', token);
+    console.log('📝 Password provided:', password ? 'Yes' : 'No');
+    
+    if (!password) {
+      console.log('❌ No password provided');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password is required to verify email change.' 
+      });
+    }
+    
+    // ✅ Verify the JWT token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log('✅ Token decoded successfully:', decoded);
+    } catch (error) {
+      console.error('❌ Token verification failed:', error.message);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid or expired verification link. Please request a new one.' 
+      });
+    }
+
+    const { userId, newEmail, oldEmail } = decoded;
+    console.log('👤 User ID:', userId);
+    console.log('📧 New Email:', newEmail);
+    console.log('📧 Old Email:', oldEmail);
+
+    // ✅ Get user's current email
+    const { data: user, error: userError } = await supabaseAdmin.auth.admin.getUserById(userId);
+    
+    if (userError) {
+      console.error('❌ User fetch error:', userError);
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User not found.' 
+      });
+    }
+
+    const currentEmail = user.user.email;
+    console.log('📧 Current email in auth:', currentEmail);
+
+    // ✅ Verify the password
+    console.log('🔐 Verifying password...');
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      email: currentEmail,
+      password: password,
+    });
+
+    if (signInError || !signInData.user) {
+      console.error('❌ Password verification failed:', signInError);
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Incorrect password. Please try again.' 
+      });
+    }
+    console.log('✅ Password verified successfully');
+
+    // ✅ Check if email is already updated
+    if (currentEmail === newEmail) {
+      console.log('ℹ️ Email already updated to:', currentEmail);
+      return res.status(200).json({
+        success: true,
+        message: 'Email already verified! You can now login with your new email.'
+      });
+    }
+
+    // ✅ Update the email in Supabase Auth
+    console.log('🔄 Updating email in auth...');
+    const { data: updatedUser, error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
+      userId,
+      { 
+        email: newEmail,
+        email_confirm: true
+      }
+    );
+
+    if (updateError) {
+      console.error('❌ Auth update error:', updateError);
+      
+      if (updateError.message.includes('already exists')) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'This email is already registered to another account.' 
+        });
+      }
+      
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Failed to verify email change. Please try again.' 
+      });
+    }
+    console.log('✅ Email updated in auth');
+
+    // ✅ Update the profile
+    console.log('🔄 Updating profile...');
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({ email: newEmail })
+      .eq('id', userId);
+
+    if (profileError) {
+      console.error('❌ Profile update error:', profileError);
+    } else {
+      console.log('✅ Profile updated');
+    }
+
+    console.log('✅ ========== VERIFICATION COMPLETE ==========');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email verified and updated successfully! You can now log in with your new email.'
+    });
+
+  } catch (error) {
+    console.error('❌ Verify email error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error. Please try again.' 
+    });
+  }
+};
+
+/**
+ * @desc    Resend verification email
+ * @route   POST /api/auth/resend-email-verification
+ */
+
+const resendEmailVerification = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email address is required.' 
+      });
+    }
+
+    // ✅ Generate new verification token
+    const verificationToken = jwt.sign(
+      { 
+        userId: userId, 
+        newEmail: email,
+        oldEmail: req.user.email
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    // ✅ Send new verification email
+    const verificationLink = `http://localhost:5173/verify-email/${verificationToken}`;
+    
+    try {
+      const { sendEmailChangeVerification } = require('../utils/mailer');
+      
+      await sendEmailChangeVerification({
+        to: email,
+        newEmail: email,
+        oldEmail: req.user.email,
+        userName: req.user.fullName || 'User',
+        verificationLink: verificationLink,
+        token: verificationToken
+      });
+    } catch (emailError) {
+      console.error('❌ Failed to send email:', emailError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to send verification email. Please try again.' 
+      });
+    }
+
+    await logAction(userId, 'EMAIL_VERIFICATION_RESENT', { email }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: `Verification email resent to ${email}. Please check your inbox.`
+    });
+
+  } catch (error) {
+    console.error('[RESEND EMAIL ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Cancel email change
+ * @route   POST /api/auth/cancel-email-change
+ */
+const cancelEmailChange = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // ✅ Update the pending request status
+    const { data: request, error: requestError } = await supabase
+      .from('email_change_requests')
+      .update({ status: 'cancelled' })
+      .eq('user_id', userId)
+      .eq('status', 'pending')
+      .select()
+      .single();
+
+    if (requestError || !request) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No pending email change request found.' 
+      });
+    }
+
+    await logAction(userId, 'EMAIL_CHANGE_CANCELLED', { 
+      newEmail: request.new_email,
+      oldEmail: request.old_email
+    }, req);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Email change request cancelled successfully.',
+      email: request.old_email
+    });
+
+  } catch (error) {
+    console.error('[CANCEL EMAIL ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
   }
 };
 
@@ -1351,6 +2495,35 @@ const getPermissionsForUserId = async (userId) => {
     return [];
   }
 };
+ * @desc    Decode token (for frontend to check token validity)
+ * @route   GET /api/auth/decode-token/:token
+ */
+const decodeToken = async (req, res) => {
+  try {
+    const { token } = req.params;
+    console.log('🔍 Decoding token:', token);
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log('✅ Token decoded:', decoded);
+    
+    return res.json({
+      success: true,
+      decoded: {
+        userId: decoded.userId,
+        newEmail: decoded.newEmail,
+        oldEmail: decoded.oldEmail,
+        expiresAt: new Date(decoded.exp * 1000).toISOString()
+      }
+    });
+  } catch (error) {
+    console.error('❌ Token decode error:', error.message);
+    return res.status(400).json({
+      success: false,
+      message: error.message === 'jwt expired' ? 'Verification link has expired.' : 'Invalid verification link.'
+    });
+  }
+};
+
 
 module.exports = {
   // Auth Routes
@@ -1359,6 +2532,12 @@ module.exports = {
   handleGoogleCallback,
   getMe,
   loginUser,
+  
+  //new
+  registerPhase1,
+  registerPhase2,
+  createGoogleUserProfile,
+  updateGoogleUserProfile,
   
   // Profile Routes
   updateProfile,
@@ -1369,6 +2548,13 @@ module.exports = {
   updatePassword,
   setPasswordForGoogleUser,
   
+  // Email Routes
+  changeEmail,
+  verifyEmailChange,
+  resendEmailVerification,
+  cancelEmailChange,
+  decodeToken,
+
   // Account Routes
   deleteAccount,
   
@@ -1383,5 +2569,6 @@ module.exports = {
   verifySetup2FA,
   
   // Helpers (exported for testing)
-  userHasPassword
+  userHasPassword,
+  checkPasswordStatus
 };

@@ -37,8 +37,8 @@ const ResetPassword = () => {
     e.preventDefault();
 
     if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters');
-      toast.error('Password must be at least 6 characters');
+      setError('Password must be at least 8 characters');
+      toast.error('Password must be at least 8 characters');
       return;
     }
 
@@ -165,7 +165,7 @@ const ResetPassword = () => {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     className="w-full pl-9 pr-10 py-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                    placeholder="Enter new password (min 6 characters)"
+                    placeholder="Enter new password (min 8 characters)"
                     required
                     minLength={6}
                   />
@@ -177,7 +177,7 @@ const ResetPassword = () => {
                     {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Must be at least 6 characters</p>
+                <p className="text-xs text-gray-500 mt-1">Must be at least 8 characters</p>
               </div>
 
               <div>

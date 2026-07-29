@@ -649,7 +649,7 @@ const completeOrder = async (orderId, items) => {
     return orderData;
   }
 
-  const orderStatus = orderData.order_type === 'PICKUP' ? 'PLACED' : 'COMPLETED';
+  const orderStatus = orderData.order_type === 'PICKUP' ? 'PLACED' : 'PLACED';
 
   const { data: order, error: updateError } = await supabase
     .from('orders')

@@ -2,9 +2,13 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Trophy, Package, TrendingUp, Users, Loader2 } from "lucide-react";
 import api from "../../services/api";
 
-function formatLKR(value) {
-  return "LKR " + Number(value || 0).toLocaleString();
-}
+export const formatLKR = (amount) => {
+  const num = Number(amount) || 0;
+  return `Rs. ${num.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+};
 
 const RANK_COLORS = {
   1: "bg-amber-100 text-amber-700",

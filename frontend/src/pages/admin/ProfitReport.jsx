@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { TrendingUp, TrendingDown, Loader2, Download, Printer } from "lucide-react";
+import { TrendingUp, TrendingDown, Loader2, Download, Printer, ChevronLeft, ChevronRight, History } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -12,9 +12,30 @@ import {
 } from "recharts";
 
 const API_BASE = "http://localhost:5000/api";
+const HISTORY_PAGE_SIZE = 10;
 
 function formatLKR(value) {
   return "LKR " + Number(value || 0).toLocaleString();
+}
+
+function formatDate(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return value;
+  return d.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function downloadCSV(rows, filename) {
@@ -44,6 +65,19 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
+function PeriodBadge({ period }) {
+  const styles = {
+    DAILY: "bg-blue-50 text-blue-600",
+    WEEKLY: "bg-violet-50 text-violet-600",
+    MONTHLY: "bg-amber-50 text-amber-600",
+  };
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${styles[period] || "bg-gray-100 text-gray-600"}`}>
+      {period || "—"}
+    </span>
+  );
+}
+
 export default function ProfitReport() {
   const [preset, setPreset] = useState("weekly");
   const [customFrom, setCustomFrom] = useState("");
@@ -53,9 +87,18 @@ export default function ProfitReport() {
   const [error, setError] = useState(null);
   const chartWrapperRef = useRef(null);
 
-  // Load default weekly report on mount
+  // Saved-report history (from financial_summaries, via the backend)
+  const [history, setHistory] = useState([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+
+  // Load default weekly report on mount — do NOT save this initial view to history,
+  // only reports the user explicitly generates.
   useEffect(() => {
-    generateReport();
+    generateReport({ save: false });
+    fetchHistory(0);
   }, []);
 
   function getRangeForPreset() {
@@ -78,7 +121,7 @@ export default function ProfitReport() {
     return { from, to: preset === "custom" ? customTo : to };
   }
 
-  async function generateReport() {
+  async function generateReport({ save = true } = {}) {
     const { from, to } = getRangeForPreset();
     if (preset === "custom" && (!from || !to)) {
       setError("Please pick both a start and end date for a custom range.");
@@ -90,15 +133,42 @@ export default function ProfitReport() {
       const params = new URLSearchParams();
       if (from) params.set("dateFrom", from);
       if (to) params.set("dateTo", to);
+      params.set("saveToDatabase", save ? "true" : "false");
       const res = await fetch(`${API_BASE}/invoices/profit-trend?${params.toString()}`);
       if (!res.ok) throw new Error(`Server responded with ${res.status}`);
       const data = await res.json();
       setReport({ ...data, from, to });
+
+      // A report the user asked to save just changed the financial_summaries
+      // table — refresh the history view so it shows up immediately.
+      if (save) {
+        fetchHistory(0);
+      }
     } catch (err) {
       setError(err.message);
       setReport(null);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchHistory(offset = historyOffset) {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", HISTORY_PAGE_SIZE);
+      params.set("offset", offset);
+      const res = await fetch(`${API_BASE}/financial-summary?${params.toString()}`);
+      if (!res.ok) throw new Error(`Server responded with ${res.status}`);
+      const data = await res.json();
+      setHistory(data.summaries || []);
+      setHistoryTotal(data.total || 0);
+      setHistoryOffset(offset);
+    } catch (err) {
+      setHistoryError(err.message);
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -233,6 +303,9 @@ export default function ProfitReport() {
     month: "Monthly",
   };
 
+  const historyPage = Math.floor(historyOffset / HISTORY_PAGE_SIZE) + 1;
+  const historyPageCount = Math.max(1, Math.ceil(historyTotal / HISTORY_PAGE_SIZE));
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
       <div className="mb-6">
@@ -281,7 +354,7 @@ export default function ProfitReport() {
             </>
           )}
           <button
-            onClick={generateReport}
+            onClick={() => generateReport({ save: true })}
             disabled={loading}
             className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg inline-flex items-center gap-2"
           >
@@ -334,7 +407,7 @@ export default function ProfitReport() {
           </div>
 
           {/* Line chart */}
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 mb-6">
             <div className="flex items-center justify-between mb-1">
               <h2 className="text-base font-semibold text-gray-900">Profit Trend</h2>
               <span className="text-xs text-gray-400 bg-gray-50 px-2 py-1 rounded-full">
@@ -415,6 +488,94 @@ export default function ProfitReport() {
                   </LineChart>
                 </ResponsiveContainer>
               </div>
+            )}
+          </div>
+
+          {/* Saved report history */}
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <History className="w-4 h-4 text-gray-400" />
+                <h2 className="text-base font-semibold text-gray-900">Report History</h2>
+              </div>
+              <span className="text-xs text-gray-400">
+                {historyTotal} saved {historyTotal === 1 ? "report" : "reports"}
+              </span>
+            </div>
+
+            {historyError && <p className="text-sm text-rose-500 mb-3">{historyError}</p>}
+
+            {historyLoading && history.length === 0 ? (
+              <div className="text-center py-10">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600 mx-auto mb-2" />
+                <p className="text-gray-400 text-sm">Loading history...</p>
+              </div>
+            ) : history.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">
+                No reports saved yet. Click "Generate report" above to create one.
+              </p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-gray-400 uppercase border-b border-gray-100">
+                        <th className="py-2 pr-4 font-medium">Generated Date</th>
+                        <th className="py-2 pr-4 font-medium">Period</th>
+                        <th className="py-2 pr-4 font-medium">Period Start</th>
+                        <th className="py-2 pr-4 font-medium">Period End</th>
+                        <th className="py-2 pr-4 font-medium text-right">Revenue</th>
+                        <th className="py-2 pr-4 font-medium text-right">Expenses</th>
+                        <th className="py-2 pr-0 font-medium text-right">Net Profit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {history.map((row) => {
+                        const profit = Number(row.net_profit || 0);
+                        return (
+                          <tr key={row.id} className="border-b border-gray-50 last:border-0">
+                            <td className="py-2.5 pr-4 text-gray-700">{formatDateTime(row.report_date)}</td>
+                            <td className="py-2.5 pr-4">
+                              <PeriodBadge period={row.period} />
+                            </td>
+                            <td className="py-2.5 pr-4 text-gray-600">{formatDate(row.period_start)}</td>
+                            <td className="py-2.5 pr-4 text-gray-600">{formatDate(row.period_end)}</td>
+                            <td className="py-2.5 pr-4 text-right text-gray-700">{formatLKR(row.total_revenue)}</td>
+                            <td className="py-2.5 pr-4 text-right text-gray-700">{formatLKR(row.total_expenses)}</td>
+                            <td className={`py-2.5 pr-0 text-right font-semibold ${profit >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                              {formatLKR(profit)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {historyPageCount > 1 && (
+                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-50">
+                    <span className="text-xs text-gray-400">
+                      Page {historyPage} of {historyPageCount}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => fetchHistory(Math.max(0, historyOffset - HISTORY_PAGE_SIZE))}
+                        disabled={historyOffset === 0 || historyLoading}
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => fetchHistory(historyOffset + HISTORY_PAGE_SIZE)}
+                        disabled={historyOffset + HISTORY_PAGE_SIZE >= historyTotal || historyLoading}
+                        className="p-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>

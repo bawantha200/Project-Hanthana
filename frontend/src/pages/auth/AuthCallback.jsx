@@ -7,21 +7,20 @@ export default function AuthCallback() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [error, setError] = useState(null);
-  
 
   useEffect(() => {
     let isMounted = true;
 
     const handleCallback = async () => {
       try {
-        // 1. Extract access_token from URL hash (e.g., #access_token=xxx)
+        // 1. Extract access_token from URL hash
         const hash = window.location.hash.substring(1);
         const params = new URLSearchParams(hash);
         let accessToken = params.get('access_token');
 
         if (!accessToken) {
-          // Fallback: try session (if Supabase already processed it)
-          const { data: { session } } = await import('../../supabaseClient').then(mod => mod.supabase.auth.getSession());
+          // Fallback: try session from Supabase
+          const { data: { session } } = await supabase.auth.getSession();
           accessToken = session?.access_token;
         }
 
@@ -29,10 +28,16 @@ export default function AuthCallback() {
           throw new Error('No access token found in callback URL');
         }
 
+        // Store token in localStorage
+        localStorage.setItem('token', accessToken);
+
         // 2. Send token to backend
         const response = await fetch('http://localhost:5000/api/auth/google/callback', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`
+          },
           body: JSON.stringify({ accessToken }),
         });
 
@@ -42,22 +47,62 @@ export default function AuthCallback() {
           throw new Error(result.message || 'Backend authentication failed');
         }
 
-        // 3. Log the user in (stores token & user data)
-        login(result.user, result.session.access_token, result.permissions || []);
+        console.log('Google callback result:', result);
+        console.log('needsProfileCompletion:', result.needsProfileCompletion);
+        console.log('isNewUser:', result.isNewUser);
+        console.log('User data:', result.user);
+        console.log('User address:', result.user?.address);
+        console.log('User phone:', result.user?.phone);
 
-        // 4. Redirect based on role
-        const userRole = (result.user.role || '').toUpperCase();
-        if (userRole === 'ADMIN' || userRole === 'STAFF') {
-          navigate('/admin/dashboard', { replace: true });
+        // 3. Log the user in
+        login(result.user, accessToken, result.permissions || []);
+
+        // 4. Check if this was a Google sign-in
+        const isGoogleSignIn = localStorage.getItem('googleSignInPending') === 'true';
+        
+        // 5. Determine if profile needs completion
+        // Check if user has address and phone
+        const hasAddress = result.user?.address && result.user.address.trim().length > 0;
+        const hasPhone = result.user?.phone && result.user.phone.trim().length > 0;
+        const needsProfileCompletion = !hasAddress || !hasPhone;
+        
+        console.log('Profile check:', { 
+          hasAddress, 
+          hasPhone, 
+          needsProfileCompletion,
+          address: result.user?.address,
+          phone: result.user?.phone
+        });
+
+        // Get user role
+        const userRole = (result.user?.role || '').toUpperCase();
+
+        // ✅ If Google sign-in and needs profile completion, go to complete-profile
+        if (isGoogleSignIn && needsProfileCompletion) {
+          console.log('Redirecting to /complete-profile');
+          // Keep googleSignInPending flag for CompleteProfile
+          localStorage.setItem('isNewGoogleUser', 'true');
+          navigate('/complete-profile', { replace: true });
         } else {
-          // Customer goes to the main customer home page (same as "/")
-          navigate('/', { replace: true });
+          // Remove pending flags
+          localStorage.removeItem('googleSignInPending');
+          localStorage.removeItem('isNewGoogleUser');
+          
+          if (userRole === 'ADMIN' || userRole === 'STAFF') {
+            navigate('/app/dashboard', { replace: true });
+          } else {
+            navigate('/', { replace: true });
+          }
         }
       } catch (err) {
         console.error('OAuth callback error:', err);
         setError(err.message);
 
-        await supabase.auth.signOut()
+        localStorage.removeItem('token');
+        localStorage.removeItem('googleSignInPending');
+        localStorage.removeItem('isNewGoogleUser');
+        
+        await supabase.auth.signOut();
 
         setTimeout(() => navigate('/login?error=oauth_failed'), 2000);
       }
@@ -83,5 +128,3 @@ export default function AuthCallback() {
     </div>
   );
 }
-
-

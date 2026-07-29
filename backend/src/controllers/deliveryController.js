@@ -13,11 +13,58 @@ const {
   getRiderDeliveriesWithLocations
 } = require('../services/deliveryService');
 const supabase = require('../config/db');
+const cache = require('../config/cache');
+
+// Cache configuration
+const CACHE_TTL = {
+  DELIVERIES_LIST: 30,        // 30 seconds for delivery lists
+  SINGLE_DELIVERY: 60,        // 60 seconds for single delivery
+  RIDER_DELIVERIES: 30,       // 30 seconds for rider deliveries
+  RIDER_STATS: 60,            // 60 seconds for rider stats
+  DELIVERY_PERSONNEL: 120,    // 2 minutes for delivery personnel
+  DELIVERY_LOCATION: 30,      // 30 seconds for delivery location
+};
+
+const CACHE_KEYS = {
+  ALL_DELIVERIES: 'deliveries_all',
+  DELIVERY_PERSONNEL: 'delivery_personnel',
+  DELIVERY_PREFIX: 'delivery_',
+  RIDER_DELIVERIES_PREFIX: 'rider_deliveries_',
+  RIDER_STATS_PREFIX: 'rider_stats_',
+  DELIVERY_LOCATION_PREFIX: 'delivery_location_',
+};
+
+// Helper to invalidate delivery caches
+const invalidateDeliveryCaches = (deliveryId, riderId = null) => {
+  // Delete single delivery cache
+  cache.del(`${CACHE_KEYS.DELIVERY_PREFIX}${deliveryId}`);
+  cache.del(`${CACHE_KEYS.DELIVERY_LOCATION_PREFIX}${deliveryId}`);
+  
+  // Delete all deliveries list cache
+  cache.del(CACHE_KEYS.ALL_DELIVERIES);
+  
+  // Delete rider's deliveries cache if riderId provided
+  if (riderId) {
+    cache.del(`${CACHE_KEYS.RIDER_DELIVERIES_PREFIX}${riderId}`);
+    cache.del(`${CACHE_KEYS.RIDER_STATS_PREFIX}${riderId}`);
+  }
+};
 
 // ========== GET DELIVERY PERSONNEL (RIDERS) ==========
 const getDeliveryPersonnel = async (req, res) => {
   try {
-    console.log('🔍 [getDeliveryPersonnel] Fetching all RIDERS...');
+    console.log('[getDeliveryPersonnel] Fetching all RIDERS...');
+
+    // Check cache
+    const cachedPersonnel = cache.get(CACHE_KEYS.DELIVERY_PERSONNEL);
+    if (cachedPersonnel) {
+      console.log('[getDeliveryPersonnel] Returning cached personnel');
+      return res.json({
+        success: true,
+        personnel: cachedPersonnel,
+        fromCache: true
+      });
+    }
 
     const { data: role, error: roleError } = await supabase
       .from('roles')
@@ -26,14 +73,14 @@ const getDeliveryPersonnel = async (req, res) => {
       .single();
 
     if (roleError) {
-      console.error('❌ [getDeliveryPersonnel] Role error:', roleError);
+      console.error('[getDeliveryPersonnel] Role error:', roleError);
       return res.status(500).json({
         success: false,
         message: 'Failed to find RIDER role'
       });
     }
 
-    console.log(`✅ Found RIDER role with ID: ${role.id}`);
+    console.log(`Found RIDER role with ID: ${role.id}`);
 
     const { data: personnel, error } = await supabase
       .from('profiles')
@@ -48,14 +95,14 @@ const getDeliveryPersonnel = async (req, res) => {
       .order('full_name', { ascending: true });
 
     if (error) {
-      console.error('❌ [getDeliveryPersonnel] Error:', error);
+      console.error('[getDeliveryPersonnel] Error:', error);
       return res.status(500).json({
         success: false,
         message: 'Failed to fetch delivery personnel'
       });
     }
 
-    console.log(`✅ Found ${personnel?.length || 0} riders`);
+    console.log(`Found ${personnel?.length || 0} riders`);
 
     const formattedPersonnel = (personnel || []).map(person => ({
       id: person.id,
@@ -65,12 +112,15 @@ const getDeliveryPersonnel = async (req, res) => {
       address: person.address || ''
     }));
 
+    // Store in cache
+    cache.set(CACHE_KEYS.DELIVERY_PERSONNEL, formattedPersonnel, CACHE_TTL.DELIVERY_PERSONNEL);
+
     res.json({
       success: true,
       personnel: formattedPersonnel
     });
   } catch (err) {
-    console.error('💥 [getDeliveryPersonnel]', err);
+    console.error('[getDeliveryPersonnel]', err);
     res.status(500).json({
       success: false,
       message: err.message || 'Internal server error'
@@ -83,6 +133,20 @@ const getDeliveries = async (req, res) => {
   try {
     const { status, orderId } = req.query;
     const userId = req.user.id;
+
+    // Build cache key based on query params
+    const cacheKey = `${CACHE_KEYS.ALL_DELIVERIES}_${status || 'all'}_${orderId || 'none'}`;
+    
+    // Check cache
+    const cachedDeliveries = cache.get(cacheKey);
+    if (cachedDeliveries) {
+      console.log('[getDeliveries] Returning cached deliveries');
+      return res.json({ 
+        success: true, 
+        deliveries: cachedDeliveries,
+        fromCache: true 
+      });
+    }
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -107,9 +171,13 @@ const getDeliveries = async (req, res) => {
     }
 
     const deliveries = await getAllDeliveriesWithLocations({ status, orderId });
+    
+    // Store in cache
+    cache.set(cacheKey, deliveries, CACHE_TTL.DELIVERIES_LIST);
+    
     res.json({ success: true, deliveries });
   } catch (err) {
-    console.error('💥 [getDeliveries]', err);
+    console.error('[getDeliveries]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -125,10 +193,26 @@ const getDelivery = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid delivery ID' });
     }
 
+    // Check cache
+    const cacheKey = `${CACHE_KEYS.DELIVERY_PREFIX}${deliveryId}`;
+    const cachedDelivery = cache.get(cacheKey);
+    if (cachedDelivery) {
+      console.log('[getDelivery] Returning cached delivery');
+      return res.json({ 
+        success: true, 
+        delivery: cachedDelivery,
+        fromCache: true 
+      });
+    }
+
     const delivery = await getDeliveryWithLocation(deliveryId);
+    
+    // Store in cache
+    cache.set(cacheKey, delivery, CACHE_TTL.SINGLE_DELIVERY);
+    
     res.json({ success: true, delivery });
   } catch (err) {
-    console.error('💥 [getDelivery]', err);
+    console.error('[getDelivery]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -138,6 +222,20 @@ const getMyDeliveries = async (req, res) => {
   try {
     const userId = req.user.id;
     const { status } = req.query;
+
+    const cacheKey = `${CACHE_KEYS.RIDER_DELIVERIES_PREFIX}${userId}_${status || 'all'}`;
+    
+    // Check cache
+    const cachedDeliveries = cache.get(cacheKey);
+    if (cachedDeliveries) {
+      console.log('[getMyDeliveries] Returning cached rider deliveries');
+      return res.json({ 
+        success: true, 
+        deliveries: cachedDeliveries.deliveries,
+        stats: cachedDeliveries.stats,
+        fromCache: true 
+      });
+    }
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -162,9 +260,14 @@ const getMyDeliveries = async (req, res) => {
     const deliveries = await getRiderDeliveriesWithLocations(userId, status);
     const stats = await getRiderStats(userId);
 
+    const responseData = { deliveries, stats };
+    
+    // Store in cache
+    cache.set(cacheKey, responseData, CACHE_TTL.RIDER_DELIVERIES);
+
     res.json({ success: true, deliveries, stats });
   } catch (err) {
-    console.error('💥 [getMyDeliveries]', err);
+    console.error('[getMyDeliveries]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -202,9 +305,13 @@ const updateDelivery = async (req, res) => {
     }
 
     const updatedDelivery = await updateDeliveryStatus(deliveryId, status);
+    
+    // Invalidate caches
+    invalidateDeliveryCaches(deliveryId, userId);
+    
     res.json({ success: true, delivery: updatedDelivery });
   } catch (err) {
-    console.error('💥 [updateDelivery]', err);
+    console.error('[updateDelivery]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -213,10 +320,27 @@ const updateDelivery = async (req, res) => {
 const getMyStats = async (req, res) => {
   try {
     const userId = req.user.id;
+
+    // Check cache
+    const cacheKey = `${CACHE_KEYS.RIDER_STATS_PREFIX}${userId}`;
+    const cachedStats = cache.get(cacheKey);
+    if (cachedStats) {
+      console.log('[getMyStats] Returning cached rider stats');
+      return res.json({ 
+        success: true, 
+        stats: cachedStats,
+        fromCache: true 
+      });
+    }
+
     const stats = await getRiderStats(userId);
+    
+    // Store in cache
+    cache.set(cacheKey, stats, CACHE_TTL.RIDER_STATS);
+    
     res.json({ success: true, stats });
   } catch (err) {
-    console.error('💥 [getMyStats]', err);
+    console.error('[getMyStats]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -238,9 +362,13 @@ const assignRider = async (req, res) => {
     }
 
     const delivery = await assignRiderToDelivery(deliveryId, riderId);
+    
+    // Invalidate caches
+    invalidateDeliveryCaches(deliveryId, riderId);
+    
     res.json({ success: true, delivery });
   } catch (err) {
-    console.error('💥 [assignRider]', err);
+    console.error('[assignRider]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -255,9 +383,14 @@ const updateLocation = async (req, res) => {
     }
 
     const location = await updateDeliveryLocation(orderId, address, latitude, longitude);
+    
+    // Invalidate location caches
+    cache.del(`${CACHE_KEYS.DELIVERY_LOCATION_PREFIX}${orderId}`);
+    cache.del(`${CACHE_KEYS.DELIVERY_PREFIX}${orderId}`);
+    
     res.json({ success: true, location });
   } catch (err) {
-    console.error('💥 [updateLocation]', err);
+    console.error('[updateLocation]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -271,10 +404,28 @@ const getLocation = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Order ID is required' });
     }
 
-    const location = await getDeliveryLocation(parseInt(orderId, 10));
+    const orderIdNum = parseInt(orderId, 10);
+    
+    // Check cache
+    const cacheKey = `${CACHE_KEYS.DELIVERY_LOCATION_PREFIX}${orderIdNum}`;
+    const cachedLocation = cache.get(cacheKey);
+    if (cachedLocation) {
+      console.log('[getLocation] Returning cached location');
+      return res.json({ 
+        success: true, 
+        location: cachedLocation,
+        fromCache: true 
+      });
+    }
+
+    const location = await getDeliveryLocation(orderIdNum);
+    
+    // Store in cache
+    cache.set(cacheKey, location, CACHE_TTL.DELIVERY_LOCATION);
+    
     res.json({ success: true, location });
   } catch (err) {
-    console.error('💥 [getLocation]', err);
+    console.error('[getLocation]', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
