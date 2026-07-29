@@ -1,11 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Users, Search, Plus, Shield, UserPlus, Filter, ToggleLeft, ToggleRight,
-  Edit, Trash2, X, AlertTriangle, Mail, Phone, MapPin, Briefcase, Calendar,
-  User, CreditCard, Heart, Camera, Image, Home, Smartphone, FileText, Circle, Clock, Lock,ArrowUpRight
+  Users, Search, Shield, UserPlus, Filter, ToggleLeft, ToggleRight,
+  Edit, Trash2, X, AlertTriangle, Mail, Phone, MapPin, Briefcase,
+  User, Clock, Lock, ArrowUpRight
 } from 'lucide-react';
 import RoleBadge from '../../components/RoleBadge';
 import StatusBadge from '../../components/StatusBadge';
@@ -28,24 +27,17 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// Delete the static roleFilters const entirely, and replace its usage with this computed value inside the component:
-
-
-
-const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE'];
+// ✅ single source of truth for employee status filters (was duplicated before)
+const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE', 'REJECTED'];
 
 export default function UserManagement() {
-  const { isAdmin } = useAuth();
   const { user } = useAuth();
-  
-  
 
   // ===== STATE =====
   const [users, setUsers] = useState([]);               // from profiles
   const [usersLoading, setUsersLoading] = useState(true);
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
-  const [createRoleError, setCreateRoleError] = useState('');
 
   const [employees, setEmployees] = useState([]);       // from employees
   const [employeesLoading, setEmployeesLoading] = useState(false);
@@ -77,26 +69,27 @@ export default function UserManagement() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [creating, setCreating] = useState(false);
 
-  // ===== ✅ NEW STATE FOR TOGGLE CONFIRMATION =====
+  // ===== TOGGLE CONFIRMATION =====
   const [toggleConfirm, setToggleConfirm] = useState(null);
 
+  const existingAccountForEmployee = selectedEmployee
+    ? users.find(
+        (u) => u.email?.toLowerCase() === selectedEmployee.email?.toLowerCase()
+      )
+    : null;
 
-  // component eke top level ekaka danna
-const existingAccountForEmployee = selectedEmployee
-  ? users.find(
-      (u) => u.email?.toLowerCase() === selectedEmployee.email?.toLowerCase()
-    )
-  : null;
+  // Employee's position matched against roles list (auto-resolved, same logic as backend)
+  // Employee's role resolved from role_id first (set directly on Employees page),
+  // falling back to matching position -> role_name only if no role_id is set
+  const resolvedRoleName = selectedEmployee?.role_id
+    ? roles.find((r) => r.id === selectedEmployee.role_id)?.role_name
+    : selectedEmployee?.position
+    ? roles.find(
+        (r) => r.role_name?.toUpperCase() === selectedEmployee.position.trim().toUpperCase()
+      )?.role_name
+    : null;
 
-
-   // Employee's position matched against roles list (auto-resolved, same logic as backend)
-const resolvedRoleName = selectedEmployee?.position
-  ? roles.find(
-      (r) => r.role_name?.toUpperCase() === selectedEmployee.position.trim().toUpperCase()
-    )?.role_name
-  : null;
-
-  // ===== FORM STATE FOR CREATE/EDIT USER =====
+  // ===== FORM STATE FOR CREATE/EDIT USER (maps to `profiles` table columns only) =====
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -106,33 +99,21 @@ const resolvedRoleName = selectedEmployee?.position
     confirmPassword: "",
     roleId: "",
     status: "active",
-    jobType: "",
-    hireDate: "",
-    birthday: "",
-    gender: "",
-    nic: "",
-    marriageStatus: "",
     profileImage: null,
   });
 
-
   const navigate = useNavigate();
-
   const employeeRecordsRef = useRef(null);
 
-  const hasAccess = ['ADMIN', 'CEO'].includes(
-  user?.role?.toUpperCase()
-  );
-
+  const hasAccess = ['ADMIN', 'CEO'].includes(user?.role?.toUpperCase());
   const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
 
-
   const dynamicRoleFilters = [
-  'ALL',
-  ...roles
-    .filter((r) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(r.role_name))
-    .map((r) => r.role_name),
-];
+    'ALL',
+    ...roles
+      .filter((r) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(r.role_name))
+      .map((r) => r.role_name),
+  ];
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('token')}`,
@@ -195,110 +176,105 @@ const resolvedRoleName = selectedEmployee?.position
   };
 
   useEffect(() => {
-    fetchUsers();
-    fetchEmployees();
-    fetchRoles();
-  }, []);
-
+  (async () => {
+    await fetchUsers();
+    await fetchEmployees();
+    await fetchRoles();
+  })();
+}, []);
 
   const handleRejectEmployee = async () => {
-  if (!rejectNote.trim()) {
-    toast.error("Please add a reason for rejection.");
-    return;
-  }
-  setRejecting(true);
-  try {
-    await axios.patch(
-      `${API_BASE}/employees/${rejectConfirm.id}/reject`,
-      { reason: rejectNote },
-      { headers: getAuthHeaders() }
-    );
-    toast.success(`${rejectConfirm.name} marked as rejected`);
-    setRejectConfirm(null);
-    setRejectNote('');
-    await fetchEmployees();
-  } catch (err) {
-    console.error("Reject error:", err);
-    toast.error(err.response?.data?.message || "Failed to reject employee");
-  } finally {
-    setRejecting(false);
-  }
-};
-
-
-const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE', 'REJECTED'];
-
-
-
-
-  // ===== CREATE ACCOUNT FROM PENDING EMPLOYEE =====
-const handleCreateAccount = async () => {
-  if (!resolvedRoleName) {
-    toast.error("This employee's position has no matching role. Please fix the position/role mapping first.");
-    return;
-  }
-
-  if (existingAccountForEmployee) {
-    setCreating(true);
+    if (!rejectNote.trim()) {
+      toast.error("Please add a reason for rejection.");
+      return;
+    }
+    setRejecting(true);
     try {
-      const newRoleId = roles.find((r) => r.role_name === resolvedRoleName)?.id;
       await axios.patch(
-        `${API_BASE}/users/${existingAccountForEmployee.id}/role`,
-        { roleId: newRoleId, employeeId: selectedEmployee.id },  // ✅ pass employeeId too
+        `${API_BASE}/employees/${rejectConfirm.id}/reject`,
+        { reason: rejectNote },
         { headers: getAuthHeaders() }
       );
-      toast.success(`${selectedEmployee.name}'s role updated to ${resolvedRoleName}`);
+      toast.success(`${rejectConfirm.name} marked as rejected`);
+      setRejectConfirm(null);
+      setRejectNote('');
+      await fetchEmployees();
+    } catch (err) {
+      console.error("Reject error:", err);
+      toast.error(err.response?.data?.message || "Failed to reject employee");
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  // ===== CREATE ACCOUNT FROM PENDING EMPLOYEE =====
+  const handleCreateAccount = async () => {
+    if (!resolvedRoleName) {
+      toast.error("This employee's position has no matching role. Please fix the position/role mapping first.");
+      return;
+    }
+
+    if (existingAccountForEmployee) {
+      setCreating(true);
+      try {
+        const newRoleId = roles.find((r) => r.role_name === resolvedRoleName)?.id;
+        await axios.patch(
+          `${API_BASE}/users/${existingAccountForEmployee.id}/role`,
+          { roleId: newRoleId, employeeId: selectedEmployee.id },
+          { headers: getAuthHeaders() }
+        );
+        toast.success(`${selectedEmployee.name}'s role updated to ${resolvedRoleName}`);
+        setShowCreateModal(false);
+        setSelectedEmployee(null);
+        await fetchUsers();
+        await fetchEmployees();
+      } catch (err) {
+        console.error("Update role error:", err);
+        toast.error(err.response?.data?.message || "Failed to update role");
+      } finally {
+        setCreating(false);
+      }
+      return;
+    }
+
+    // ===== new employee, needs a password =====
+    if (!password || password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    setCreating(true);
+    try {
+      await axios.post(
+        `${API_BASE}/users/from-employee`,
+        { employeeId: selectedEmployee.id, password },
+        { headers: getAuthHeaders() }
+      );
+      toast.success(`Account created for ${selectedEmployee.name}`);
       setShowCreateModal(false);
       setSelectedEmployee(null);
+      setPassword('');
+      setConfirmPassword('');
       await fetchUsers();
       await fetchEmployees();
     } catch (err) {
-      console.error("Update role error:", err);
-      toast.error(err.response?.data?.message || "Failed to update role");
+      console.error("Create account error:", err);
+      const message = err.response?.data?.message || "Failed to create account";
+      if (message.toLowerCase().includes('email already exists')) {
+        toast.error('This employee email is already registered as a user.');
+      } else {
+        toast.error(message);
+      }
     } finally {
       setCreating(false);
     }
-    return;
-  }
+  };
 
-  // ===== OLD FLOW — aluth employee kenek, password illanawa =====
-  if (!password || password.length < 6) {
-    toast.error("Password must be at least 6 characters.");
-    return;
-  }
-  if (password !== confirmPassword) {
-    toast.error("Passwords do not match.");
-    return;
-  }
-
-  setCreating(true);
-  try {
-    await axios.post(
-      `${API_BASE}/users/from-employee`,
-      { employeeId: selectedEmployee.id, password },
-      { headers: getAuthHeaders() }
-    );
-    toast.success(`Account created for ${selectedEmployee.name}`);
-    setShowCreateModal(false);
-    setSelectedEmployee(null);
-    setPassword('');
-    setConfirmPassword('');
-    await fetchUsers();
-    await fetchEmployees();
-  } catch (err) {
-    console.error("Create account error:", err);
-    const message = err.response?.data?.message || "Failed to create account";
-    if (message.toLowerCase().includes('email already exists')) {
-      toast.error('This employee email is already registered as a user.');
-    } else {
-      toast.error(message);
-    }
-  } finally {
-    setCreating(false);
-  }
-};
-
-  // ===== ✅ TOGGLE USER STATUS (UPDATED – no event parameter) =====
+  // ===== TOGGLE USER STATUS =====
   const handleToggleClick = async (userId, currentStatus) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     try {
@@ -329,14 +305,8 @@ const handleCreateAccount = async () => {
         password: "",
         confirmPassword: "",
         roleId: user.roles?.id || "",
-        status: "active",
-        jobType: "",
-        hireDate: "",
-        birthday: "",
-        gender: "",
-        nic: "",
-        marriageStatus: "",
-        profileImage: null,
+        status: user.status || "active",
+        profileImage: user.profile_image || null,
       });
     } else {
       setEditingUser(null);
@@ -349,12 +319,6 @@ const handleCreateAccount = async () => {
         confirmPassword: "",
         roleId: "",
         status: "active",
-        jobType: "",
-        hireDate: "",
-        birthday: "",
-        gender: "",
-        nic: "",
-        marriageStatus: "",
         profileImage: null,
       });
     }
@@ -374,211 +338,172 @@ const handleCreateAccount = async () => {
       confirmPassword: "",
       roleId: "",
       status: "active",
-      jobType: "",
-      hireDate: "",
-      birthday: "",
-      gender: "",
-      nic: "",
-      marriageStatus: "",
       profileImage: null,
     });
   };
 
-// ===== BACKDROP HANDLERS (Ask for confirmation if data is present) =====
+  // ===== BACKDROP HANDLERS =====
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget) {
+      const isFormDirty =
+        formData.fullName.trim() !== "" ||
+        formData.email.trim() !== "" ||
+        formData.phoneNumber.trim() !== "" ||
+        formData.address.trim() !== "" ||
+        formData.password.trim() !== "";
 
-// For the Main Modal (Create/Edit User)
-const handleBackdropClick = (e) => {
-  if (e.target === e.currentTarget) {
-    // Check if the user has typed any data
-    const isFormDirty =
-      formData.fullName.trim() !== "" ||
-      formData.email.trim() !== "" ||
-      formData.phoneNumber.trim() !== "" ||
-      formData.address.trim() !== "" ||
-      formData.password.trim() !== "";
-
-    if (isFormDirty) {
-      // If data exists, ask before closing
-      if (window.confirm('Your changes will not be saved. Are you sure you want to leave?')) {
+      if (isFormDirty) {
+        if (window.confirm('Your changes will not be saved. Are you sure you want to leave?')) {
+          closeModal();
+        }
+      } else {
         closeModal();
       }
-    } else {
-      // If no data, close directly
-      closeModal();
     }
-  }
-};
+  };
 
-// For the Pending Employee Modal (Create Account)
-const handleCreateBackdropClick = (e) => {
-  if (e.target === e.currentTarget) {
-    // Check if password fields have been typed
-    if (password.trim() !== "" || confirmPassword.trim() !== "") {
-      if (window.confirm('The password you entered will not be saved. Are you sure you want to leave?')) {
+  const handleCreateBackdropClick = (e) => {
+    if (e.target === e.currentTarget) {
+      if (password.trim() !== "" || confirmPassword.trim() !== "") {
+        if (window.confirm('The password you entered will not be saved. Are you sure you want to leave?')) {
+          setShowCreateModal(false);
+          setPassword('');
+          setConfirmPassword('');
+        }
+      } else {
         setShowCreateModal(false);
-        setPassword('');
-        setConfirmPassword('');
       }
-    } else {
-      setShowCreateModal(false);
     }
-  }
-};
+  };
 
   const openProfileModal = (user) => setProfileModal(user);
   const closeProfileModal = () => setProfileModal(null);
 
   const handleChange = (e) => {
-  const { name, value, files } = e.target;
-  if (name === "profileImage") {
-    setFormData((prev) => ({ ...prev, profileImage: files[0] || null }));
-  } else {
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  }
-  if (errors[name]) {
-    setErrors((prev) => ({ ...prev, [name]: undefined }));
-  }
-};
-
-const validateForm = () => {
-  const newErrors = {};
-
-  // Full Name
-  if (!formData.fullName.trim()) {
-    newErrors.fullName = "Full name is required";
-  } else if (formData.fullName.trim().length < 3) {
-    newErrors.fullName = "Full name must be at least 3 characters";
-  }
-
-  // Email
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!formData.email.trim()) {
-    newErrors.email = "Email is required";
-  } else if (!emailRegex.test(formData.email.trim())) {
-    newErrors.email = "Enter a valid email address";
-  }
-
-  // Phone (optional field, but if filled must be valid)
-  if (formData.phoneNumber) {
-    const cleanedPhone = formData.phoneNumber.trim().replace(/\s+/g, "");
-    const localPhoneRegex = /^0\d{9}$/;
-    const intlPhoneRegex = /^\+94\d{9}$/;
-    if (!localPhoneRegex.test(cleanedPhone) && !intlPhoneRegex.test(cleanedPhone)) {
-      newErrors.phoneNumber = "Phone must be 10 digits (e.g. 0771234567) or +94 format";
+    const { name, value, files } = e.target;
+    if (name === "profileImage") {
+      setFormData((prev) => ({ ...prev, profileImage: files[0] || null }));
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
     }
-  }
-
-  // Role
-  if (!formData.roleId) {
-    newErrors.roleId = "Please select a role";
-  }
-
-  // Password rules
-  if (!editingUser) {
-    if (!formData.password.trim()) {
-      newErrors.password = "Password is required";
-    } else if (formData.password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
+    if (errors[name]) {
+      setErrors((prev) => ({ ...prev, [name]: undefined }));
     }
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
-    }
-  } else if (formData.password) {
-    // editing user, but they typed a new password
-    if (formData.password.length < 6) {
-      newErrors.password = "Password must be at least 6 characters";
-    } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
-    }
-  }
-
-  // Employee-only fields
-  if (showEmployeeFields) {
-    if (formData.nic) {
-      const cleanedNic = formData.nic.trim().toUpperCase();
-      const oldNicRegex = /^[0-9]{9}[VX]$/;
-      const newNicRegex = /^[0-9]{12}$/;
-      if (!oldNicRegex.test(cleanedNic) && !newNicRegex.test(cleanedNic)) {
-        newErrors.nic = "NIC must be 9 digits + V/X, or 12 digits";
-      }
-    }
-    if (formData.birthday && new Date(formData.birthday) > new Date()) {
-      newErrors.birthday = "Birthday cannot be in the future";
-    }
-    if (formData.hireDate && new Date(formData.hireDate) > new Date()) {
-      newErrors.hireDate = "Hire date cannot be in the future";
-    }
-  }
-
-  setErrors(newErrors);
-  return Object.keys(newErrors).length === 0;
-};
-
-  // ===== CREATE / UPDATE USER (for profiles) =====
-const handleSubmit = async (e) => {
-  e.preventDefault();
-
-  if (!validateForm()) {
-    toast.error("Please fix the highlighted fields");
-    return;
-  }
-
-  const token = localStorage.getItem("token");
-  if (!token) {
-    toast.error("Please login again");
-    return;
-  }
-
-  const payload = {
-    fullName: formData.fullName,
-    email: formData.email,
-    phone: formData.phoneNumber,
-    address: formData.address,
-    role: Number(formData.roleId),
-    status: formData.status || "active",
-    jobType: formData.jobType || null,
-    hireDate: formData.hireDate || null,
-    birthday: formData.birthday || null,
-    gender: formData.gender || null,
-    nic: formData.nic || null,
-    marriageStatus: formData.marriageStatus || null,
-    profileImage: formData.profileImage || null,
   };
 
-  if (!editingUser) {
-  // Creating new user — password always required
-  payload.password = formData.password;
-} else if (formData.password) {
-  // ✅ Editing existing user — only include password if admin actually typed a new one
-  payload.password = formData.password;
-}
+  const validateForm = () => {
+    const newErrors = {};
 
-  try {
-    if (editingUser) {
-      await axios.put(`${API_BASE}/users/${editingUser.id}`, payload, {
-        headers: getAuthHeaders(),
-      });
-      toast.success("User updated successfully");
-    } else {
-      await axios.post(`${API_BASE}/users`, payload, {
-        headers: getAuthHeaders(),
-      });
-      toast.success("User created successfully");
+    if (!formData.fullName.trim()) {
+      newErrors.fullName = "Full name is required";
+    } else if (formData.fullName.trim().length < 3) {
+      newErrors.fullName = "Full name must be at least 3 characters";
     }
-    closeModal();        // closes only on success
-    await fetchUsers();
-  } catch (err) {
-    console.error("Save user error:", err);
-    const message = err.response?.data?.message || "Failed to save user";
-    if (message.toLowerCase().includes('email already exists')) {
-      setErrors(prev => ({ ...prev, email: 'This email is already registered.' }));
-      toast.error('Please use a different email.');
-    } else {
-      toast.error(message);
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.email.trim()) {
+      newErrors.email = "Email is required";
+    } else if (!emailRegex.test(formData.email.trim())) {
+      newErrors.email = "Enter a valid email address";
     }
-    // The modal stays open, formData unchanged
-  }
-};
+
+    if (formData.phoneNumber) {
+      const cleanedPhone = formData.phoneNumber.trim().replace(/\s+/g, "");
+      const localPhoneRegex = /^0\d{9}$/;
+      const intlPhoneRegex = /^\+94\d{9}$/;
+      if (!localPhoneRegex.test(cleanedPhone) && !intlPhoneRegex.test(cleanedPhone)) {
+        newErrors.phoneNumber = "Phone must be 10 digits (e.g. 0771234567) or +94 format";
+      }
+    }
+
+    if (!formData.roleId) {
+      newErrors.roleId = "Please select a role";
+    }
+
+    // Password rules
+    if (!editingUser) {
+      if (!formData.password.trim()) {
+        newErrors.password = "Password is required";
+      } else if (formData.password.length < 6) {
+        newErrors.password = "Password must be at least 6 characters";
+      }
+      if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = "Passwords do not match";
+      }
+    } else if (formData.password) {
+      // editing user, typed a new password
+      if (formData.password.length < 6) {
+        newErrors.password = "Password must be at least 6 characters";
+      } else if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = "Passwords do not match";
+      }
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // ===== CREATE / UPDATE USER (for profiles) =====
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
+      toast.error("Please fix the highlighted fields");
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+    if (!token) {
+      toast.error("Please login again");
+      return;
+    }
+
+    // Build FormData so the profile image file can travel as multipart
+    const payload = new FormData();
+    payload.append("fullName", formData.fullName);
+    payload.append("email", formData.email);
+    payload.append("phone", formData.phoneNumber);
+    payload.append("address", formData.address);
+    payload.append("role", Number(formData.roleId));
+    payload.append("status", formData.status || "active");
+
+    if (!editingUser) {
+      payload.append("password", formData.password);
+    } else if (formData.password) {
+      payload.append("password", formData.password);
+    }
+
+    // Only attach the file if the user picked a NEW one (a File object,
+    // not the existing string URL preloaded for preview)
+    if (formData.profileImage instanceof File) {
+      payload.append("profileImage", formData.profileImage);
+    }
+
+    try {
+      if (editingUser) {
+        await axios.put(`${API_BASE}/users/${editingUser.id}`, payload, {
+          headers: { ...getAuthHeaders() },
+        });
+        toast.success("User updated successfully");
+      } else {
+        await axios.post(`${API_BASE}/users`, payload, {
+          headers: { ...getAuthHeaders() },
+        });
+        toast.success("User created successfully");
+      }
+      closeModal();
+      await fetchUsers();
+    } catch (err) {
+      console.error("Save user error:", err);
+      const message = err.response?.data?.message || "Failed to save user";
+      if (message.toLowerCase().includes('email already exists')) {
+        setErrors(prev => ({ ...prev, email: 'This email is already registered.' }));
+        toast.error('Please use a different email.');
+      } else {
+        toast.error(message);
+      }
+    }
+  };
 
   // ===== DELETE USER =====
   const handleDelete = async () => {
@@ -598,19 +523,19 @@ const handleSubmit = async (e) => {
 
   // ===== FILTERS =====
   const filteredUsers = users.filter((user) => {
-  const matchesSearch =
-    user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
-    user.email?.toLowerCase().includes(userSearch.toLowerCase());
-  const matchesRole =
-    roleFilter === "ALL" ||
-    user.roles?.role_name?.toUpperCase() === roleFilter;
-  const matchesStatus =
-    userStatusFilter === "ALL" ||
-    (userStatusFilter === "ACTIVE" && user.status === "active") ||
-    (userStatusFilter === "INACTIVE" && user.status === "inactive");
-  const isNotCustomer = user.roles?.role_name?.toUpperCase() !== 'CUSTOMER'; // ✅ new
-  return matchesSearch && matchesRole && matchesStatus && isNotCustomer;
-});
+    const matchesSearch =
+      user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
+      user.email?.toLowerCase().includes(userSearch.toLowerCase());
+    const matchesRole =
+      roleFilter === "ALL" ||
+      user.roles?.role_name?.toUpperCase() === roleFilter;
+    const matchesStatus =
+      userStatusFilter === "ALL" ||
+      (userStatusFilter === "ACTIVE" && user.status === "active") ||
+      (userStatusFilter === "INACTIVE" && user.status === "inactive");
+    const isNotCustomer = user.roles?.role_name?.toUpperCase() !== 'CUSTOMER';
+    return matchesSearch && matchesRole && matchesStatus && isNotCustomer;
+  });
 
   const filteredEmployees = employees.filter((emp) => {
     const matchesSearch =
@@ -618,10 +543,10 @@ const handleSubmit = async (e) => {
       emp.email?.toLowerCase().includes(employeeSearch.toLowerCase()) ||
       emp.position?.toLowerCase().includes(employeeSearch.toLowerCase());
     const matchesStatus =
-  statusFilter === "ALL" ||
-  (statusFilter === "PENDING" && emp.status === "pending") ||
-  (statusFilter === "ACTIVE" && emp.status === "active") ||
-  (statusFilter === "REJECTED" && emp.status === "rejected");
+      statusFilter === "ALL" ||
+      (statusFilter === "PENDING" && emp.status === "pending") ||
+      (statusFilter === "ACTIVE" && emp.status === "active") ||
+      (statusFilter === "REJECTED" && emp.status === "rejected");
     return matchesSearch && matchesStatus;
   });
 
@@ -630,7 +555,6 @@ const handleSubmit = async (e) => {
     (employeeCurrentPage - 1) * employeesPerPage,
     employeeCurrentPage * employeesPerPage
   );
-
 
   useEffect(() => {
     setEmployeeCurrentPage(1);
@@ -644,7 +568,7 @@ const handleSubmit = async (e) => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [userSearch, roleFilter,userStatusFilter]);
+  }, [userSearch, roleFilter, userStatusFilter]);
 
   // ===== COUNTS =====
   const userCounts = {
@@ -660,8 +584,6 @@ const handleSubmit = async (e) => {
     pending: employees.filter((e) => e.status === "pending").length,
     active: employees.filter((e) => e.status === "active").length,
   };
-
-  const showEmployeeFields = formData.roleId && formData.roleId !== '1';
 
   if (!hasAccess) {
     return (
@@ -694,17 +616,17 @@ const handleSubmit = async (e) => {
             Manage user accounts and employee records
           </p>
         </div>
-        {user?.role?.toUpperCase() === 'ADMIN' && (
-  <motion.button
-    whileHover={{ scale: 1.04 }}
-    whileTap={{ scale: 0.97 }}
-    onClick={() => openModal()}
-    className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-  >
-    <UserPlus size={16} />
-    Create User
-  </motion.button>
-)}
+        {/* {user?.role?.toUpperCase() === 'ADMIN' && (
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => openModal()}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
+          >
+            <UserPlus size={16} />
+            Create User
+          </motion.button>
+        )} */}
       </motion.div>
 
       {/* ===== SUMMARY CARDS ===== */}
@@ -722,23 +644,23 @@ const handleSubmit = async (e) => {
           </div>
         </div>
         <div
-  onClick={() => navigate('/app/customers')}
-  className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
->
-  <div className="absolute top-3 right-3 flex items-center gap-1 text-emerald-500">
-    <span className="text-[11px] font-medium">View </span>
-    <ArrowUpRight size={14} />
-  </div>
-  <div className="flex items-center gap-3">
-    <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
-      <Users size={16} className="text-blue-600" />
-    </div>
-    <div>
-      <p className="text-xs text-gray-400 font-medium">Customers</p>
-      <p className="text-lg font-bold text-gray-900">{userCounts.customers}</p>
-    </div>
-  </div>
-</div>
+          onClick={() => navigate('/app/customers')}
+          className="relative bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+        >
+          <div className="absolute top-3 right-3 flex items-center gap-1 text-emerald-500">
+            <span className="text-[11px] font-medium">View </span>
+            <ArrowUpRight size={14} />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+              <Users size={16} className="text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Customers</p>
+              <p className="text-lg font-bold text-gray-900">{userCounts.customers}</p>
+            </div>
+          </div>
+        </div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-cyan-50 flex items-center justify-center"><Users size={16} className="text-cyan-600" /></div>
@@ -746,29 +668,27 @@ const handleSubmit = async (e) => {
           </div>
         </div>
         <div
-  onClick={() => {
-    setStatusFilter('PENDING');
-
-    employeeRecordsRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start'
-    });
-  }}
-  className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
->
-  <div className="flex items-center gap-3">
-    <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center">
-      <Clock size={16} className="text-yellow-600" />
-    </div>
-
-    <div>
-      <p className="text-xs text-gray-400 font-medium">Pending Employees</p>
-      <p className="text-lg font-bold text-yellow-600">
-        {employeeCounts.pending}
-      </p>
-    </div>
-  </div>
-</div>
+          onClick={() => {
+            setStatusFilter('PENDING');
+            employeeRecordsRef.current?.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+          }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow duration-200 cursor-pointer"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-yellow-50 flex items-center justify-center">
+              <Clock size={16} className="text-yellow-600" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 font-medium">Pending Employees</p>
+              <p className="text-lg font-bold text-yellow-600">
+                {employeeCounts.pending}
+              </p>
+            </div>
+          </div>
+        </div>
       </motion.div>
 
       {/* ============================================================ */}
@@ -780,7 +700,6 @@ const handleSubmit = async (e) => {
         </div>
 
         <div className="flex items-center gap-4 flex-wrap">
-          
           <div className="relative flex-1 min-w-[200px]">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -802,36 +721,36 @@ const handleSubmit = async (e) => {
               className="px-3 py-2 text-sm border border-gray-200 rounded-xl bg-gray-50 text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all cursor-pointer"
             >
               {dynamicRoleFilters.map((role) => (
-  <option key={role} value={role}>
-    {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
-  </option>
-))}
+                <option key={role} value={role}>
+                  {role === 'ALL' ? 'All Roles' : role.replace(/_/g, ' ')}
+                </option>
+              ))}
             </select>
           </div>
 
           <div className="flex items-center gap-1.5">
-  <Filter size={14} className="text-gray-400" />
-  <span className="text-xs text-gray-400 font-medium">Status:</span>
-</div>
-<div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
-  {['ALL', 'ACTIVE', 'INACTIVE'].map((status) => (
-    <button
-      key={status}
-      onClick={() => setUserStatusFilter(status)}
-      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-        userStatusFilter === status
-          ? status === 'ACTIVE'
-            ? 'bg-emerald-500 text-white shadow-sm'
-            : status === 'INACTIVE'
-            ? 'bg-red-500 text-white shadow-sm'
-            : 'bg-blue-600 text-white shadow-sm'
-          : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-      }`}
-    >
-      {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
-    </button>
-  ))}
-</div>
+            <Filter size={14} className="text-gray-400" />
+            <span className="text-xs text-gray-400 font-medium">Status:</span>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
+            {['ALL', 'ACTIVE', 'INACTIVE'].map((status) => (
+              <button
+                key={status}
+                onClick={() => setUserStatusFilter(status)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  userStatusFilter === status
+                    ? status === 'ACTIVE'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : status === 'INACTIVE'
+                      ? 'bg-red-500 text-white shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {status === 'ALL' ? 'All' : status.charAt(0) + status.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200">
@@ -850,12 +769,10 @@ const handleSubmit = async (e) => {
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
-                    
-
                     {canManageUsers && (
-                        <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Actions
-                        </th>
+                      <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
                     )}
                   </tr>
                 </thead>
@@ -867,21 +784,21 @@ const handleSubmit = async (e) => {
                       className="border-b border-gray-50 last:border-0 hover:bg-blue-50/50 cursor-pointer transition-colors"
                     >
                       <td className="py-3 px-4">
-  <div className="flex items-center gap-2.5">
-    <div className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-      {user.profile_image ? (
-        <img
-          src={user.profile_image}
-          alt={user.full_name}
-          className="w-full h-full object-cover"
-        />
-      ) : (
-        user.full_name?.split(" ").map((n) => n[0]).join("")
-      )}
-    </div>
-    <span className="font-medium text-gray-900">{user.full_name}</span>
-  </div>
-</td>
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                            {user.profile_image ? (
+                              <img
+                                src={user.profile_image}
+                                alt={user.full_name}
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              user.full_name?.split(" ").map((n) => n[0]).join("")
+                            )}
+                          </div>
+                          <span className="font-medium text-gray-900">{user.full_name}</span>
+                        </div>
+                      </td>
                       <td className="py-3 px-4 text-gray-600">{user.email}</td>
                       <td className="py-3 px-4"><RoleBadge role={user.roles?.role_name} /></td>
                       <td className="py-3 px-4 text-gray-500 text-xs">
@@ -918,8 +835,7 @@ const handleSubmit = async (e) => {
                               >
                                 <Edit size={16} />
                               </button>
-
-                              <button
+                              {/* <button
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   setDeleteConfirm(user);
@@ -927,7 +843,7 @@ const handleSubmit = async (e) => {
                                 className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
                               >
                                 <Trash2 size={16} />
-                              </button>
+                              </button> */}
                             </>
                           )}
                         </div>
@@ -938,7 +854,6 @@ const handleSubmit = async (e) => {
               </table>
             )}
           </div>
-          {/* Pagination Controls */}
           {!usersLoading && filteredUsers.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
               <span className="text-xs text-gray-500">
@@ -971,12 +886,11 @@ const handleSubmit = async (e) => {
 
       {/* ============================================================ */}
       {/* ===== TABLE 2: EMPLOYEES (with filters) ===== */}
-      
       <motion.div
-          ref={employeeRecordsRef}
-          variants={itemVariants}
-          className="space-y-4 mt-8"
-        >
+        ref={employeeRecordsRef}
+        variants={itemVariants}
+        className="space-y-4 mt-8"
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900">Employee Records</h2>
           <span className="text-xs text-gray-400">{filteredEmployees.length} employees</span>
@@ -999,24 +913,24 @@ const handleSubmit = async (e) => {
           </div>
           <div className="flex items-center gap-1 bg-gray-50 rounded-xl p-1">
             {employeeStatusFilters.map((status) => (
-  <button
-    key={status}
-    onClick={() => setStatusFilter(status)}
-    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
-      statusFilter === status
-        ? status === 'PENDING'
-          ? 'bg-yellow-500 text-white shadow-sm'
-          : status === 'ACTIVE'
-          ? 'bg-emerald-500 text-white shadow-sm'
-          : status === 'REJECTED'
-          ? 'bg-rose-500 text-white shadow-sm'
-          : 'bg-blue-600 text-white shadow-sm'
-        : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-    }`}
-  >
-    {status === 'ALL' ? 'All' : status}
-  </button>
-))}
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  statusFilter === status
+                    ? status === 'PENDING'
+                      ? 'bg-yellow-500 text-white shadow-sm'
+                      : status === 'ACTIVE'
+                      ? 'bg-emerald-500 text-white shadow-sm'
+                      : status === 'REJECTED'
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : 'bg-blue-600 text-white shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                {status === 'ALL' ? 'All' : status}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -1038,7 +952,7 @@ const handleSubmit = async (e) => {
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     {canManageUsers && (
-                    <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+                      <th className="text-right py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
                     )}
                   </tr>
                 </thead>
@@ -1060,37 +974,37 @@ const handleSubmit = async (e) => {
                           <StatusBadge status={emp.status} />
                         </td>
                         {canManageUsers && (
-  <td className="py-3 px-4 text-right">
-    {isPending ? (
-      <div className="flex items-center justify-end gap-2">
-        <button
-          onClick={() => {
-            setSelectedEmployee(emp);
-            setShowCreateModal(true);
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
-        >
-          Create Account
-        </button>
-        <button
-          onClick={() => setRejectConfirm(emp)}
-          className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-        >
-          Reject
-        </button>
-      </div>
-    ) : emp.status === 'rejected' ? (
-      <span
-        className="text-xs text-rose-500 italic cursor-help"
-        title={emp.rejection_reason || 'No reason provided'}
-      >
-        Rejected
-      </span>
-    ) : (
-      <span className="text-xs text-gray-400 italic">Active</span>
-    )}
-  </td>
-)}
+                          <td className="py-3 px-4 text-right">
+                            {isPending ? (
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={() => {
+                                    setSelectedEmployee(emp);
+                                    setShowCreateModal(true);
+                                  }}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
+                                >
+                                  Create Account
+                                </button>
+                                <button
+                                  onClick={() => setRejectConfirm(emp)}
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                                >
+                                  Reject
+                                </button>
+                              </div>
+                            ) : emp.status === 'rejected' ? (
+                              <span
+                                className="text-xs text-rose-500 italic cursor-help"
+                                title={emp.rejection_reason || 'No reason provided'}
+                              >
+                                Rejected
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">Active</span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -1098,9 +1012,7 @@ const handleSubmit = async (e) => {
               </table>
             )}
           </div>
-          
 
-          {/* Pagination Controls */}
           {!employeesLoading && filteredEmployees.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
               <span className="text-xs text-gray-500">
@@ -1128,7 +1040,6 @@ const handleSubmit = async (e) => {
               </div>
             </div>
           )}
-       
         </div>
       </motion.div>
 
@@ -1140,7 +1051,7 @@ const handleSubmit = async (e) => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-            onClick={(e) => e.target === e.currentTarget && setShowCreateModal(false)} 
+            onClick={handleCreateBackdropClick}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -1160,7 +1071,6 @@ const handleSubmit = async (e) => {
               </div>
 
               <div className="space-y-4">
-                {/* Employee Info (read-only) */}
                 <div className="bg-gray-50 rounded-xl p-4 space-y-2">
                   <div className="flex items-center gap-2 text-sm">
                     <User size={16} className="text-gray-400" />
@@ -1180,64 +1090,61 @@ const handleSubmit = async (e) => {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <input
+                    type="text"
+                    value={resolvedRoleName || 'No matching role found for this position'}
+                    disabled
+                    className={`w-full px-3 py-2.5 text-sm border rounded-xl bg-gray-100 cursor-not-allowed ${
+                      resolvedRoleName ? 'text-gray-600 border-gray-200' : 'text-rose-500 border-rose-200'
+                    }`}
+                  />
+                  <p className="text-xs text-gray-400 mt-1">
+                    Role is automatically assigned based on the employee's position and cannot be changed here.
+                  </p>
+                </div>
 
-                {/* Role selection */}
-<div>
-  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-  <input
-    type="text"
-    value={resolvedRoleName || 'No matching role found for this position'}
-    disabled
-    className={`w-full px-3 py-2.5 text-sm border rounded-xl bg-gray-100 cursor-not-allowed ${
-      resolvedRoleName ? 'text-gray-600 border-gray-200' : 'text-rose-500 border-rose-200'
-    }`}
-  />
-  <p className="text-xs text-gray-400 mt-1">
-    Role is automatically assigned based on the employee's position and cannot be changed here.
-  </p>
-</div>
-
-                {/* Password fields — witharak aluth account ekak nam */}
-{existingAccountForEmployee ? (
-  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-start gap-2">
-    <Lock size={14} className="mt-0.5 flex-shrink-0" />
-    <span>
-      This employee already has an account (created previously). 
-      Their role will be updated to <strong>{resolvedRoleName}</strong> — existing password stays unchanged.
-    </span>
-  </div>
-) : (
-  <>
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-      <div className="relative">
-        <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-          placeholder="Enter password"
-          required
-        />
-      </div>
-    </div>
-    <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
-      <div className="relative">
-        <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
-          placeholder="Confirm password"
-          required
-        />
-      </div>
-    </div>
-  </>
-)}
+                {existingAccountForEmployee ? (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-start gap-2">
+                    <Lock size={14} className="mt-0.5 flex-shrink-0" />
+                    <span>
+                      This employee already has an account (created previously).
+                      Their role will be updated to <strong>{resolvedRoleName}</strong> — existing password stays unchanged.
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                        <input
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="Enter password"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password *</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
+                        <input
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                          placeholder="Confirm password"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
 
                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                   <button
@@ -1254,12 +1161,11 @@ const handleSubmit = async (e) => {
                     }`}
                   >
                     {creating
-    ? 'Saving...'
-    : existingAccountForEmployee
-    ? 'Update Role'
-    : 'Create Account'}
+                      ? 'Saving...'
+                      : existingAccountForEmployee
+                      ? 'Update Role'
+                      : 'Create Account'}
                   </button>
-                  
                 </div>
               </div>
             </motion.div>
@@ -1286,23 +1192,19 @@ const handleSubmit = async (e) => {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center text-white text-lg font-bold shadow-md flex-shrink-0">
-  {profileModal.profile_image &&
-  profileModal.profile_image !== "{}" ? (
-    <img
-      src={profileModal.profile_image}
-      alt={profileModal.full_name}
-      className="w-full h-full object-cover"
-      onError={(e) => {
-        e.currentTarget.style.display = "none";
-      }}
-    />
-  ) : (
-    profileModal.full_name
-      ?.split(" ")
-      .map((n) => n[0])
-      .join("")
-  )}
-</div>
+                  {profileModal.profile_image && profileModal.profile_image !== "{}" ? (
+                    <img
+                      src={profileModal.profile_image}
+                      alt={profileModal.full_name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  ) : (
+                    profileModal.full_name?.split(" ").map((n) => n[0]).join("")
+                  )}
+                </div>
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">{profileModal.full_name}</h2>
                   <p className="text-xs text-gray-500">{profileModal.email}</p>
@@ -1351,7 +1253,7 @@ const handleSubmit = async (e) => {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
-          onClick={handleBackdropClick}  
+          onClick={handleBackdropClick}
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0 }}
@@ -1370,70 +1272,72 @@ const handleSubmit = async (e) => {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
-                  <input
-                    type="text"
-                    name="fullName"
-                    value={formData.fullName}
-                    onChange={handleChange}
-                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                      errors.fullName
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                    }`}
-                  />
-                  {errors.fullName && <p className="text-xs text-rose-500 mt-1">{errors.fullName}</p>}
-                </div>
+  <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
+  <input
+    type="text"
+    name="fullName"
+    value={formData.fullName}
+    onChange={handleChange}
+    disabled={!!editingUser}
+    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
+      errors.fullName ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+    }`}
+  />
+  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+  {errors.fullName && <p className="text-xs text-rose-500 mt-1">{errors.fullName}</p>}
+</div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                      errors.email
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                    }`}
-                  />
-                  {errors.email && <p className="text-xs text-rose-500 mt-1">{errors.email}</p>}
-                </div>
+  <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+  <input
+    type="email"
+    name="email"
+    value={formData.email}
+    onChange={handleChange}
+    disabled={!!editingUser}
+    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
+      errors.email ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+    }`}
+  />
+  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+  {errors.email && <p className="text-xs text-rose-500 mt-1">{errors.email}</p>}
+</div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
-                  <input
-                    type="tel"
-                    name="phoneNumber"
-                    placeholder="Enter phone number"
-                    value={formData.phoneNumber}
-                    onChange={handleChange}
-                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                      errors.phoneNumber
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                    }`}
-                  />
-                  {errors.phoneNumber && <p className="text-xs text-rose-500 mt-1">{errors.phoneNumber}</p>}
-                </div>
+  <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
+  <input
+    type="tel"
+    name="phoneNumber"
+    placeholder="Enter phone number"
+    value={formData.phoneNumber}
+    onChange={handleChange}
+    disabled={!!editingUser}
+    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
+      errors.phoneNumber ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+    }`}
+  />
+  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+  {errors.phoneNumber && <p className="text-xs text-rose-500 mt-1">{errors.phoneNumber}</p>}
+</div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
-                  <input
-                    type="text"
-                    name="address"
-                    placeholder="Enter address"
-                    value={formData.address}
-                    onChange={handleChange}
-                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                      errors.address
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                    }`}
-                  />
-                  {errors.address && <p className="text-xs text-rose-500 mt-1">{errors.address}</p>}
-                </div>
+  <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
+  <input
+    type="text"
+    name="address"
+    placeholder="Enter address"
+    value={formData.address}
+    onChange={handleChange}
+    disabled={!!editingUser}
+    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+    }`}
+  />
+  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+</div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1443,25 +1347,11 @@ const handleSubmit = async (e) => {
                     name="roleId"
                     value={formData.roleId}
                     onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData((prev) => ({
-                        ...prev,
-                        roleId: val,
-                        ...(val === '1' ? {
-                          jobType: '',
-                          hireDate: '',
-                          birthday: '',
-                          gender: '',
-                          nic: '',
-                          marriageStatus: ''
-                        } : {})
-                      }));
+                      setFormData((prev) => ({ ...prev, roleId: e.target.value }));
                       if (errors.roleId) setErrors((prev) => ({ ...prev, roleId: undefined }));
                     }}
                     className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all bg-white ${
-                      errors.roleId
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                      errors.roleId ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
                     }`}
                   >
                     <option value="">Select Role</option>
@@ -1469,145 +1359,57 @@ const handleSubmit = async (e) => {
                       <option disabled>Loading roles...</option>
                     ) : (
                       roles
-  .filter((role) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(role.role_name))
-  .map((role) => <option key={role.id} value={role.id}>{role.role_name}</option>)
+                        .filter((role) => !['CUSTOMER', 'MANAGER', 'EMPLOYEE'].includes(role.role_name))
+                        .map((role) => <option key={role.id} value={role.id}>{role.role_name}</option>)
                     )}
                   </select>
                   {errors.roleId && <p className="text-xs text-rose-500 mt-1">{errors.roleId}</p>}
                 </div>
+
+                {/* Status — view only, comes from profiles.status; changed via the toggle button in the table */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Job Type</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
                   <select
-                    name="jobType"
-                    value={formData.jobType}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                    disabled={!showEmployeeFields}
+                    name="status"
+                    value={formData.status}
+                    disabled
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed"
                   >
-                    <option value="">Select Job Type</option>
-                    <option value="Full-time">Full-time</option>
-                    <option value="Part-time">Part-time</option>
-                    <option value="Contract">Contract</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
                   </select>
+                  <p className="text-xs text-gray-400 mt-1">Use the toggle button in the table to change status.</p>
                 </div>
               </div>
 
-              {showEmployeeFields && (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Hire Date</label>
-                      <input
-                        type="date"
-                        name="hireDate"
-                        value={formData.hireDate}
-                        onChange={handleChange}
-                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                          errors.hireDate
-                            ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                            : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                        }`}
+              {/* Profile Image */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Profile Image</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="file"
+                    name="profileImage"
+                    accept="image/*"
+                    onChange={handleChange}
+                    className="w-full text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                  {formData.profileImage && (
+                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-blue-500 flex-shrink-0">
+                      <img
+                        src={
+                          typeof formData.profileImage === 'string'
+                            ? formData.profileImage
+                            : URL.createObjectURL(formData.profileImage)
+                        }
+                        alt="Profile"
+                        className="w-full h-full object-cover"
                       />
-                      {errors.hireDate && <p className="text-xs text-rose-500 mt-1">{errors.hireDate}</p>}
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                      <select
-                        name="status"
-                        value={formData.status}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                      >
-                        <option value="active">Active</option>
-                        <option value="pending">Pending</option>
-                      </select>
-                    </div>
-                  </div>
+                  )}
+                </div>
+              </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Birthday</label>
-                      <input
-                        type="date"
-                        name="birthday"
-                        value={formData.birthday}
-                        onChange={handleChange}
-                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                          errors.birthday
-                            ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                            : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                        }`}
-                      />
-                      {errors.birthday && <p className="text-xs text-rose-500 mt-1">{errors.birthday}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Gender</label>
-                      <select
-                        name="gender"
-                        value={formData.gender}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                      >
-                        <option value="">Select Gender</option>
-                        <option value="Male">Male</option>
-                        <option value="Female">Female</option>
-                        <option value="Other">Other</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">NIC</label>
-                      <input
-                        type="text"
-                        name="nic"
-                        value={formData.nic}
-                        onChange={handleChange}
-                        placeholder="Enter NIC number"
-                        className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                          errors.nic
-                            ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                            : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-                        }`}
-                      />
-                      {errors.nic && <p className="text-xs text-rose-500 mt-1">{errors.nic}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Marriage Status</label>
-                      <select
-                        name="marriageStatus"
-                        value={formData.marriageStatus}
-                        onChange={handleChange}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                      >
-                        <option value="">Select Status</option>
-                        <option value="Married">Married</option>
-                        <option value="Unmarried">Unmarried</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Profile Image</label>
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="file"
-                        name="profileImage"
-                        accept="image/*"
-                        onChange={handleChange}
-                        className="w-full text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                      />
-                      {formData.profileImage && typeof formData.profileImage === 'string' && (
-                        <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-blue-500 flex-shrink-0">
-                          <img src={formData.profileImage} alt="Profile" className="w-full h-full object-cover" />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-
+              {/* Password section — same fields whether creating or editing */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -1620,16 +1422,14 @@ const handleSubmit = async (e) => {
                     value={formData.password}
                     onChange={handleChange}
                     className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                      errors.password
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                      errors.password ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
                     }`}
                   />
                   {errors.password && <p className="text-xs text-rose-500 mt-1">{errors.password}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">
-                    {editingUser ? 'Confirm Password' : 'Confirm Password *'}
+                    {editingUser ? 'Confirm New Password' : 'Confirm Password *'}
                   </label>
                   <input
                     type="password"
@@ -1638,15 +1438,14 @@ const handleSubmit = async (e) => {
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-                      errors.confirmPassword
-                        ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500"
-                        : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                      errors.confirmPassword ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
                     }`}
                   />
                   {errors.confirmPassword && <p className="text-xs text-rose-500 mt-1">{errors.confirmPassword}</p>}
                 </div>
               </div>
 
+              {/* ✅ Submit / Cancel buttons — this block was missing before */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                 <button
                   type="button"
@@ -1669,7 +1468,7 @@ const handleSubmit = async (e) => {
         </motion.div>
       )}
 
-      {/* ===== ✅ TOGGLE CONFIRMATION MODAL ===== */}
+      {/* ===== TOGGLE CONFIRMATION MODAL ===== */}
       {toggleConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 max-w-sm w-full shadow-xl">
@@ -1689,7 +1488,6 @@ const handleSubmit = async (e) => {
               </button>
               <button
                 onClick={() => {
-                  // ✅ call without event parameter
                   handleToggleClick(toggleConfirm.id, toggleConfirm.status);
                   setToggleConfirm(null);
                 }}
@@ -1736,69 +1534,69 @@ const handleSubmit = async (e) => {
         </motion.div>
       )}
 
-
+      {/* ===== REJECT EMPLOYEE MODAL ===== */}
       {rejectConfirm && (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
-    onClick={(e) => {
-      if (e.target === e.currentTarget && !rejecting) {
-        setRejectConfirm(null);
-        setRejectNote('');
-      }
-    }}
-  >
-    <motion.div
-      initial={{ scale: 0.95, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      exit={{ scale: 0.95, opacity: 0 }}
-      className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center gap-3 mb-4">
-        <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
-          <AlertTriangle size={20} />
-        </div>
-        <h2 className="text-lg font-semibold text-gray-900">Reject Employee</h2>
-        <button
-          onClick={() => { setRejectConfirm(null); setRejectNote(''); }}
-          className="ml-auto text-gray-400 hover:text-gray-600"
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/30 backdrop-blur-sm p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !rejecting) {
+              setRejectConfirm(null);
+              setRejectNote('');
+            }
+          }}
         >
-          <X size={20} />
-        </button>
-      </div>
-      <p className="text-sm text-gray-500 mb-3">
-        Are you sure you want to reject <strong>{rejectConfirm.name}</strong>? Please give a reason below.
-      </p>
-      <textarea
-        value={rejectNote}
-        onChange={(e) => setRejectNote(e.target.value)}
-        rows={3}
-        placeholder="Reason for rejection..."
-        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400 transition-all resize-none"
-      />
-      <div className="flex items-center justify-end gap-3 mt-4">
-        <button
-          onClick={() => { setRejectConfirm(null); setRejectNote(''); }}
-          className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          Cancel
-        </button>
-        <motion.button
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={handleRejectEmployee}
-          disabled={rejecting}
-          className="px-4 py-2 text-sm font-medium text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors shadow-sm disabled:opacity-50"
-        >
-          {rejecting ? 'Rejecting...' : 'Reject'}
-        </motion.button>
-      </div>
-    </motion.div>
-  </motion.div>
-)}
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.95, opacity: 0 }}
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
+                <AlertTriangle size={20} />
+              </div>
+              <h2 className="text-lg font-semibold text-gray-900">Reject Employee</h2>
+              <button
+                onClick={() => { setRejectConfirm(null); setRejectNote(''); }}
+                className="ml-auto text-gray-400 hover:text-gray-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-3">
+              Are you sure you want to reject <strong>{rejectConfirm.name}</strong>? Please give a reason below.
+            </p>
+            <textarea
+              value={rejectNote}
+              onChange={(e) => setRejectNote(e.target.value)}
+              rows={3}
+              placeholder="Reason for rejection..."
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400 transition-all resize-none"
+            />
+            <div className="flex items-center justify-end gap-3 mt-4">
+              <button
+                onClick={() => { setRejectConfirm(null); setRejectNote(''); }}
+                className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={handleRejectEmployee}
+                disabled={rejecting}
+                className="px-4 py-2 text-sm font-medium text-white bg-rose-600 rounded-lg hover:bg-rose-700 transition-colors shadow-sm disabled:opacity-50"
+              >
+                {rejecting ? 'Rejecting...' : 'Reject'}
+              </motion.button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
     </motion.div>
   );
 }

@@ -669,12 +669,15 @@ const fetchEmployees = useCallback(async () => {
 }, [searchQuery, activeFilter, currentPage, itemsPerPage]); // 💡 මේ dependencies වෙනස් වෙද්දී විතරක් function එක Re-create වේ.
 
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    setFormData(prev => ({ ...prev, hiredDate: today }));
-    fetchEmployees();
-    fetchDesignations();
-    fetchRoles();
-  }, []);
+  const today = new Date().toISOString().split('T')[0];
+  setFormData(prev => ({ ...prev, hiredDate: today }));
+
+  (async () => {
+    await fetchEmployees();
+    await fetchDesignations();
+    await fetchRoles();
+  })();
+}, []);
 
   useEffect(() => {
     if (showSuccess) {
@@ -919,18 +922,19 @@ const fetchEmployees = useCallback(async () => {
         statusToSend = 'pending';
       }
       
-      const updateData = {
-        name: formData.fullName,
-        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
-        phone: formData.phoneNo,
-        email: formData.email,
-        hireDate: formData.hiredDate,
-        address: formData.address,
-        baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0,
-        status: statusToSend,
-        role_id: formData.role || null
-      };
+     const updateData = {
+  name: formData.fullName,
+  position: formData.designation,        // ✅ ADD THIS LINE — keep position text in sync with designation_id
+  designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+  phone: formData.phoneNo,
+  email: formData.email,
+  hireDate: formData.hiredDate,
+  address: formData.address,
+  baseSalary: parseFloat(formData.baseSalary) || 0,
+  bonus: parseFloat(formData.bonus) || 0,
+  status: statusToSend,
+  role_id: formData.role || null
+};
       
       if (formData.birthday) updateData.birthday = formData.birthday;
       if (formData.gender) updateData.gender = formData.gender;

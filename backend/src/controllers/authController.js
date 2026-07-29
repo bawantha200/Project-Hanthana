@@ -1104,10 +1104,7 @@ const getMe = async (req, res) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     if (authError || !user) return res.status(401).json({ success: false, message: 'Session expired.' });
 
-    // Check if user has password
     const hasPassword = await userHasPassword(user.id);
-    
-    // Detect if user is from Google
     const identities = user.identities || [];
     const isGoogleUser = identities.some(id => id.provider === 'google');
 
@@ -1116,6 +1113,9 @@ const getMe = async (req, res) => {
       .select('full_name, phone_number, address, role_id ( role_name )')
       .eq('id', user.id)
       .maybeSingle();
+
+    // ✅ NEW: Fetch permissions using the same logic as /api/auth/permissions
+    const permissions = await getPermissionsForUserId(user.id);
 
     return res.status(200).json({
       success: true,
@@ -1128,7 +1128,8 @@ const getMe = async (req, res) => {
         role: profile?.role_id?.role_name || 'CUSTOMER',
         hasPassword: hasPassword,
         provider: isGoogleUser ? 'google' : 'email'
-      }
+      },
+      permissions: permissions   // ✅ NEW: now included in response
     });
   } catch (error) {
     console.error('Get me error:', error);
@@ -2441,6 +2442,59 @@ const verifySetup2FA = async (req, res) => {
 };
 
 /**
+ * Helper: Fetches permissions for a given user (position override, fallback to role)
+ */
+const getPermissionsForUserId = async (userId) => {
+  try {
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role_id')
+      .eq('id', userId)
+      .single();
+
+    if (profileError || !profile) return [];
+
+    let permissions = [];
+    let positionId = null;
+
+    const { data: employee, error: empError } = await supabase
+      .from('employees')
+      .select('position_id')
+      .eq('profile_id', userId)
+      .maybeSingle();
+
+    if (!empError && employee) {
+      positionId = employee.position_id;
+    }
+
+    if (positionId) {
+      const { data: posPerms, error: posError } = await supabase
+        .from('position_permissions')
+        .select('permissions ( permission_name )')
+        .eq('position_id', positionId);
+
+      if (!posError && posPerms && posPerms.length > 0) {
+        return posPerms.map(rp => rp.permissions.permission_name);
+      }
+    }
+
+    if (profile.role_id) {
+      const { data: rolePerms, error: rpError } = await supabase
+        .from('role_permissions')
+        .select('permissions ( permission_name )')
+        .eq('role_id', profile.role_id);
+
+      if (!rpError && rolePerms) {
+        permissions = rolePerms.map(rp => rp.permissions.permission_name);
+      }
+    }
+
+    return permissions;
+  } catch (error) {
+    console.error('getPermissionsForUserId error:', error);
+    return [];
+  }
+};
  * @desc    Decode token (for frontend to check token validity)
  * @route   GET /api/auth/decode-token/:token
  */
