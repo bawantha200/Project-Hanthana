@@ -802,6 +802,7 @@ export default function Employees() {
     }
   };
 
+  // ========== FIXED: handleAddEmployee with birthday ==========
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     
@@ -822,6 +823,11 @@ export default function Employees() {
       setSubmitting(true);
       setError(null);
       
+      // Handle birthday properly - if empty string, send null
+      const birthdayValue = formData.birthday && formData.birthday.trim() !== '' 
+        ? formData.birthday 
+        : null;
+      
       const employeeData = {
         name: formData.fullName,
         position: formData.designation,
@@ -829,7 +835,7 @@ export default function Employees() {
         phone: formData.phoneNo,
         email: formData.email,
         hireDate: formData.hiredDate,
-        birthday: formData.birthday || null,
+        birthday: birthdayValue,
         gender: formData.gender || null,
         nic: formData.nic || null,
         address: formData.address,
@@ -876,6 +882,7 @@ export default function Employees() {
     }
   };
 
+  // ========== FIXED: handleEditEmployee with birthday ==========
   const handleEditEmployee = async (e) => {
     e.preventDefault();
     
@@ -922,7 +929,11 @@ export default function Employees() {
         role_id: formData.role || null
       };
       
-      if (formData.birthday) updateData.birthday = formData.birthday;
+      // Handle birthday properly - only add if not empty
+      if (formData.birthday && formData.birthday.trim() !== '') {
+        updateData.birthday = formData.birthday;
+      }
+      
       if (formData.gender) updateData.gender = formData.gender;
       if (formData.nic) updateData.nic = formData.nic;
       if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
