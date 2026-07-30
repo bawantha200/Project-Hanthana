@@ -528,6 +528,16 @@ function Navbar({ showLoginModal, setShowLoginModal, maintenanceActive }) {
               navigate('/app/dashboard', { replace: true });
             } else if (targetRole === 'RIDER'){
               navigate('/app/rider-dashboard', { replace: true });
+            } else if (targetRole === 'INVENTORY_MANAGER'){
+              navigate('/app/inventory-dashboard', { replace: true });
+            } else if (targetRole === 'SALES_MANAGER'){
+              navigate('/app/sales-dashboard', { replace: true });
+            } else if (targetRole === 'HR_MANAGER'){
+              navigate('/app/hrm-dashboard', { replace: true });
+            } else if (targetRole === 'ACCOUNTANT'){
+              navigate('/app/finance', { replace: true });
+            } else if (targetRole === 'CASHIER'){
+              navigate('/app/pos', { replace: true });
             }
           }, 2500);
         }
@@ -672,30 +682,41 @@ function Navbar({ showLoginModal, setShowLoginModal, maintenanceActive }) {
                   </div>
                   <div className="absolute top-14 right-0 w-52 bg-white rounded-2xl shadow-xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300 z-[100] overflow-hidden">
                     {!loadingRole && !isCustomer && (
-                      <Link
-                        to="/app/dashboard"
-                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                      >
-                        <LayoutDashboard size={16} />
-                        Dashboard
-                      </Link>
-                    )}
-                    {!loadingRole && isCustomer && (
-                      <Link
-                        to="/profile"
-                        className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-gray-600 hover:bg-blue-50 hover:text-[#2563EB] transition"
-                      >
-                        <Settings size={16} />
-                        Profile
-                      </Link>
-                    )}
-                    <button
-                      onClick={handleSignOut}
-                      className="w-full flex items-center gap-2 text-left px-5 py-3 text-sm text-red-600 hover:bg-red-50 transition"
-                    >
-                      <LogOut size={16} />
-                      Sign Out
-                    </button>
+  <Link
+    to="/app/dashboard"
+    onClick={() => setIsMobileMenuOpen(false)}
+    className="flex items-center gap-3 px-4 py-3.5 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 hover:text-blue-600 rounded-xl transition-all duration-200 group"
+  >
+    <div className="p-1.5 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-white group-hover:shadow-sm transition-all duration-200">
+      <LayoutDashboard size={16} />
+    </div>
+    <span className="font-medium">Dashboard</span>
+  </Link>
+)}
+{!loadingRole && isCustomer && (
+  <Link
+    to="/profile"
+    onClick={() => setIsMobileMenuOpen(false)}
+    className="flex items-center gap-3 px-4 py-3.5 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 hover:text-purple-600 rounded-xl transition-all duration-200 group"
+  >
+    <div className="p-1.5 rounded-lg bg-purple-50 text-purple-600 group-hover:bg-white group-hover:shadow-sm transition-all duration-200">
+      <Settings size={16} />
+    </div>
+    <span className="font-medium">Profile Settings</span>
+  </Link>
+)}
+<button
+  onClick={() => {
+    setIsMobileMenuOpen(false);
+    handleSignOut();
+  }}
+  className="flex items-center gap-3 px-4 py-3.5 text-sm text-red-600 hover:bg-gradient-to-r hover:from-red-50 hover:to-rose-50 hover:text-red-700 rounded-xl transition-all duration-200 w-full group"
+>
+  <div className="p-1.5 rounded-lg bg-red-50 text-red-500 group-hover:bg-white group-hover:shadow-sm transition-all duration-200">
+    <LogOut size={16} />
+  </div>
+  <span className="font-medium">Sign Out</span>
+</button>
                   </div>
                 </div>
               )}
@@ -1088,14 +1109,14 @@ function Navbar({ showLoginModal, setShowLoginModal, maintenanceActive }) {
                 
                 {/* Role-based title */}
                 <h3 className="text-2xl font-bold text-gray-900">
-                  {userRole === 'CUSTOMER' ? 'Welcome Back!' : 'Welcome Admin!'}
+                  {userRole === 'CUSTOMER' ? 'Welcome Back!' : 'Welcome Back!'}
                 </h3>
                 
                 {/* Role-based message */}
                 <p className="text-gray-500 mt-2">
                   {userRole === 'CUSTOMER' 
                     ? 'You have successfully logged in to your account.' 
-                    : 'You have successfully logged in to the admin panel.'}
+                    : 'You have successfully logged in to the ERP system.'}
                 </p>
                 
                 {/* Show different messages based on role */}

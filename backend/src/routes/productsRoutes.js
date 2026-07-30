@@ -1,13 +1,25 @@
 const express = require('express');
 const router = express.Router();
-const productController = require('../controllers/productsController');
-const upload = require('../middlewares/upload');
+const multer = require('multer');
+const upload = multer({ storage: multer.memoryStorage() });
 
-// All routes are prefixed with /api/products
-router.get('/', productController.getAllProducts);
-router.get('/:id', productController.getProductById);
-router.post('/', upload.single('image'), productController.createProduct);
-router.put('/:id', upload.single('image'), productController.updateProduct);
-router.delete('/:id', productController.deleteProduct);
+const {
+  getAllProducts,
+  getProductById,
+  createProduct,
+  updateProduct,
+  deleteProduct
+} = require('../controllers/productsController');
+const { protect } = require('../middlewares/authMiddleware');
+
+// Public or protected based on your needs
+router.get('/', getAllProducts);
+router.get('/:id', getProductById);
+
+// Protected routes (Admin operations)
+router.use(protect);
+router.post('/', upload.single('image'), createProduct);
+router.put('/:id', upload.single('image'), updateProduct);
+router.delete('/:id', deleteProduct);
 
 module.exports = router;
