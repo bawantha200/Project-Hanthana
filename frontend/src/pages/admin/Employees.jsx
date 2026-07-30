@@ -35,7 +35,7 @@ const itemVariants = {
 const summaryCards = [
   {
     key: 'total',
-    label: 'Total Staff',
+    label: 'Staff',
     icon: Users,
     bgClass: 'bg-blue-50',
     textClass: 'text-blue-600',
@@ -54,13 +54,7 @@ const summaryCards = [
     bgClass: 'bg-amber-50',
     textClass: 'text-amber-600',
   },
-  {
-    key: 'managers',
-    label: 'Managers',
-    icon: Award,
-    bgClass: 'bg-blue-50',
-    textClass: 'text-blue-600',
-  },
+  
 ];
 
 // ===== API FUNCTIONS =====
@@ -1057,6 +1051,316 @@ const {
     }
     
     return pages;
+  };
+
+  const handleDelete = async () => {
+    if (employeeToDelete) {
+      try {
+        setSubmitting(true);
+        const token = localStorage.getItem('token');
+        await axios.delete(`${API_URL}/${employeeToDelete.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setEmployees(employees.filter(emp => emp.id !== employeeToDelete.id));
+        setShowDeleteConfirm(false);
+        setEmployeeToDelete(null);
+        setShowDetailModal(false);
+        setSelectedEmployee(null);
+        showSuccessNotification('Employee deleted successfully!');
+      } catch (err) {
+        console.error('Error deleting employee:', err);
+        setError(err.response?.data?.message || 'Failed to delete employee. Please try again.');
+      } finally {
+        setSubmitting(false);
+      }
+    }
+  };
+
+  // ========== FIXED: handleAddEmployee with birthday ==========
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
+      }
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+      
+      // Handle birthday properly - if empty string, send null
+      const birthdayValue = formData.birthday && formData.birthday.trim() !== '' 
+        ? formData.birthday 
+        : null;
+      
+      const employeeData = {
+        name: formData.fullName,
+        
+        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+        phone: formData.phoneNo,
+        email: formData.email,
+        hireDate: formData.hiredDate,
+        birthday: birthdayValue,
+        gender: formData.gender || null,
+        nic: formData.nic || null,
+        address: formData.address,
+        marriageStatus: formData.marriageStatus || null,
+        jobType: formData.jobType || null,
+        profileImage: formData.profileImage || null,
+        baseSalary: parseFloat(formData.baseSalary) || 0,
+        bonus: parseFloat(formData.bonus) || 0,
+        status: formData.status || 'active',
+        role_id: formData.role || null
+      };
+
+      console.log('Sending employee data:', JSON.stringify(employeeData, null, 2));
+
+      const token = localStorage.getItem('token');
+      const response = await axios.post(API_URL, employeeData, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json' 
+        }
+      });
+      
+      if (response.data.success) {
+        setEmployees([...employees, response.data.data]);
+        setShowCreateForm(false);
+        resetForm();
+        showSuccessNotification('Employee added successfully!');
+      }
+    } catch (err) {
+      console.error('Error adding employee:', err);
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError('An employee with this email already exists. Please use a different email address.');
+        } else if (err.response.status === 400) {
+          setError(err.response.data.message || 'Please check all required fields.');
+        } else {
+          setError(err.response.data?.message || 'Failed to add employee. Please try again.');
+        }
+      } else {
+        setError('Network error. Please check your connection.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // ========== FIXED: handleEditEmployee with birthday ==========
+  const handleEditEmployee = async (e) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
+      }
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError(null);
+
+      let statusToSend = formData.status;
+
+      const originalRoleId = selectedEmployee?.role_id 
+        ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
+              ? selectedEmployee.role.id 
+              : null);
+
+      const newRoleId = formData.role ? parseInt(formData.role) : null;
+
+      if (newRoleId && newRoleId !== originalRoleId) {
+        statusToSend = 'pending';
+      }
+      
+     const updateData = {
+  name: formData.fullName,
+         // ✅ ADD THIS LINE — keep position text in sync with designation_id
+  designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+  phone: formData.phoneNo,
+  email: formData.email,
+  hireDate: formData.hiredDate,
+  address: formData.address,
+  baseSalary: parseFloat(formData.baseSalary) || 0,
+  bonus: parseFloat(formData.bonus) || 0,
+  status: statusToSend,
+  role_id: formData.role || null
+};
+      
+      // Handle birthday properly - only add if not empty
+      if (formData.birthday && formData.birthday.trim() !== '') {
+        updateData.birthday = formData.birthday;
+      }
+      
+      if (formData.gender) updateData.gender = formData.gender;
+      if (formData.nic) updateData.nic = formData.nic;
+      if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
+      if (formData.jobType) updateData.jobType = formData.jobType;
+      if (formData.profileImage) updateData.profileImage = formData.profileImage;
+
+      console.log('Updating employee data:', updateData);
+
+      const token = localStorage.getItem('token');
+      const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (response.data.success) {
+        setEmployees(employees.map(emp => 
+          emp.id === selectedEmployee.id ? response.data.data : emp
+        ));
+        setShowCreateForm(false);
+        setShowDetailModal(false);
+        setSelectedEmployee(response.data.data);
+        resetForm();
+        showSuccessNotification(
+          statusToSend === 'pending' && selectedEmployee?.status === 'rejected'
+            ? 'Employee re-activated — pending account creation!'
+            : 'Employee updated successfully!'
+        );
+      }
+    } catch (err) {
+      console.error('Error updating employee:', err);
+      if (err.response) {
+        if (err.response.status === 409) {
+          setError('Email already in use by another employee.');
+        } else if (err.response.status === 404) {
+          setError('Employee not found.');
+        } else if (err.response.status === 400) {
+          setError(err.response.data?.message || 'Please check all required fields.');
+        } else {
+          setError(err.response.data?.message || 'Failed to update employee. Please try again.');
+        }
+      } else {
+        setError('Network error. Please check your connection.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      fullName: '',
+      birthday: '',
+      email: '',
+      gender: '',
+      nic: '',
+      phoneNo: '',
+      designation: '',
+      designationId: '',
+      address: '',
+      marriageStatus: '',
+      hiredDate: new Date().toISOString().split('T')[0],
+      jobType: '',
+      profileImage: null,
+      baseSalary: '',
+      bonus: '',
+      status: 'active',
+      role: ''
+    });
+    setValidationErrors({
+      fullName: '',
+      email: '',
+      phoneNo: '',
+      nic: '',
+      gender: '',
+      designation: '',
+      address: '',
+      hiredDate: '',
+      birthday: '',
+      marriageStatus: '',
+      jobType: '',
+      baseSalary: '',
+      bonus: '',
+      status: '',
+      role: ''
+    });
+    setError(null);
+  };
+
+  const openDetailModal = (employee) => {
+    setSelectedEmployee(employee);
+    setShowDetailModal(true);
+  };
+
+  const openEditForm = (employee) => {
+    setSelectedEmployee(employee);
+    const desId = getDesignationId(employee);
+    const desName = getDesignationName(employee);
+    
+    setFormData({
+      fullName: employee.name || '',
+      birthday: employee.birthday || '',
+      email: employee.email || '',
+      gender: employee.gender || '',
+      nic: employee.nic || '',
+      phoneNo: employee.phone || '',
+      designation: desName || '',
+      designationId: desId ? desId.toString() : '',
+      address: employee.address || '',
+      marriageStatus: employee.marriage_status || '',
+      hiredDate: employee.hire_date || '',
+      jobType: employee.job_type || '',
+      profileImage: employee.profile_image || null,
+      baseSalary: employee.base_salary || employee.baseSalary || '',
+      bonus: employee.bonus || '',
+      status: employee.status || 'active',
+      role: employee.role_id || ''
+    });
+    setValidationErrors({
+      fullName: '',
+      email: '',
+      phoneNo: '',
+      nic: '',
+      gender: '',
+      designation: '',
+      address: '',
+      hiredDate: '',
+      birthday: '',
+      marriageStatus: '',
+      jobType: '',
+      baseSalary: '',
+      bonus: '',
+      status: '',
+      role: ''
+    });
+    setShowCreateForm(true);
+    setShowDetailModal(false);
+    setError(null);
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData({ ...formData, profileImage: reader.result });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const showSuccessNotification = (message) => {
+    setSuccessMessage(message);
+    setShowSuccess(true);
   };
 
   const currentTab = filterTabs.find(tab => tab.key === activeFilter) || filterTabs[0];

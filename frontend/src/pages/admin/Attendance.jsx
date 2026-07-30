@@ -12,6 +12,22 @@ const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
 const ATTENDANCE_API = `${API_BASE_URL}/attendance`;
 
+
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getDatePartsFromString = (dateStr) => {
+  if (!dateStr) return null;
+  const datePart = String(dateStr).slice(0, 10);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return { year, month: month - 1, day };
+};
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -176,16 +192,17 @@ export default function Attendance() {
   const fetchPreviousAttendance = async () => {
     setLoadingPrevious(true);
     try {
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth();
-      const currentYear = currentDate.getFullYear();
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
       
       const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
       if (response.data.success) {
         const allData = response.data.data;
         const previousMonths = allData.filter(record => {
-          const recordDate = new Date(record.date);
-          return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
+          const parts = getDatePartsFromString(record.date);
+          if (!parts) return false;
+          return parts.month !== currentMonth || parts.year !== currentYear;
         });
         setPreviousAttendanceData(previousMonths);
         console.log('✅ Previous attendance loaded:', previousMonths.length);
@@ -357,7 +374,7 @@ export default function Attendance() {
       setAttendanceForm({
         employeeId: employee.id,
         employeeName: employee.name,
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         checkIn: '',
         checkOut: '',
         status: 'present'
@@ -366,7 +383,7 @@ export default function Attendance() {
       setAttendanceForm({
         employeeId: '',
         employeeName: '',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         checkIn: '',
         checkOut: '',
         status: 'present'
@@ -396,18 +413,29 @@ export default function Attendance() {
   // ========== FILTER DATA ==========
 
   const getCurrentMonthData = () => {
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
     
     return attendanceData.filter(record => {
       if (record.date) {
-        const recordDate = new Date(record.date);
-        return recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
+        const parts = getDatePartsFromString(record.date);
+        if (!parts) return true;
+        return parts.month === currentMonth && parts.year === currentYear;
       }
       return true;
     });
   };
+
+  // ========== TODAY'S DATA (from the API-loaded attendanceData) ==========
+  const todayStr = getLocalDateString();
+  const todaysAttendance = attendanceData.filter(
+    (rec) => (rec.date || '').slice(0, 10) === todayStr
+  );
+  const presentTodayCount = todaysAttendance.filter(r => r.status === 'present').length;
+  const absentTodayCount = todaysAttendance.filter(r => r.status === 'absent').length;
+  const halfDayTodayCount = todaysAttendance.filter(r => r.status === 'half_day').length;
+  const totalRecordsCount = attendanceData.length; // total records overall, from API
 
   // ========== APPLY FILTERS ==========
   const applyFilters = (data) => {
@@ -423,16 +451,16 @@ export default function Attendance() {
     // Filter by Month
     if (filterMonth) {
       filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getMonth() === parseInt(filterMonth);
+        const parts = getDatePartsFromString(rec.date);
+        return parts && parts.month === parseInt(filterMonth);
       });
     }
 
     // Filter by Year
     if (filterYear) {
       filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getFullYear() === parseInt(filterYear);
+        const parts = getDatePartsFromString(rec.date);
+        return parts && parts.year === parseInt(filterYear);
       });
     }
 
@@ -463,36 +491,41 @@ export default function Attendance() {
   }, [filterEmployeeId, filterMonth, filterYear, searchQuery]);
 
   // ========== SUMMARY STATISTICS ==========
+  // NOTE: "Total Records" now reflects ALL records returned by the API
+  // (totalRecordsCount), not just the current-month filtered view, so it
+  // matches the count of every attendance row actually stored server-side.
+  // Present/Absent/Half Day are shown for TODAY specifically, using the
+  // local (not UTC) date to avoid the midnight/day-boundary bug.
   const totalAttendance = filteredAttendance.length;
-  const presentCount = filteredAttendance.filter(rec => rec.status === 'present').length;
-  const absentCount = filteredAttendance.filter(rec => rec.status === 'absent').length;
-  const halfDayCount = filteredAttendance.filter(rec => rec.status === 'half_day').length;
+  const presentCount = presentTodayCount;
+  const absentCount = absentTodayCount;
+  const halfDayCount = halfDayTodayCount;
 
   const summaryCards = [
     { 
       key: 'total', 
-      label: 'Total Records', 
-      value: totalAttendance, 
+      label: 'Records', 
+      value: totalRecordsCount, 
       bgClass: 'bg-blue-50', 
       textClass: 'text-blue-600' 
     },
     { 
       key: 'present', 
-      label: 'Present', 
+      label: 'Present Today', 
       value: presentCount, 
       bgClass: 'bg-emerald-50', 
       textClass: 'text-emerald-600' 
     },
     { 
       key: 'half_day', 
-      label: 'Half Day', 
+      label: 'Half Day Today', 
       value: halfDayCount, 
       bgClass: 'bg-amber-50', 
       textClass: 'text-amber-600' 
     },
     { 
       key: 'absent', 
-      label: 'Absent', 
+      label: 'Absent Today', 
       value: absentCount, 
       bgClass: 'bg-red-50', 
       textClass: 'text-red-600' 
@@ -614,8 +647,8 @@ export default function Attendance() {
                   <p className="text-xs text-gray-400 font-medium">{card.label}</p>
                   <p className="text-sm font-semibold text-gray-900">
                     {card.key === 'total' ? `${card.value} records` : 
-                     card.key === 'present' ? `${card.value} (${totalAttendance > 0 ? Math.round((card.value/totalAttendance)*100) : 0}%)` :
-                     card.key === 'half_day' ? `${card.value} (${totalAttendance > 0 ? Math.round((card.value/totalAttendance)*100) : 0}%)` :
+                     card.key === 'present' ? `${card.value} (${todaysAttendance.length > 0 ? Math.round((card.value/todaysAttendance.length)*100) : 0}%)` :
+                     card.key === 'half_day' ? `${card.value} (${todaysAttendance.length > 0 ? Math.round((card.value/todaysAttendance.length)*100) : 0}%)` :
                      card.value}
                   </p>
                 </div>
