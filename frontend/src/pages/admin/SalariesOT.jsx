@@ -700,7 +700,7 @@ export default function SalariesOT() {
   const summaryCards = [
     { 
       key: 'staff', 
-      label: 'Total Staff', 
+      label: 'Staff', 
       value: totalStaff, 
       icon: Users,
       bgClass: 'bg-blue-50', 
@@ -708,7 +708,7 @@ export default function SalariesOT() {
     },
     { 
       key: 'ot_hours', 
-      label: 'Total OT Hours', 
+      label: 'OT Hours', 
       value: `${totalOTHours}h`, 
       icon: Clock,
       bgClass: 'bg-blue-50', 
@@ -732,7 +732,7 @@ export default function SalariesOT() {
     },
     { 
       key: 'bonus', 
-      label: 'Total Bonus', 
+      label: 'Bonus', 
       value: formatCurrency(totalBonus), 
       icon: Award,
       bgClass: 'bg-blue-50', 

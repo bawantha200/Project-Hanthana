@@ -34,7 +34,7 @@ const itemVariants = {
 const summaryCards = [
   {
     key: 'total',
-    label: 'Total Staff',
+    label: 'Staff',
     icon: Users,
     bgClass: 'bg-blue-50',
     textClass: 'text-blue-600',
@@ -53,13 +53,7 @@ const summaryCards = [
     bgClass: 'bg-amber-50',
     textClass: 'text-amber-600',
   },
-  {
-    key: 'managers',
-    label: 'Managers',
-    icon: Award,
-    bgClass: 'bg-blue-50',
-    textClass: 'text-blue-600',
-  },
+  
 ];
 
 export default function Employees() {

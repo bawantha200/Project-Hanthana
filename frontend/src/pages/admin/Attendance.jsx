@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Clock, Search, Plus, X, User, Calendar, Edit, Trash2, 
   CheckCircle, AlertCircle, Loader, RefreshCw, History,
-  ChevronDown, ChevronUp, Save, Filter, ChevronLeft, ChevronRight,
-  CalendarDays, Users as UsersIcon
+  ChevronDown, ChevronUp, Save, Filter, ChevronLeft, ChevronRight
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
@@ -12,6 +11,22 @@ import axios from 'axios';
 const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
 const ATTENDANCE_API = `${API_BASE_URL}/attendance`;
+
+
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getDatePartsFromString = (dateStr) => {
+  if (!dateStr) return null;
+  const datePart = String(dateStr).slice(0, 10);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return { year, month: month - 1, day };
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -109,7 +124,6 @@ export default function Attendance() {
 
   // ========== FILTER STATE ==========
   const [filterEmployeeId, setFilterEmployeeId] = useState('');
-  const [filterDay, setFilterDay] = useState('');
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState('');
 
@@ -126,11 +140,6 @@ export default function Attendance() {
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [isEditingAttendance, setIsEditingAttendance] = useState(false);
   const [editingAttendanceId, setEditingAttendanceId] = useState(null);
-
-  // ========== EMPLOYEE SEARCH STATE FOR FORM ==========
-  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
-  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
-  const employeeSearchRef = useRef(null);
 
   // ========== DELETE CONFIRMATION ==========
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -183,16 +192,17 @@ export default function Attendance() {
   const fetchPreviousAttendance = async () => {
     setLoadingPrevious(true);
     try {
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth();
-      const currentYear = currentDate.getFullYear();
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
       
       const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
       if (response.data.success) {
         const allData = response.data.data;
         const previousMonths = allData.filter(record => {
-          const recordDate = new Date(record.date);
-          return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
+          const parts = getDatePartsFromString(record.date);
+          if (!parts) return false;
+          return parts.month !== currentMonth || parts.year !== currentYear;
         });
         setPreviousAttendanceData(previousMonths);
         console.log('✅ Previous attendance loaded:', previousMonths.length);
@@ -249,22 +259,6 @@ export default function Attendance() {
       setAttendanceForm(prev => ({ ...prev, status }));
     }
   }, [attendanceForm.checkIn, attendanceForm.checkOut]);
-
-  // ========== FILTER EMPLOYEES BY SEARCH ==========
-  const filteredEmployees = employees.filter(emp => 
-    emp.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase())
-  );
-
-  // ========== SELECT EMPLOYEE ==========
-  const selectEmployee = (employee) => {
-    setAttendanceForm({
-      ...attendanceForm,
-      employeeId: employee.id,
-      employeeName: employee.name
-    });
-    setEmployeeSearchQuery(employee.name);
-    setIsEmployeeDropdownOpen(false);
-  };
 
   // ========== ATTENDANCE CRUD OPERATIONS ==========
 
@@ -342,7 +336,6 @@ export default function Attendance() {
   const editAttendance = (record) => {
     setIsEditingAttendance(true);
     setEditingAttendanceId(record.id);
-    setEmployeeSearchQuery(record.employee_name || record.name || '');
     setAttendanceForm({
       employeeId: record.employee_id || record.employeeId || '',
       employeeName: record.employee_name || record.name || '',
@@ -365,10 +358,8 @@ export default function Attendance() {
       checkOut: '',
       status: 'present'
     });
-    setEmployeeSearchQuery('');
     setIsEditingAttendance(false);
     setEditingAttendanceId(null);
-    setIsEmployeeDropdownOpen(false);
   };
 
   const showSuccessNotification = (message) => {
@@ -380,21 +371,19 @@ export default function Attendance() {
 
   const openAttendanceForm = (employee = null) => {
     if (employee) {
-      setEmployeeSearchQuery(employee.name);
       setAttendanceForm({
         employeeId: employee.id,
         employeeName: employee.name,
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         checkIn: '',
         checkOut: '',
         status: 'present'
       });
     } else {
-      setEmployeeSearchQuery('');
       setAttendanceForm({
         employeeId: '',
         employeeName: '',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         checkIn: '',
         checkOut: '',
         status: 'present'
@@ -424,18 +413,29 @@ export default function Attendance() {
   // ========== FILTER DATA ==========
 
   const getCurrentMonthData = () => {
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
     
     return attendanceData.filter(record => {
       if (record.date) {
-        const recordDate = new Date(record.date);
-        return recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
+        const parts = getDatePartsFromString(record.date);
+        if (!parts) return true;
+        return parts.month === currentMonth && parts.year === currentYear;
       }
       return true;
     });
   };
+
+  // ========== TODAY'S DATA (from the API-loaded attendanceData) ==========
+  const todayStr = getLocalDateString();
+  const todaysAttendance = attendanceData.filter(
+    (rec) => (rec.date || '').slice(0, 10) === todayStr
+  );
+  const presentTodayCount = todaysAttendance.filter(r => r.status === 'present').length;
+  const absentTodayCount = todaysAttendance.filter(r => r.status === 'absent').length;
+  const halfDayTodayCount = todaysAttendance.filter(r => r.status === 'half_day').length;
+  const totalRecordsCount = attendanceData.length; // total records overall, from API
 
   // ========== APPLY FILTERS ==========
   const applyFilters = (data) => {
@@ -448,27 +448,19 @@ export default function Attendance() {
       );
     }
 
-    // Filter by Day
-    if (filterDay) {
-      filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getDate() === parseInt(filterDay);
-      });
-    }
-
     // Filter by Month
     if (filterMonth) {
       filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getMonth() === parseInt(filterMonth);
+        const parts = getDatePartsFromString(rec.date);
+        return parts && parts.month === parseInt(filterMonth);
       });
     }
 
     // Filter by Year
     if (filterYear) {
       filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getFullYear() === parseInt(filterYear);
+        const parts = getDatePartsFromString(rec.date);
+        return parts && parts.year === parseInt(filterYear);
       });
     }
 
@@ -496,39 +488,44 @@ export default function Attendance() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterEmployeeId, filterDay, filterMonth, filterYear, searchQuery]);
+  }, [filterEmployeeId, filterMonth, filterYear, searchQuery]);
 
   // ========== SUMMARY STATISTICS ==========
+  // NOTE: "Total Records" now reflects ALL records returned by the API
+  // (totalRecordsCount), not just the current-month filtered view, so it
+  // matches the count of every attendance row actually stored server-side.
+  // Present/Absent/Half Day are shown for TODAY specifically, using the
+  // local (not UTC) date to avoid the midnight/day-boundary bug.
   const totalAttendance = filteredAttendance.length;
-  const presentCount = filteredAttendance.filter(rec => rec.status === 'present').length;
-  const absentCount = filteredAttendance.filter(rec => rec.status === 'absent').length;
-  const halfDayCount = filteredAttendance.filter(rec => rec.status === 'half_day').length;
+  const presentCount = presentTodayCount;
+  const absentCount = absentTodayCount;
+  const halfDayCount = halfDayTodayCount;
 
   const summaryCards = [
     { 
       key: 'total', 
-      label: 'Total Records', 
-      value: totalAttendance, 
+      label: 'Records', 
+      value: totalRecordsCount, 
       bgClass: 'bg-blue-50', 
       textClass: 'text-blue-600' 
     },
     { 
       key: 'present', 
-      label: 'Present', 
+      label: 'Present Today', 
       value: presentCount, 
       bgClass: 'bg-emerald-50', 
       textClass: 'text-emerald-600' 
     },
     { 
       key: 'half_day', 
-      label: 'Half Day', 
+      label: 'Half Day Today', 
       value: halfDayCount, 
       bgClass: 'bg-amber-50', 
       textClass: 'text-amber-600' 
     },
     { 
       key: 'absent', 
-      label: 'Absent', 
+      label: 'Absent Today', 
       value: absentCount, 
       bgClass: 'bg-red-50', 
       textClass: 'text-red-600' 
@@ -650,8 +647,8 @@ export default function Attendance() {
                   <p className="text-xs text-gray-400 font-medium">{card.label}</p>
                   <p className="text-sm font-semibold text-gray-900">
                     {card.key === 'total' ? `${card.value} records` : 
-                     card.key === 'present' ? `${card.value} (${totalAttendance > 0 ? Math.round((card.value/totalAttendance)*100) : 0}%)` :
-                     card.key === 'half_day' ? `${card.value} (${totalAttendance > 0 ? Math.round((card.value/totalAttendance)*100) : 0}%)` :
+                     card.key === 'present' ? `${card.value} (${todaysAttendance.length > 0 ? Math.round((card.value/todaysAttendance.length)*100) : 0}%)` :
+                     card.key === 'half_day' ? `${card.value} (${todaysAttendance.length > 0 ? Math.round((card.value/todaysAttendance.length)*100) : 0}%)` :
                      card.value}
                   </p>
                 </div>
@@ -667,13 +664,13 @@ export default function Attendance() {
           <Filter size={16} className="text-gray-500" />
           <span className="text-sm font-medium text-gray-700">Filters</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Search */}
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search employee..."
+              placeholder="Search by employee..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
@@ -695,20 +692,6 @@ export default function Attendance() {
                 </option>
               );
             })}
-          </select>
-
-          {/* Day Filter */}
-          <select
-            value={filterDay}
-            onChange={(e) => setFilterDay(e.target.value)}
-            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-          >
-            <option value="">All Days</option>
-            {Array.from({ length: 31 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>
-                Day {i + 1}
-              </option>
-            ))}
           </select>
 
           {/* Month Filter */}
@@ -740,21 +723,19 @@ export default function Attendance() {
             })}
           </select>
         </div>
-        <div className="mt-3 text-xs text-gray-400 flex items-center justify-between flex-wrap gap-2">
-          <span>{filteredAttendance.length} records found</span>
-          {(filterEmployeeId || filterDay || filterMonth || filterYear || searchQuery) && (
+        <div className="mt-3 text-xs text-gray-400">
+          {filteredAttendance.length} records found
+          {(filterEmployeeId || filterMonth || filterYear || searchQuery) && (
             <button
               onClick={() => {
                 setFilterEmployeeId('');
-                setFilterDay('');
                 setFilterMonth('');
                 setFilterYear('');
                 setSearchQuery('');
               }}
-              className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+              className="ml-3 text-blue-600 hover:text-blue-800 font-medium"
             >
-              <X size={14} />
-              Clear All Filters
+              Clear Filters
             </button>
           )}
         </div>
@@ -774,7 +755,7 @@ export default function Attendance() {
                 <h2 className="text-base font-semibold text-gray-900">
                   Attendance Records
                   <span className="ml-2 text-xs font-normal text-gray-400">
-                    {filterEmployeeId || filterDay || filterMonth || filterYear ? 'Filtered' : 'All Records'}
+                    {filterEmployeeId ? 'Filtered' : 'All Records'}
                   </span>
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -916,7 +897,7 @@ export default function Attendance() {
               <Clock size={48} className="mx-auto mb-4 text-gray-300" />
               <p className="text-gray-500 font-medium">No attendance records found</p>
               <p className="text-sm text-gray-400 mt-1">
-                {filterEmployeeId || filterDay || filterMonth || filterYear || searchQuery
+                {filterEmployeeId || filterMonth || filterYear || searchQuery
                   ? 'Try adjusting your filters'
                   : 'Add attendance records to get started'}
               </p>
@@ -1119,65 +1100,37 @@ export default function Attendance() {
 
                 <form onSubmit={handleAttendanceSubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* ========== EMPLOYEE SELECT WITH SEARCH ========== */}
-                    <div className="relative" ref={employeeSearchRef}>
+                    <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <User size={14} className="inline mr-1" /> Employee *
                       </label>
-                      <div className="relative">
-                        <input
-                          type="text"
-                          placeholder="Search employee..."
-                          value={employeeSearchQuery}
-                          onChange={(e) => {
-                            setEmployeeSearchQuery(e.target.value);
-                            setIsEmployeeDropdownOpen(true);
-                            if (e.target.value === '') {
-                              setAttendanceForm({ ...attendanceForm, employeeId: '', employeeName: '' });
-                            }
-                          }}
-                          onFocus={() => setIsEmployeeDropdownOpen(true)}
-                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white pr-8"
-                          disabled={submitting || isEditingAttendance}
-                        />
-                        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                      </div>
-                      
+                      <select
+                        value={attendanceForm.employeeId}
+                        onChange={(e) => {
+                          const emp = employees.find(emp => emp.id === parseInt(e.target.value));
+                          setAttendanceForm({
+                            ...attendanceForm,
+                            employeeId: e.target.value,
+                            employeeName: emp ? emp.name : ''
+                          });
+                        }}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        required
+                        disabled={submitting || isEditingAttendance}
+                      >
+                        <option value="">Select Employee</option>
+                        {employees.map((emp) => {
+                          const desName = getDesignationName(emp);
+                          return (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name} {desName ? `- ${desName}` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
                       {isEditingAttendance && (
                         <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
                       )}
-
-                      {/* ========== DROPDOWN ========== */}
-                      {isEmployeeDropdownOpen && !isEditingAttendance && (
-                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                          {filteredEmployees.length > 0 ? (
-                            filteredEmployees.map((emp) => {
-                              const desName = getDesignationName(emp);
-                              return (
-                                <button
-                                  key={emp.id}
-                                  type="button"
-                                  className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 border-b border-gray-50 last:border-0"
-                                  onClick={() => selectEmployee(emp)}
-                                >
-                                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-600 flex-shrink-0">
-                                    {emp.name?.charAt(0).toUpperCase() || 'U'}
-                                  </div>
-                                  <span className="text-gray-700">{emp.name}</span>
-                                  {desName && (
-                                    <span className="text-xs text-gray-400 ml-auto">{desName}</span>
-                                  )}
-                                </button>
-                              );
-                            })
-                          ) : (
-                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                              {employeeSearchQuery ? 'No employees found' : 'Type to search employees'}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
                       {employees.length === 0 && (
                         <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
                       )}

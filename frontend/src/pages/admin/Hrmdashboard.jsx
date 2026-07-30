@@ -23,6 +23,14 @@ const ATTENDANCE_API = `${API_BASE_URL}/attendance`;
 const SALARIES_API = `${API_BASE_URL}/salaries`;
 const LEAVE_API = `${API_BASE_URL}/leaves`;
 
+
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -41,7 +49,7 @@ const tabs = [
 ];
 
 const statsCards = [
-  { key: 'totalStaff', label: 'Total Staff', icon: Users, color: 'blue' },
+  { key: 'totalStaff', label: 'Staff', icon: Users, color: 'blue' },
   { key: 'presentToday', label: 'Present Today', icon: UserCheck, color: 'emerald' },
   { key: 'absentToday', label: 'Absent Today', icon: UserX, color: 'red' },
   { key: 'monthlyPayout', label: 'Monthly Payout', icon: Wallet, color: 'purple' },
@@ -166,11 +174,11 @@ export default function HRMDashboard() {
 
   useEffect(() => {
     const today = new Date();
-    setTodayDate(today.toLocaleDateString('en-US', { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
+    setTodayDate(today.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
     }));
     fetchAllData();
     fetchRoles();
@@ -404,7 +412,7 @@ export default function HRMDashboard() {
       role: '',
       address: '',
       marriageStatus: '',
-      hiredDate: new Date().toISOString().split('T')[0],
+      hiredDate: getLocalDateString(),
       jobType: '',
       profileImage: null
     });
@@ -421,7 +429,7 @@ export default function HRMDashboard() {
     setAttendanceForm({
       employeeId: employee.id,
       employeeName: employee.name,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       checkIn: '',
       checkOut: '',
       status: 'present'
@@ -454,7 +462,7 @@ export default function HRMDashboard() {
         role: employee.position || '',
         address: employee.address || '',
         marriageStatus: employee.marriage_status || '',
-        hiredDate: employee.hire_date || new Date().toISOString().split('T')[0],
+        hiredDate: employee.hire_date || getLocalDateString(),
         jobType: employee.job_type || '',
         profileImage: employee.profile_image || null
       });
@@ -483,14 +491,37 @@ export default function HRMDashboard() {
   // ========== SUMMARY CALCULATIONS ==========
 
   const totalStaff = employees.length;
-  const presentToday = attendanceData.filter(a => a.status === 'present').length;
-  const absentToday = attendanceData.filter(a => a.status === 'absent').length;
-  const halfDayToday = attendanceData.filter(a => a.status === 'half_day').length;
+
+  // Local date (not UTC) — fixes the "shows yesterday" bug near midnight
+  const todayStr = getLocalDateString();
+
+  const todaysAttendance = attendanceData.filter((a) => (a.date || '').slice(0, 10) === todayStr);
+
+  const presentToday = todaysAttendance.filter(a => a.status === 'present').length;
+  const absentToday = todaysAttendance.filter(a => a.status === 'absent').length;
+  const halfDayToday = todaysAttendance.filter(a => a.status === 'half_day').length;
+
   const monthlyPayout = salaryData.reduce((sum, s) => sum + (s.total_salary || s.total || 0), 0);
   const totalOTHours = salaryData.reduce((sum, s) => sum + (s.ot_hours || s.otHours || 0), 0);
 
   // Today's attendance rate
-  const todayAttendanceRate = totalStaff > 0 ? Math.round((presentToday / totalStaff) * 100) : 0;
+  const todayAttendanceRate = totalStaff > 0
+    ? Math.round((presentToday / totalStaff) * 100)
+    : 0;
+
+
+  console.log('[Attendance Rate Debug]', {
+  todayStr,
+  totalStaff,
+  totalAttendanceRecords: attendanceData.length,
+  sampleRawDate: attendanceData[0]?.date, 
+  todaysAttendanceCount: todaysAttendance.length,
+  todaysAttendance,
+  presentToday,
+  absentToday,
+  halfDayToday,
+  todayAttendanceRate,
+});
 
   // Leave summary
   const pendingLeaves = leaveData.filter(l => l.status === 'pending').length;
@@ -695,7 +726,7 @@ export default function HRMDashboard() {
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Total Employees</p>
+                  <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Employees</p>
                   <p className="text-3xl font-bold text-gray-900 mt-1">{totalStaff}</p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
@@ -952,7 +983,7 @@ export default function HRMDashboard() {
           {/* ============================================ */}
           {/* ENLARGED EMPLOYEE TABLE WITH FULL WIDTH */}
           {/* ============================================ */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          {/* <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
@@ -1117,7 +1148,7 @@ export default function HRMDashboard() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </div> */}
         </motion.div>
       )}
 

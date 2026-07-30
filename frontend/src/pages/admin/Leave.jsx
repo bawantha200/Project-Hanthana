@@ -683,11 +683,11 @@ export default function Leave() {
   });
 
   const summaryCards = [
-    { key: 'total', label: 'Total Requests', value: totalLeaves, icon: FileText, bgClass: 'bg-blue-50', textClass: 'text-blue-600' },
+    { key: 'total', label: 'All Requests', value: totalLeaves, icon: FileText, bgClass: 'bg-blue-50', textClass: 'text-blue-600' },
     { key: 'pending', label: 'Pending', value: pendingLeaves, icon: Clock, bgClass: 'bg-amber-50', textClass: 'text-amber-600' },
     { key: 'approved', label: 'Approved', value: approvedLeaves, icon: CheckCircle, bgClass: 'bg-emerald-50', textClass: 'text-emerald-600' },
     { key: 'rejected', label: 'Rejected', value: rejectedLeaves, icon: XIcon, bgClass: 'bg-red-50', textClass: 'text-red-600' },
-    { key: 'days', label: 'Total Days', value: totalDays, icon: Calendar, bgClass: 'bg-purple-50', textClass: 'text-purple-600' },
+     {key: 'days', label: 'Total Days', value: totalDays, icon: Calendar, bgClass: 'bg-purple-50', textClass: 'text-purple-600' },
   ];
 
   // ========== LOADING ==========
@@ -821,12 +821,18 @@ export default function Leave() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
-                    <tr><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Type</th><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th><th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th><th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Days</th><th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th><th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th></tr>
+                    <tr>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Leave Type</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
+                      <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Days</th>
+                      <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {paginatedData.map((record) => {
                       const leaveTypeInfo = LEAVE_TYPES[record.leave_type || record.leaveType] || LEAVE_TYPES['Other'];
-                      const statusInfo = LEAVE_STATUS[record.status] || { label: record.status, color: 'gray', icon: '📋' };
                       return (
                         <tr key={record.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                           <td className="py-3 px-6 font-medium text-gray-900">{record.employee_name || record.name}</td>
@@ -834,10 +840,8 @@ export default function Leave() {
                           <td className="py-3 px-6 text-gray-600">{record.start_date || record.startDate}</td>
                           <td className="py-3 px-6 text-gray-600">{record.end_date || record.endDate}</td>
                           <td className="py-3 px-6 text-center font-medium text-gray-700">{record.days || 1}</td>
-                          <td className="py-3 px-6 text-center"><span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${statusInfo.color === 'amber' ? 'bg-amber-50 text-amber-700' : statusInfo.color === 'emerald' ? 'bg-emerald-50 text-emerald-700' : statusInfo.color === 'red' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-700'}`}><span>{statusInfo.icon}</span>{statusInfo.label}</span></td>
                           <td className="py-3 px-6"><div className="flex items-center justify-center gap-1.5">
                               <button onClick={() => viewLeaveDetails(record)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 rounded-lg transition-colors" title="View Details"><Eye size={15} /></button>
-                              {record.status === 'pending' && (<><button onClick={() => handleStatusUpdate(record.id, 'approved')} className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors" title="Approve"><Check size={15} /></button><button onClick={() => handleStatusUpdate(record.id, 'rejected')} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Reject"><XIcon size={15} /></button></>)}
                               <button onClick={() => editLeave(record)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors" title="Edit"><Edit size={15} /></button>
                               <button onClick={() => confirmDelete(record.id, record.employee_name || record.name)} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors" title="Delete"><Trash2 size={15} /></button>
                           </div></td>
@@ -845,7 +849,7 @@ export default function Leave() {
                       );
                     })}
                   </tbody>
-                  <tfoot><tr className="border-t border-gray-200 bg-gray-50/50"><td className="py-3 px-6 font-semibold text-gray-900">Total</td><td className="py-3 px-6"></td><td className="py-3 px-6"></td><td className="py-3 px-6"></td><td className="py-3 px-6 text-center font-semibold text-gray-900">{paginatedData.reduce((sum, l) => sum + (l.days || 1), 0)} days</td><td className="py-3 px-6 text-center text-sm text-gray-400">{paginatedData.length} requests</td><td className="py-3 px-6"></td></tr></tfoot>
+                  <tfoot><tr className="border-t border-gray-200 bg-gray-50/50"><td className="py-3 px-6 font-semibold text-gray-900">Total</td><td className="py-3 px-6"></td><td className="py-3 px-6"></td><td className="py-3 px-6"></td><td className="py-3 px-6 text-center font-semibold text-gray-900">{paginatedData.reduce((sum, l) => sum + (l.days || 1), 0)} days</td><td className="py-3 px-6 text-center text-sm text-gray-400">{paginatedData.length} requests</td></tr></tfoot>
                 </table>
               </div>
 
@@ -943,7 +947,15 @@ export default function Leave() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead className="bg-indigo-50">
-                          <tr><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Employee</th><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Leave Type</th><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Start Date</th><th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">End Date</th><th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Days</th><th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Status</th><th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Actions</th></tr>
+                          <tr>
+                            <th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Employee</th>
+                            <th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Leave Type</th>
+                            <th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Start Date</th>
+                            <th className="text-left py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">End Date</th>
+                            <th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Days</th>
+                            <th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Status</th>
+                            <th className="text-center py-2.5 px-4 text-xs font-medium text-indigo-700 uppercase tracking-wider">Actions</th>
+                          </tr>
                         </thead>
                         <tbody>
                           {paginatedPrevData.map((record) => {
