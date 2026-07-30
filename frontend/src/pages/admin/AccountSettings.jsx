@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Send,
   RefreshCw,
+  Camera,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../supabaseClient';
@@ -59,6 +60,12 @@ export default function Settings() {
   const [phone, setPhone] = useState(user?.phone || '');
   const [address, setAddress] = useState(user?.address || '');
   const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
+
+  // Profile image state
+  const [profileImage, setProfileImage] = useState(user?.profileImage || null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [imageMessage, setImageMessage] = useState({ type: '', text: '' });
+  const fileInputRef = useRef(null);
   
   // Email change state
   const [newEmail, setNewEmail] = useState('');
@@ -123,6 +130,7 @@ export default function Settings() {
           setFullName(data.user.fullName || '');
           setPhone(data.user.phone || '');
           setAddress(data.user.address || '');
+          setProfileImage(data.user.profileImage || null);
         }
       } catch (error) {
         console.error('Error fetching user data:', error);
@@ -242,6 +250,92 @@ export default function Settings() {
     }
     setValidation(prev => ({ ...prev, confirmPassword: { isValid: true, message: '' } }));
     return true;
+  };
+
+  // ---------- UPLOAD PROFILE IMAGE ----------
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      setImageMessage({ type: 'error', text: 'Please select a valid image file.' });
+      setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+      return;
+    }
+
+    // Validate file size (5MB max)
+    if (file.size > 5 * 1024 * 1024) {
+      setImageMessage({ type: 'error', text: 'Image must be smaller than 5MB.' });
+      setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+      return;
+    }
+
+    setUploadingImage(true);
+    setImageMessage({ type: '', text: '' });
+
+    try {
+      const formData = new FormData();
+      formData.append('profileImage', file);
+
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/auth/profile-image', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+          // NOTE: Do NOT set Content-Type manually here -
+          // the browser sets the correct multipart boundary automatically.
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to upload profile photo');
+      }
+
+      setProfileImage(data.profileImage);
+      await refreshUser();
+
+      setImageMessage({ type: 'success', text: 'Profile photo updated!' });
+      setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+    } catch (error) {
+      setImageMessage({ type: 'error', text: error.message });
+      setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+    } finally {
+      setUploadingImage(false);
+      // reset input so selecting the same file again still fires onChange
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ---------- REMOVE PROFILE IMAGE ----------
+  const handleRemoveImage = async () => {
+    setUploadingImage(true);
+    setImageMessage({ type: '', text: '' });
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/auth/profile-image', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to remove profile photo');
+      }
+
+      setProfileImage(null);
+      await refreshUser();
+      setImageMessage({ type: 'success', text: 'Profile photo removed.' });
+      setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+    } catch (error) {
+      setImageMessage({ type: 'error', text: error.message });
+      setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+    } finally {
+      setUploadingImage(false);
+    }
   };
 
   // ---------- RESEND VERIFICATION ----------
@@ -434,9 +528,15 @@ export default function Settings() {
 
       if (error) throw error;
 
-      toast.success('Password reset link sent to your email!');
+      setMessages(prev => ({
+        ...prev,
+        resetPassword: { type: 'success', text: 'Password reset link sent to your email!' }
+      }));
     } catch (err) {
-      toast.error(err.message || 'Failed to send reset link');
+      setMessages(prev => ({
+        ...prev,
+        resetPassword: { type: 'error', text: err.message || 'Failed to send reset link' }
+      }));
     } finally {
       setSendingResetLink(false);
     }
@@ -633,8 +733,38 @@ const handleDeleteAccount = async () => {
             <div className="bg-white rounded-2xl border border-slate-200/60 shadow-sm overflow-hidden sticky top-8">
               <div className="p-4 border-b border-slate-100">
                 <div className="flex items-center gap-3">
-                  <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-lg shadow-md">
-                    {user?.fullName ? user.fullName.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'}
+                  <div className="relative group flex-shrink-0">
+                    <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-lg shadow-md overflow-hidden">
+                      {profileImage ? (
+                        <img
+                          src={profileImage}
+                          alt="Profile"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        user?.fullName ? user.fullName.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploadingImage}
+                      className="absolute inset-0 rounded-xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center disabled:cursor-wait"
+                      title="Change profile photo"
+                    >
+                      {uploadingImage ? (
+                        <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Camera size={16} className="text-white" />
+                      )}
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                    />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-800 truncate">
@@ -651,6 +781,24 @@ const handleDeleteAccount = async () => {
                     </span>
                   </div>
                 </div>
+                {imageMessage.type && (
+                  <div className={`mt-3 px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 ${
+                    imageMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+                  }`}>
+                    {imageMessage.type === 'success' ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                    <span className="truncate">{imageMessage.text}</span>
+                  </div>
+                )}
+                {profileImage && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveImage}
+                    disabled={uploadingImage}
+                    className="mt-2 text-xs text-red-500 hover:text-red-600 disabled:opacity-50"
+                  >
+                    Remove photo
+                  </button>
+                )}
               </div>
               <nav className="p-2 space-y-1">
                 {sections.map((section) => {
@@ -701,6 +849,73 @@ const handleDeleteAccount = async () => {
                   <div className="p-6 border-b border-slate-100">
                     <h2 className="text-lg font-semibold text-slate-800">Profile Information</h2>
                     <p className="text-sm text-slate-500 mt-1">Update your personal information and contact details</p>
+                  </div>
+
+                  {/* Profile Photo Section */}
+                  <div className="p-6 border-b border-slate-100">
+                    <label className="block text-sm font-medium text-slate-700 mb-3">
+                      Profile Photo
+                    </label>
+                    <div className="flex items-center gap-5">
+                      <div className="relative group">
+                        <div className="h-20 w-20 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white font-bold text-2xl shadow-md overflow-hidden">
+                          {profileImage ? (
+                            <img
+                              src={profileImage}
+                              alt="Profile"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            user?.fullName ? user.fullName.charAt(0).toUpperCase() : user?.email?.charAt(0).toUpperCase() || 'U'
+                          )}
+                        </div>
+                        {uploadingImage && (
+                          <div className="absolute inset-0 rounded-2xl bg-black/50 flex items-center justify-center">
+                            <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={uploadingImage}
+                            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors disabled:opacity-50"
+                          >
+                            <Camera size={16} />
+                            {profileImage ? 'Change Photo' : 'Upload Photo'}
+                          </button>
+                          {profileImage && (
+                            <button
+                              type="button"
+                              onClick={handleRemoveImage}
+                              disabled={uploadingImage}
+                              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-xl transition-colors disabled:opacity-50"
+                            >
+                              <Trash2 size={16} />
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-500">JPG, PNG or GIF. Max size 5MB.</p>
+                        {imageMessage.type && (
+                          <span className={`text-xs flex items-center gap-1.5 ${
+                            imageMessage.type === 'success' ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {imageMessage.type === 'success' ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                            {imageMessage.text}
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </div>
                   </div>
                   
                   <form onSubmit={handleProfileUpdate} className="p-6 space-y-5">

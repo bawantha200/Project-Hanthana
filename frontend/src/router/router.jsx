@@ -106,12 +106,25 @@ function AdminRoutes() {
     if (!user) return;
 
     const currentPath = window.location.pathname;
+
+    // 1. Permission ලැයිස්තුවෙන් Allow කරපු Paths ගන්නවා
     const allowedPaths = NAV_ITEMS
       .filter(item => permissions.includes(item.id))
       .map(item => item.path);
 
+    // 2. Dashboard sub-pages හෝ Internal pages සඳහා Exception ලබාදෙනවා
+    const internalAllowedPaths = [
+      '/app/system-activity',
+      '/app/recently-registered',
+      '/app/account-settings'
+    ];
+
     const isRoot = currentPath === '/app' || currentPath === '/app/';
-    const isAllowed = allowedPaths.some(path => currentPath.startsWith(path));
+    
+    // Check කරනවා allowedPaths වල තියෙනවද නැත්නම් Internal Allowed list එකේ තියෙනවද කියලා
+    const isAllowed = 
+      allowedPaths.some(path => currentPath.startsWith(path)) ||
+      internalAllowedPaths.some(path => currentPath.startsWith(path));
 
     if (isRoot || !isAllowed) {
       const target = getLandingRouteForPermissions(permissions);
