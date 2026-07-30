@@ -2,13 +2,13 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { getTargetRoute } from '../utils/roleRouting';
 import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
 
 // Admin pages
 import Dashboard from '../pages/admin/Dashboard';
+import AdminDashboard from '../pages/admin/AdminDashboard';
 import SalesDashboard from '../pages/admin/SalesDashboard';
 import Inventory from '../pages/admin/Inventory';
 import Orders from '../pages/admin/Orders';
@@ -38,6 +38,7 @@ import SalariesOT from "../pages/admin/SalariesOT";
 import Leave from "../pages/admin/Leave";
 import DeliveryConfiguration from '../pages/admin/DeliveryConfiguration';
 import InvoicingReports from "../pages/admin/InvoicingReports";
+import ProfitReport from "../pages/admin/ProfitReport";
 import InventoryDashboard from "../pages/admin/InventoryDashboard";
 import JITDashboard from "../pages/admin/JITDashboard";
 import DemandForecastDashboard from "../pages/admin/DemandForecasting";
@@ -106,7 +107,7 @@ function AdminRoutes() {
   // Default landing page per role, used both for the index redirect
   // and the catch-all fallback below.
   const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/app/user-management';
+    if (role === 'ADMIN') return '/app/dashboard';
     if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
     return '/app/dashboard';
   };
@@ -117,11 +118,13 @@ function AdminRoutes() {
         <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
 
         {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
+        
+
         <Route
           path="dashboard"
           element={
             role === 'ADMIN'
-              ? <Navigate to="/app/user-management" replace />
+              ? <AdminDashboard />   
               : <Dashboard />
           }
         />
@@ -146,6 +149,7 @@ function AdminRoutes() {
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
         <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
+        <Route path="finance/profit-reports" element={<ProfitReport/>} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="finance/expenses/compare" element={<ExpenseComparison />} />
         <Route path="products" element={<Products />} />

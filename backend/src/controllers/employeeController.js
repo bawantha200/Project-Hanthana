@@ -1,6 +1,7 @@
 const supabase = require('../config/db');
 
 // GET all employees with optional filters
+// Update the getAllEmployees function to include designation details
 exports.getAllEmployees = async (req, res) => {
   try {
     const { position, status, search } = req.query;
@@ -9,7 +10,14 @@ exports.getAllEmployees = async (req, res) => {
     
     let query = supabase
       .from('employees')
-      .select('*');
+      .select(`
+        *,
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
+        )
+      `);
     
     if (position && position !== 'All') {
       query = query.eq('position', position);
@@ -58,7 +66,14 @@ exports.getPendingEmployees = async (req, res) => {
     
     const { data, error } = await supabase
       .from('employees')
-      .select('*')
+      .select(`
+        *,
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `)
       .eq('status', 'pending')
       .order('id', { ascending: false });
 
@@ -94,7 +109,18 @@ exports.getEmployeeById = async (req, res) => {
     
     const { data, error } = await supabase
       .from('employees')
-      .select('*')
+      .select(`
+        *,
+        designation:designation_id (
+          id,
+          designation
+        ),
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `)
       .eq('id', id)
       .single();
     
@@ -123,9 +149,10 @@ exports.getEmployeeById = async (req, res) => {
 exports.createEmployee = async (req, res) => {
   try {
     const {
-      name, position, designation, phone, email, hireDate,
+      name, position, designation, designation_id, phone, email, hireDate,
       birthday, gender, nic, address, marriageStatus,
-      jobType, profileImage, baseSalary, bonus
+      jobType, profileImage, baseSalary, bonus,
+      role_id  // ✅ ADDED: Accept role_id from frontend
     } = req.body;
     
     if (!name || !email || !phone || !position || !address || !hireDate) {
@@ -194,12 +221,12 @@ exports.createEmployee = async (req, res) => {
     const employeeData = {
       name,
       position,
-      designation: designation || position,  
+      designation_id: designation_id || null,
       phone: cleanedPhone,
       email,
       hire_date: hireDate,
-      status: 'pending',
-      role: 'EMPLOYEE',
+      status: role_id ? 'pending' : 'active',   // ✅ No role = active immediately, skip pending/account-creation flow
+      role_id: role_id || null,
       gender: gender || null,
       nic: nic ? nic.trim().toUpperCase() : null,
       address,
@@ -215,7 +242,19 @@ exports.createEmployee = async (req, res) => {
     const { data, error } = await supabase
       .from('employees')
       .insert([employeeData])
-      .select();
+      .select(`
+  *,
+  designation:designation_id (
+    id,
+    designation,
+    ot_rate
+  ),
+  role:role_id (
+    id,
+    role_name,
+    description
+  )
+`);
     
     if (error) {
       console.error('Supabase error:', error);
@@ -243,7 +282,7 @@ exports.updateEmployee = async (req, res) => {
     const {
       name,
       position,
-      designation,    // ✅ ADDED - Designation field
+      designation_id,
       phone,
       email,
       hireDate,
@@ -256,7 +295,8 @@ exports.updateEmployee = async (req, res) => {
       profileImage,
       status,
       baseSalary,
-      bonus
+      bonus,
+      role_id  // ✅ ADDED: Accept role_id from frontend
     } = req.body;
     
     // Check if employee exists
@@ -277,11 +317,12 @@ exports.updateEmployee = async (req, res) => {
     const updateData = {};
     if (name) updateData.name = name;
     if (position) updateData.position = position;
-    if (designation) updateData.designation = designation;  // ✅ ADDED - Update designation if provided
+    if (designation_id !== undefined) updateData.designation_id = designation_id || null;
     if (phone) updateData.phone = phone;
     if (email) updateData.email = email;
     if (hireDate) updateData.hire_date = hireDate;
     if (address) updateData.address = address;
+    if (role_id !== undefined) updateData.role_id = role_id || null;  // ✅ ADDED: Update role_id
     
     // Optional fields
     if (birthday !== undefined && birthday !== '') updateData.birthday = birthday;
@@ -301,6 +342,10 @@ exports.updateEmployee = async (req, res) => {
     
     if (profileImage !== undefined) updateData.profile_image = profileImage;
     if (status) updateData.status = status;
+
+    if (status && status !== 'rejected') {
+      updateData.rejection_reason = null;
+    }
     
     // Base Salary
     if (baseSalary !== undefined && baseSalary !== '') {
@@ -341,7 +386,19 @@ exports.updateEmployee = async (req, res) => {
       .from('employees')
       .update(updateData)
       .eq('id', id)
-      .select();
+      .select(`
+  *,
+  designation:designation_id (
+    id,
+    designation,
+    ot_rate
+  ),
+  role:role_id (
+    id,
+    role_name,
+    description
+  )
+`);
     
     if (error) {
       console.error('Supabase update error:', error);
@@ -495,6 +552,101 @@ exports.updateEmployeeStatus = async (req, res) => {
   }
 };
 
+// ===== GET all roles =====
+exports.getAllRoles = async (req, res) => {
+  try {
+    console.log('[Roles] Fetching all roles...');
+    
+    const { data, error } = await supabase
+      .from('roles')
+      .select('*')
+      .order('id', { ascending: true });
+    
+    if (error) {
+      console.error('[Roles] Supabase error:', error);
+      return res.status(400).json({
+        success: false,
+        message: 'Error fetching roles',
+        error: error.message
+      });
+    }
+    
+    console.log(`[Roles] Found ${data?.length || 0} roles`);
+    
+    res.status(200).json({
+      success: true,
+      data: data || []
+    });
+  } catch (error) {
+    console.error('[Roles] Server error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
+// ===== REJECT an employee =====
+exports.rejectEmployee = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || !reason.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'A rejection reason is required'
+      });
+    }
+
+    const { data: existingEmployee } = await supabase
+      .from('employees')
+      .select('id, name, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (!existingEmployee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('employees')
+      .update({
+        status: 'rejected',
+        rejection_reason: reason.trim(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select();
+
+    if (error) {
+      console.error('[Employees] Reject error:', error);
+      return res.status(400).json({
+        success: false,
+        message: 'Error rejecting employee',
+        error: error.message
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Employee ${existingEmployee.name} rejected`,
+      data: data[0]
+    });
+  } catch (error) {
+    console.error('[Employees] Reject server error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getAllEmployees: exports.getAllEmployees,
   getPendingEmployees: exports.getPendingEmployees,
@@ -503,5 +655,8 @@ module.exports = {
   updateEmployee: exports.updateEmployee,
   deleteEmployee: exports.deleteEmployee,
   getEmployeeStats: exports.getEmployeeStats,
-  updateEmployeeStatus: exports.updateEmployeeStatus
+  updateEmployeeStatus: exports.updateEmployeeStatus,
+  getAllRoles: exports.getAllRoles,
+  rejectEmployee: exports.rejectEmployee, 
+
 };
