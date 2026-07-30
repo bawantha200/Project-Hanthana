@@ -164,7 +164,7 @@ const getDeliveries = async (req, res) => {
       .eq('id', profile.role_id)
       .single();
 
-    const ALLOWED_ROLES = ['ADMIN', 'CEO'];
+    const ALLOWED_ROLES = ['ADMIN', 'CEO' ,'SALES_MANAGER'];
 
     if (roleError || !ALLOWED_ROLES.includes(role?.role_name)) {
       return res.status(403).json({ success: false, message: 'Admin or CEO access required' });

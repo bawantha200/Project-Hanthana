@@ -42,7 +42,7 @@ const CACHE_KEYS = {
 };
 
 // Roles considered "admin-level" for authorization checks
-const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN', 'MANAGER', 'CEO']; // adjust to match your actual role_name values
+const ADMIN_ROLES = ['ADMIN', 'SUPER_ADMIN', 'SALES_MANAGER', 'CEO']; // adjust to match your actual role_name values
 const isAdminLevel = (roleName) => ADMIN_ROLES.includes(roleName);
 
 // Helper to invalidate order caches
