@@ -261,14 +261,14 @@ export default function UserManagement() {
   // Update User
   const updateUserMutation = useMutation({
     mutationFn: updateUser,
-    onSuccess: () => {
+    onSuccess: (data, variables) => {   // ✅ destructure variables (2nd param)
       queryClient.invalidateQueries({ queryKey: ['users'] });
       toast.success('User updated successfully');
       closeModal();
 
       if (variables.id === user?.id) {
-      refreshUser();
-    }
+        refreshUser();
+      }
     },
     onError: (error) => {
       const message = error.response?.data?.message || error.message;
@@ -279,7 +279,7 @@ export default function UserManagement() {
         toast.error(message);
       }
     },
-  });
+});
 
   // Delete User
   const deleteUserMutation = useMutation({
@@ -1573,13 +1573,19 @@ export default function UserManagement() {
                   Cancel
                 </button>
                 <motion.button
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.97 }}
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  {editingUser ? 'Save Changes' : 'Create User'}
-                </motion.button>
+  whileHover={{ scale: 1.04 }}
+  whileTap={{ scale: 0.97 }}
+  type="submit"
+  disabled={createUserMutation.isPending || updateUserMutation.isPending}
+  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+>
+  {(createUserMutation.isPending || updateUserMutation.isPending) && (
+    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+  )}
+  {editingUser
+    ? (updateUserMutation.isPending ? 'Saving...' : 'Save Changes')
+    : (createUserMutation.isPending ? 'Creating...' : 'Create User')}
+</motion.button>
               </div>
             </form>
           </motion.div>
