@@ -1,8 +1,8 @@
-// frontend/src/router/router.jsx
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+// src/router/router.jsx
+import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
+import { AuthProvider, useAuth, getLandingRouteForPermissions, NAV_ITEMS } from '../context/AuthContext';
 import { Toaster } from 'react-hot-toast';
-import { AuthProvider, useAuth } from '../context/AuthContext';
-import ProtectedRoute from '../router/ProtectedRoute';
 import AdminLayout from '../layouts/AdminLayout';
 import CustomerLayout from '../layouts/CustomerLayout';
 
@@ -42,11 +42,18 @@ import ProfitReport from "../pages/admin/ProfitReport";
 import InventoryDashboard from "../pages/admin/InventoryDashboard";
 import JITDashboard from "../pages/admin/JITDashboard";
 import DemandForecastDashboard from "../pages/admin/DemandForecasting";
+import AllOrders from '../pages/admin/AllOrders';
+import RecentlyRegistered from '../pages/admin/RecentlyRegistered';
+import SystemActivity from '../pages/admin/SystemActivity';
+import SalesAnalytics from '../pages/admin/salesAnalytics';
+import AccountSettings from '../pages/admin/AccountSettings';
+import VerifyEmail from '../pages/admin/VerifyEmail';
 
 // Auth pages
 import Login from '../pages/auth/Login';
 import Register from '../pages/auth/Register';
 import AuthCallback from '../pages/auth/AuthCallback';
+import CompleteProfile from '../pages/auth/CompleteProfile';
 
 // Customer pages
 import Home from '../pages/customer/Home';
@@ -61,15 +68,15 @@ import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
 import ForgotPassword from '../pages/customer/ForgotPassword';
 import ResetPassword from '../pages/customer/ResetPassword';
-import SalesAnalytics from '../pages/admin/salesAnalytics';
 import PickupConfirmation from '../pages/customer/PickupConfirmation';
+
 
 
 /**
  * Guest-only wrapper to prevent authenticated users from opening Login & Register pages
  */
 function GuestRoute() {
-  const { user, loading } = useAuth();
+  const { user, loading, permissions } = useAuth();
 
   if (loading) {
     return (
@@ -79,57 +86,68 @@ function GuestRoute() {
     );
   }
 
-  // If user is already logged in, redirect them away from login/register
-  // using the exact same rule Login.jsx uses right after a fresh login —
-  // so a CUSTOMER goes Home, but every other role stays out of Home.
   if (user) {
     const role = user.role?.toUpperCase();
-    if (role === 'ADMIN') {
-      return <Navigate to="/app/dashboard" replace />;
-    }
-    else if(role === 'RIDER'){
-      return <Navigate to="/app/rider-dashboard" replace />;
-    }
-    return <Navigate to="/" replace />;
+    if (role === 'CUSTOMER') return <Navigate to="/" replace />;
+    return <Navigate to={getLandingRouteForPermissions(permissions)} replace />;
   }
 
   return <Outlet />;
 }
 
+// ==================== ADMIN ROUTES ====================
 function AdminRoutes() {
-  const { user } = useAuth();
+  const { user, permissions, loading } = useAuth();
+  const navigate = useNavigate();
 
-  if (user?.role === 'CUSTOMER') {
-    return <Navigate to="/" replace />;
-  }
+  // Redirect on root or unauthorized paths (safety net)
+  useEffect(() => {
+    if (loading) return;
+    if (!user) return;
+
+    const currentPath = window.location.pathname;
+
+    // 1. Permission ලැයිස්තුවෙන් Allow කරපු Paths ගන්නවා
+    const allowedPaths = NAV_ITEMS
+      .filter(item => permissions.includes(item.id))
+      .map(item => item.path);
+
+    // 2. Dashboard sub-pages හෝ Internal pages සඳහා Exception ලබාදෙනවා
+    const internalAllowedPaths = [
+      '/app/system-activity',
+      '/app/recently-registered',
+      '/app/account-settings'
+    ];
+
+    const isRoot = currentPath === '/app' || currentPath === '/app/';
+    
+    // Check කරනවා allowedPaths වල තියෙනවද නැත්නම් Internal Allowed list එකේ තියෙනවද කියලා
+    const isAllowed = 
+      allowedPaths.some(path => currentPath.startsWith(path)) ||
+      internalAllowedPaths.some(path => currentPath.startsWith(path));
+
+    if (isRoot || !isAllowed) {
+      const target = getLandingRouteForPermissions(permissions);
+      navigate(target, { replace: true });
+    }
+  }, [loading, user, permissions, navigate]);
 
   const role = user?.role?.toUpperCase();
-
-  // Default landing page per role, used both for the index redirect
-  // and the catch-all fallback below.
-  const defaultRouteForRole = () => {
-    if (role === 'ADMIN') return '/app/dashboard';
-    if (role === 'SALES_MANAGER') return '/appp/sales-dashboard';
-    return '/app/dashboard';
-  };
 
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to={defaultRouteForRole()} replace />} />
-
-        {/* Dashboard is CEO/other-staff only — ADMIN gets redirected away */}
-        
-
+        {/* Dashboard route – only if 'dashboard' permission exists */}
         <Route
           path="dashboard"
           element={
-            role === 'ADMIN'
-              ? <AdminDashboard />   
-              : <Dashboard />
+            permissions.includes('dashboard')
+              ? (role === 'ADMIN' ? <AdminDashboard /> : <Dashboard />)
+              : <Navigate to={getLandingRouteForPermissions(permissions)} replace />
           }
         />
 
+        {/* All other routes (no permission checks – handled by useEffect) */}
         <Route path="sales-dashboard" element={<SalesDashboard />} />
         <Route path="inventory-dashboard" element={<InventoryDashboard />} />
         <Route path="demandforecast-dashboard" element={<DemandForecastDashboard />} />
@@ -150,30 +168,33 @@ function AdminRoutes() {
         <Route path="customers" element={<Customers />} />
         <Route path="finance" element={<Finance />} />
         <Route path="finance/invoicing-reports" element={<InvoicingReports />} />
-        <Route path="finance/profit-reports" element={<ProfitReport/>} />
+        <Route path="finance/profit-reports" element={<ProfitReport />} />
         <Route path="finance/expenses" element={<ExpenseManagement />} />
         <Route path="finance/expenses/compare" element={<ExpenseComparison />} />
         <Route path="products" element={<Products />} />
         <Route path="messages" element={<Messages />} />
         <Route path="manage-permission" element={<ManagePermissions />} />
         <Route path="rider-dashboard" element={<RiderDashboard />} />
+        <Route path="recently-registered" element={<RecentlyRegistered />} />
+        <Route path="system-activity" element={<SystemActivity />} />
+        <Route path="account-settings" element={<AccountSettings />} />
         
+
         {/* ✅ New HRM Routes */}
         <Route path="attendance" element={<Attendance />} />
         <Route path="leave" element={<Leave />} />
         <Route path="salaries-ot" element={<SalariesOT />} />
-        
         <Route path="delivery/config" element={<DeliveryConfiguration />} />
         <Route path="sales-analytics" element={<SalesAnalytics />} />
-        <Route path="*" element={<Navigate to={defaultRouteForRole()} replace />} />
+
+        {/* Catch‑all redirect */}
+        <Route path="*" element={<Navigate to={getLandingRouteForPermissions(permissions)} replace />} />
       </Route>
     </Routes>
   );
 }
 
-/**
- * Protected wrapper for customer routes that require authentication
- */
+// ==================== CUSTOMER PROTECTED ROUTE ====================
 function CustomerProtectedRoute({ children }) {
   const { user, loading } = useAuth();
 
@@ -192,6 +213,7 @@ function CustomerProtectedRoute({ children }) {
   return children;
 }
 
+// ==================== CUSTOMER ROUTES ====================
 function CustomerRoutes() {
   return (
     <Routes>
@@ -200,34 +222,28 @@ function CustomerRoutes() {
         <Route path="services" element={<Services />} />
         <Route path="about" element={<AboutUs />} />
         <Route path="contact" element={<ContactUs />} />
-        {/* <Route path="orders" element={<CustomerOrders />} /> */}
-        {/* <Route path="order/:id" element={<CustomerOrderDetails />} /> */}
         <Route path="tracking" element={<OrderTracking />} />
-        {/* <Route path="profile" element={<Profile />} /> */}
         <Route path="forgot-password" element={<ForgotPassword />} />
         <Route path="reset-password" element={<ResetPassword />} />
-
+        <Route path="verify-email/:token" element={<VerifyEmail />} />
+        <Route path="complete-profile" element={<CompleteProfile />} />
         {/* Protected routes - require authentication */}
         <Route path="orders" element={
-            <CustomerProtectedRoute>
-              <CustomerOrders />
-            </CustomerProtectedRoute>} />
-        <Route 
-          path="order/:id" 
-          element={
-            <CustomerProtectedRoute>
-              <CustomerOrderDetails />
-            </CustomerProtectedRoute>} />
+          <CustomerProtectedRoute>
+            <CustomerOrders />
+          </CustomerProtectedRoute>
+        } />
+        <Route path="order/:id" element={
+          <CustomerProtectedRoute>
+            <CustomerOrderDetails />
+          </CustomerProtectedRoute>
+        } />
         <Route path="profile" element={
-            <CustomerProtectedRoute>
-              <Profile />
-            </CustomerProtectedRoute>} />
-        <Route path="profile" element={
-            <CustomerProtectedRoute>
-              <OrderTracking />
-            </CustomerProtectedRoute>} />
+          <CustomerProtectedRoute>
+            <Profile />
+          </CustomerProtectedRoute>
+        } />
 
-        {/* 🔒 Restricted for logged-in users */}
         <Route element={<GuestRoute />}>
           <Route path="register" element={<Register />} />
           <Route path="login" element={<Login />} />
@@ -242,6 +258,7 @@ function CustomerRoutes() {
   );
 }
 
+// ==================== APP ROUTES ====================
 function AppRoutes() {
   return (
     <Routes>
@@ -254,6 +271,7 @@ function AppRoutes() {
   );
 }
 
+// ==================== APP ====================
 export default function App() {
   return (
     <BrowserRouter>

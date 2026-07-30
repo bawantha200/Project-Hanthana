@@ -8,6 +8,31 @@ const {
 const { completeOrder, getOrderItems, failOrder } = require('../services/ordersService');
 const { notifyOrderEvent } = require('../utils/notifications');
 const supabase = require('../config/db');
+const cache = require('../config/cache');
+
+// Cache configuration
+const CACHE_TTL = {
+  PAYMENT_STATUS: 60,        // 60 seconds for payment status
+  PAYMENT_HISTORY: 120,      // 2 minutes for payment history
+};
+
+const CACHE_KEYS = {
+  PAYMENT_STATUS_PREFIX: 'payment_status_',
+  PAYMENT_HISTORY_PREFIX: 'payment_history_',
+};
+
+// Helper to invalidate payment caches
+const invalidatePaymentCaches = (orderId, userId) => {
+  // Delete specific payment status cache
+  if (orderId) {
+    cache.del(`${CACHE_KEYS.PAYMENT_STATUS_PREFIX}${orderId}`);
+  }
+  
+  // Delete user's payment history cache
+  if (userId) {
+    cache.del(`${CACHE_KEYS.PAYMENT_HISTORY_PREFIX}${userId}`);
+  }
+};
 
 // ========== INITIATE PAYMENT ==========
 const initiatePayment = async (req, res) => {
@@ -144,78 +169,82 @@ const paymentNotify = async (req, res) => {
     console.log('[paymentNotify] Payment verification result:', verificationResult);
     
     // If payment is COMPLETED, deduct inventory
-if (verificationResult && verificationResult.status === 'COMPLETED') {
- try {
-    console.log('[paymentNotify] Payment completed for order:', verificationResult.orderId);
- 
-    // Get order items for inventory deduction
-    const orderItems = await getOrderItems(verificationResult.orderId);
-    console.log('[paymentNotify] Found', orderItems.length, 'items for order');
- 
-    // Complete order and deduct inventory
-    const completedOrder = await completeOrder(verificationResult.orderId, orderItems);
-    console.log('[paymentNotify] Order', verificationResult.orderId, 'completed and inventory deducted');
- 
-    // ✅ Staff notification
-    await notifyOrderEvent({
-      settingsKey: 'orderAlerts',
-      type: 'order',
-      message: `Payment completed for order #${verificationResult.orderId}`,
-      relatedOrderId: verificationResult.orderId,
-      targetRole: 'CASHIER,ADMIN',
-    });
- 
-    // ✅ Customer notification
-    await notifyOrderEvent({
-      settingsKey: 'orderAlerts',
-      type: 'order',
-      message: `Your order #${verificationResult.orderId} payment was successful!`,
-      relatedOrderId: verificationResult.orderId,
-      userId: completedOrder.customer_id,
-      customerPhone: completedOrder.users?.phone,
-      customerEmail: completedOrder.users?.email,
-    });
- 
-    console.log('[paymentNotify] Notifications sent for order', verificationResult.orderId);
-  } catch (inventoryError) {
-    console.error('[paymentNotify] Inventory deduction error:', inventoryError);
-    // Still send success response to PayHere, but log the error
-    // Admin will need to manually fix inventory
-  }
-} else if (verificationResult && verificationResult.status === 'FAILED') {
-  // ✅ NEW: actually mark the order failed + notify, same as the manual failOrderPayment flow
-  try {
-    console.log('[paymentNotify] Payment failed for order:', verificationResult.orderId);
+    if (verificationResult && verificationResult.status === 'COMPLETED') {
+      try {
+        console.log('[paymentNotify] Payment completed for order:', verificationResult.orderId);
+        
+        // Invalidate caches before processing
+        invalidatePaymentCaches(verificationResult.orderId);
+     
+        // Get order items for inventory deduction
+        const orderItems = await getOrderItems(verificationResult.orderId);
+        console.log('[paymentNotify] Found', orderItems.length, 'items for order');
+     
+        // Complete order and deduct inventory
+        const completedOrder = await completeOrder(verificationResult.orderId, orderItems);
+        console.log('[paymentNotify] Order', verificationResult.orderId, 'completed and inventory deducted');
+     
+        // Staff notification
+        await notifyOrderEvent({
+          settingsKey: 'orderAlerts',
+          type: 'order',
+          message: `Payment completed for order #${verificationResult.orderId}`,
+          relatedOrderId: verificationResult.orderId,
+          targetRole: 'CASHIER,ADMIN',
+        });
+     
+        // Customer notification
+        await notifyOrderEvent({
+          settingsKey: 'orderAlerts',
+          type: 'order',
+          message: `Your order #${verificationResult.orderId} payment was successful!`,
+          relatedOrderId: verificationResult.orderId,
+          userId: completedOrder.customer_id,
+          customerPhone: completedOrder.users?.phone,
+          customerEmail: completedOrder.users?.email,
+        });
+     
+        console.log('[paymentNotify] Notifications sent for order', verificationResult.orderId);
+      } catch (inventoryError) {
+        console.error('[paymentNotify] Inventory deduction error:', inventoryError);
+        // Still send success response to PayHere, but log the error
+      }
+    } else if (verificationResult && verificationResult.status === 'FAILED') {
+      try {
+        console.log('[paymentNotify] Payment failed for order:', verificationResult.orderId);
 
-    const failedOrder = await failOrder(verificationResult.orderId);
+        // Invalidate caches
+        invalidatePaymentCaches(verificationResult.orderId);
 
-    // Staff notification
-    await notifyOrderEvent({
-      settingsKey: 'orderAlerts',
-      type: 'order',
-      message: `Order #${verificationResult.orderId} payment failed`,
-      relatedOrderId: verificationResult.orderId,
-      targetRole: 'CASHIER,ADMIN',
-    });
+        const failedOrder = await failOrder(verificationResult.orderId);
 
-    // Customer notification — email/SMS
-    await notifyOrderEvent({
-      settingsKey: 'orderAlerts',
-      type: 'order',
-      message: `Your order #${verificationResult.orderId} payment failed. Please try again.`,
-      relatedOrderId: verificationResult.orderId,
-      userId: failedOrder.customer_id,
-      customerPhone: failedOrder.users?.phone,
-      customerEmail: failedOrder.users?.email,
-    });
+        // Staff notification
+        await notifyOrderEvent({
+          settingsKey: 'orderAlerts',
+          type: 'order',
+          message: `Order #${verificationResult.orderId} payment failed`,
+          relatedOrderId: verificationResult.orderId,
+          targetRole: 'CASHIER,ADMIN',
+        });
 
-    console.log('[paymentNotify] Failure notifications sent for order', verificationResult.orderId);
-  } catch (failError) {
-    console.error('[paymentNotify] Error handling failed payment:', failError);
-  }
-} else {
-  console.log('[paymentNotify] Payment not completed, status:', verificationResult?.status);
-}
+        // Customer notification
+        await notifyOrderEvent({
+          settingsKey: 'orderAlerts',
+          type: 'order',
+          message: `Your order #${verificationResult.orderId} payment failed. Please try again.`,
+          relatedOrderId: verificationResult.orderId,
+          userId: failedOrder.customer_id,
+          customerPhone: failedOrder.users?.phone,
+          customerEmail: failedOrder.users?.email,
+        });
+
+        console.log('[paymentNotify] Failure notifications sent for order', verificationResult.orderId);
+      } catch (failError) {
+        console.error('[paymentNotify] Error handling failed payment:', failError);
+      }
+    } else {
+      console.log('[paymentNotify] Payment not completed, status:', verificationResult?.status);
+    }
     
     console.log('[paymentNotify] Payment notification processed successfully');
     
@@ -232,6 +261,18 @@ const getPaymentStatusById = async (req, res) => {
   try {
     const { orderId } = req.params;
     const userId = req.user.id;
+
+    // Check cache
+    const cacheKey = `${CACHE_KEYS.PAYMENT_STATUS_PREFIX}${orderId}`;
+    const cachedPayment = cache.get(cacheKey);
+    if (cachedPayment) {
+      console.log('[getPaymentStatusById] Returning cached payment status');
+      return res.json({ 
+        success: true, 
+        payment: cachedPayment,
+        fromCache: true 
+      });
+    }
 
     // Verify user has access to this order
     const { data: order, error: orderError } = await supabase
@@ -266,6 +307,10 @@ const getPaymentStatusById = async (req, res) => {
     }
 
     const payment = await getPaymentStatus(orderId);
+    
+    // Store in cache
+    cache.set(cacheKey, payment, CACHE_TTL.PAYMENT_STATUS);
+    
     res.json({ success: true, payment });
   } catch (err) {
     console.error('[getPaymentStatusById] Error:', err);
@@ -277,7 +322,24 @@ const getPaymentStatusById = async (req, res) => {
 const getPaymentHistoryByUser = async (req, res) => {
   try {
     const userId = req.user.id;
+
+    // Check cache
+    const cacheKey = `${CACHE_KEYS.PAYMENT_HISTORY_PREFIX}${userId}`;
+    const cachedHistory = cache.get(cacheKey);
+    if (cachedHistory) {
+      console.log('[getPaymentHistoryByUser] Returning cached payment history');
+      return res.json({ 
+        success: true, 
+        history: cachedHistory,
+        fromCache: true 
+      });
+    }
+
     const history = await getPaymentHistory(userId);
+    
+    // Store in cache
+    cache.set(cacheKey, history, CACHE_TTL.PAYMENT_HISTORY);
+    
     res.json({ success: true, history });
   } catch (err) {
     console.error('[getPaymentHistoryByUser] Error:', err);
@@ -317,7 +379,7 @@ const manuallyCompleteOrder = async (req, res) => {
     // Check if order exists
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('payment_status')
+      .select('payment_status, customer_id')
       .eq('id', orderId)
       .single();
 
@@ -337,14 +399,87 @@ const manuallyCompleteOrder = async (req, res) => {
 
     console.log('[manuallyCompleteOrder] Order', orderId, 'completed manually by admin');
 
+    // Invalidate caches
+    invalidatePaymentCaches(orderId, order.customer_id);
+
     res.json({ 
       success: true, 
       message: 'Order completed successfully', 
-      order: completedOrder 
+      order: completedOrder,
+      cacheInvalidated: true
     });
   } catch (err) {
     console.error('[manuallyCompleteOrder] Error:', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ========== CLEAR PAYMENT CACHE (Admin Utility) ==========
+const clearPaymentCache = async (req, res) => {
+  try {
+    const { orderId, userId } = req.query;
+    
+    if (orderId) {
+      invalidatePaymentCaches(orderId, userId);
+      res.status(200).json({ 
+        success: true, 
+        message: `Payment cache cleared for order: ${orderId}` 
+      });
+    } else {
+      // Clear all payment-related caches
+      const keys = cache.keys();
+      let clearedCount = 0;
+      
+      const patterns = [
+        CACHE_KEYS.PAYMENT_STATUS_PREFIX,
+        CACHE_KEYS.PAYMENT_HISTORY_PREFIX,
+      ];
+      
+      for (const key of keys) {
+        for (const pattern of patterns) {
+          if (key.startsWith(pattern)) {
+            cache.del(key);
+            clearedCount++;
+            break;
+          }
+        }
+      }
+      
+      res.status(200).json({ 
+        success: true, 
+        message: `Cleared ${clearedCount} payment cache entries`,
+        clearedCount 
+      });
+    }
+  } catch (error) {
+    console.error('[clearPaymentCache] Error:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to clear cache' });
+  }
+};
+
+// ========== GET CACHE STATS (Admin Utility) ==========
+const getCacheStats = async (req, res) => {
+  try {
+    const stats = cache.stats();
+    const keys = cache.keys();
+    
+    const paymentKeys = keys.filter(k => 
+      k.startsWith(CACHE_KEYS.PAYMENT_STATUS_PREFIX) ||
+      k.startsWith(CACHE_KEYS.PAYMENT_HISTORY_PREFIX)
+    );
+    
+    res.status(200).json({
+      success: true,
+      cacheStats: stats,
+      keyCounts: {
+        total: keys.length,
+        paymentStatus: keys.filter(k => k.startsWith(CACHE_KEYS.PAYMENT_STATUS_PREFIX)).length,
+        paymentHistory: keys.filter(k => k.startsWith(CACHE_KEYS.PAYMENT_HISTORY_PREFIX)).length,
+      }
+    });
+  } catch (error) {
+    console.error('[getCacheStats] Error:', error.message);
+    res.status(500).json({ success: false, message: 'Failed to get cache stats' });
   }
 };
 
@@ -355,5 +490,7 @@ module.exports = {
   paymentNotify,
   getPaymentStatusById,
   getPaymentHistoryByUser,
-  manuallyCompleteOrder
+  manuallyCompleteOrder,
+  clearPaymentCache,
+  getCacheStats
 };

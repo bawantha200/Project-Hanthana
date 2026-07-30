@@ -229,9 +229,61 @@ function bucketFor(dateStr, granularity) {
   return { key, label };
 }
 
+/**
+ * Save a financial summary to the financial_summaries table.
+ * Now persists period_start / period_end as well, so history and
+ * range-based queries (getSummariesByDateRange) actually have data to filter on.
+ */
+async function saveFinancialSummary({
+  totalRevenue,
+  totalExpenses,
+  netProfit,
+  period,
+  periodStart = null,
+  periodEnd = null,
+}) {
+  try {
+    const { data, error } = await supabase
+      .from("financial_summaries")
+      .insert({
+        // Full timestamp (not just the date) so multiple reports generated
+        // on the same day can still be ordered correctly by report_date.
+        report_date: new Date().toISOString(),
+        total_revenue: totalRevenue,
+        total_expenses: totalExpenses,
+        net_profit: netProfit,
+        period: period.toUpperCase(),
+        period_start: periodStart,
+        period_end: periodEnd,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error("Error saving financial summary:", error);
+    return null;
+  }
+}
+
+/**
+ * Determine period type based on date range
+ */
+function determinePeriod(dateFrom, dateTo) {
+  const from = new Date(dateFrom);
+  const to = new Date(dateTo);
+  const diffTime = Math.abs(to - from);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 1) return "DAILY";
+  if (diffDays <= 7) return "WEEKLY";
+  return "MONTHLY";
+}
+
 // GET profit trend over a date range, broken into daily/weekly/monthly points
 // depending on how wide the range is — this is what powers the profit line chart.
-async function getProfitTrend({ dateFrom, dateTo }) {
+async function getProfitTrend({ dateFrom, dateTo, saveToDatabase = true }) {
   const toInclusive = dateTo ? `${dateTo}T23:59:59.999` : null;
 
   // ---- Revenue side (paid invoices only) ----
@@ -331,15 +383,141 @@ async function getProfitTrend({ dateFrom, dateTo }) {
 
   const totalRevenue = points.reduce((sum, p) => sum + p.revenue, 0);
   const totalExpenses = points.reduce((sum, p) => sum + p.expenses, 0);
+  const netProfit = totalRevenue - totalExpenses;
 
-  return {
+  const result = {
     granularity,
     points,
     summary: {
       revenue: totalRevenue,
       expenses: totalExpenses,
-      netProfit: totalRevenue - totalExpenses,
+      netProfit: netProfit,
     },
+    savedSummary: null, // populated below if a save happens
+  };
+
+  // ---- Save to financial_summaries table ----
+  if (saveToDatabase && dateFrom && dateTo) {
+    try {
+      const period = determinePeriod(dateFrom, dateTo);
+      const saved = await saveFinancialSummary({
+        totalRevenue,
+        totalExpenses,
+        netProfit,
+        period,
+        periodStart: dateFrom,
+        periodEnd: dateTo,
+      });
+      result.savedSummary = saved;
+      if (saved) {
+        console.log(`✅ Financial summary saved successfully for period: ${period}`);
+      }
+    } catch (saveError) {
+      // Log error but don't fail the request
+      console.error("⚠️ Failed to save financial summary (non-critical):", saveError.message);
+      // The report will still be returned to the caller
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Get historical financial summaries, paginated.
+ */
+async function getFinancialSummaries({ limit = 50, offset = 0, period = null } = {}) {
+  let query = supabase
+    .from("financial_summaries")
+    .select("*", { count: "exact" })
+    .order("report_date", { ascending: false })
+    .order("id", { ascending: false }) // tiebreaker when report_date is equal
+    .range(offset, offset + limit - 1);
+
+  if (period) {
+    query = query.eq("period", period.toUpperCase());
+  }
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  return {
+    summaries: data || [],
+    total: count || 0,
+    limit,
+    offset,
+  };
+}
+
+/**
+ * Get a single financial summary by id.
+ */
+async function getSummaryById(id) {
+  const { data, error } = await supabase
+    .from("financial_summaries")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get financial summaries whose period falls within a date range.
+ */
+async function getSummariesByDateRange(startDate, endDate) {
+  const { data, error } = await supabase
+    .from("financial_summaries")
+    .select("*")
+    .gte("period_start", startDate)
+    .lte("period_end", endDate)
+    .order("period_start", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Get aggregated stats from financial summaries
+ */
+async function getAggregatedFinancialStats({ fromDate, toDate } = {}) {
+  let query = supabase
+    .from("financial_summaries")
+    .select("total_revenue, total_expenses, net_profit");
+
+  if (fromDate) {
+    query = query.gte("report_date", fromDate);
+  }
+  if (toDate) {
+    query = query.lte("report_date", toDate);
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    return {
+      totalReports: 0,
+      totalRevenue: 0,
+      totalExpenses: 0,
+      totalProfit: 0,
+      avgProfit: 0,
+      maxProfit: 0,
+      minProfit: 0,
+    };
+  }
+
+  const totalRevenue = data.reduce((sum, r) => sum + Number(r.total_revenue || 0), 0);
+  const totalExpenses = data.reduce((sum, r) => sum + Number(r.total_expenses || 0), 0);
+  const totalProfit = data.reduce((sum, r) => sum + Number(r.net_profit || 0), 0);
+  const profits = data.map((r) => Number(r.net_profit || 0));
+
+  return {
+    totalReports: data.length,
+    totalRevenue,
+    totalExpenses,
+    totalProfit,
+    avgProfit: totalProfit / data.length,
+    maxProfit: Math.max(...profits),
+    minProfit: Math.min(...profits),
   };
 }
 
@@ -351,4 +529,10 @@ module.exports = {
   getPendingPaymentsTotal,
   getMonthlyRevenueHistory,
   getProfitTrend,
+  saveFinancialSummary,
+  getFinancialSummaries,
+  getSummaryById,
+  getSummariesByDateRange,
+  getAggregatedFinancialStats,
+  determinePeriod,
 };

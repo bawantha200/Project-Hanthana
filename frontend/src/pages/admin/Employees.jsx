@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, Search, Filter, Phone, Mail, Plus, MapPin, Award, Briefcase, Calendar, 
@@ -637,34 +637,47 @@ export default function Employees() {
     setError(null);
   };
 
-  // ========== FETCH EMPLOYEES ==========
-  const fetchEmployees = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(API_URL, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log('Employees from API:', response.data);
-      if (response.data.success) {
-        setEmployees(response.data.data);
+
+// ========== FETCH EMPLOYEES ==========
+const fetchEmployees = useCallback(async () => {
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('token');
+    
+    // 💡 Frontend Search / Filter / Pagination params API එකට යවනවා නම්:
+    const response = await axios.get(API_URL, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: {
+        search: searchQuery,
+        status: activeFilter,
+        page: currentPage,
+        limit: itemsPerPage
       }
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching employees:', err);
-      setError('Failed to load employees. Please try again.');
-    } finally {
-      setLoading(false);
+    });
+
+    console.log('Employees from API:', response.data);
+    if (response.data.success) {
+      setEmployees(response.data.data);
     }
-  };
+    setError(null);
+  } catch (err) {
+    console.error('Error fetching employees:', err);
+    setError('Failed to load employees. Please try again.');
+  } finally {
+    setLoading(false);
+  }
+}, [searchQuery, activeFilter, currentPage, itemsPerPage]); // 💡 මේ dependencies වෙනස් වෙද්දී විතරක් function එක Re-create වේ.
 
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    setFormData(prev => ({ ...prev, hiredDate: today }));
-    fetchEmployees();
-    fetchDesignations();
-    fetchRoles();
-  }, []);
+  const today = new Date().toISOString().split('T')[0];
+  setFormData(prev => ({ ...prev, hiredDate: today }));
+
+  (async () => {
+    await fetchEmployees();
+    await fetchDesignations();
+    await fetchRoles();
+  })();
+}, []);
 
   useEffect(() => {
     if (showSuccess) {
@@ -830,7 +843,7 @@ export default function Employees() {
       
       const employeeData = {
         name: formData.fullName,
-        position: formData.designation,
+        
         designation_id: formData.designationId ? parseInt(formData.designationId) : null,
         phone: formData.phoneNo,
         email: formData.email,
@@ -916,18 +929,19 @@ export default function Employees() {
         statusToSend = 'pending';
       }
       
-      const updateData = {
-        name: formData.fullName,
-        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
-        phone: formData.phoneNo,
-        email: formData.email,
-        hireDate: formData.hiredDate,
-        address: formData.address,
-        baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0,
-        status: statusToSend,
-        role_id: formData.role || null
-      };
+     const updateData = {
+  name: formData.fullName,
+         // ✅ ADD THIS LINE — keep position text in sync with designation_id
+  designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+  phone: formData.phoneNo,
+  email: formData.email,
+  hireDate: formData.hiredDate,
+  address: formData.address,
+  baseSalary: parseFloat(formData.baseSalary) || 0,
+  bonus: parseFloat(formData.bonus) || 0,
+  status: statusToSend,
+  role_id: formData.role || null
+};
       
       // Handle birthday properly - only add if not empty
       if (formData.birthday && formData.birthday.trim() !== '') {
