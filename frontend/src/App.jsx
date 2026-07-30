@@ -1,6 +1,8 @@
+// frontend/src/App.jsx
 import Router from "./router/router.jsx";
 import { Toaster } from 'react-hot-toast';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 
 // ─── Configure React Query Client ───
 const queryClient = new QueryClient({
@@ -54,6 +56,9 @@ const App = () => {
         }}
       />
       <Router />
+      
+      {/* React Query DevTools - only in development */}
+      {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
   );
 };

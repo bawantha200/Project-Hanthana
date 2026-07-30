@@ -1,35 +1,82 @@
+// backend/src/controllers/employeeController.js
 const supabase = require('../config/db');
+const cache = require('../config/cache');
 
+// Cache configuration
+const CACHE_TTL = {
+  EMPLOYEES_LIST: 60,        // 60 seconds for employee list
+  EMPLOYEE_DETAILS: 120,     // 2 minutes for single employee
+  PENDING_EMPLOYEES: 30,     // 30 seconds for pending list
+  EMPLOYEE_STATS: 60,        // 60 seconds for stats
+  ROLES_LIST: 300,           // 5 minutes for roles
+};
+
+const CACHE_KEYS = {
+  EMPLOYEES: 'employees',
+  PENDING_EMPLOYEES: 'pending_employees',
+  EMPLOYEE_STATS: 'employee_stats',
+  ROLES: 'roles',
+  EMPLOYEE_PREFIX: 'employee_',
+};
+
+// Helper to invalidate employee caches
+const invalidateEmployeeCaches = (employeeId = null) => {
+  cache.del(CACHE_KEYS.EMPLOYEES);
+  cache.del(CACHE_KEYS.PENDING_EMPLOYEES);
+  cache.del(CACHE_KEYS.EMPLOYEE_STATS);
+  if (employeeId) {
+    cache.del(`${CACHE_KEYS.EMPLOYEE_PREFIX}${employeeId}`);
+  }
+};
+
+// ===== GET all employees =====
 exports.getAllEmployees = async (req, res) => {
   try {
     const { position, status, search, limit, page } = req.query;
 
     console.log('[Employees] Fetching with params:', { position, status, search, limit, page });
 
-    let query = supabase
-  .from('employees')
-  .select(`
-    id,
-    name,
-    email,
-    phone,
+    // Build cache key based on query params
+    const cacheKey = `${CACHE_KEYS.EMPLOYEES}_${status || 'all'}_${search || 'none'}_${page || 1}_${limit || 50}`;
     
-    status,
-    hire_date,
-    profile_image,
-    base_salary,
-    role_id,  
-    bonus,        
-    designation:designation_id (
-      id,
-      designation,
-      ot_rate
-    )
-  `);
+    // Check cache
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      console.log('[Employees] Returning cached data');
+      return res.status(200).json({
+        success: true,
+        ...cachedData,
+        fromCache: true
+      });
+    }
 
-   
+    let query = supabase
+      .from('employees')
+      .select(`
+        id,
+        name,
+        email,
+        phone,
+        status,
+        hire_date,
+        profile_image,
+        base_salary,
+        role_id,  
+        bonus,
+        rejection_reason,
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
+        ),
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `);
 
-    // ✅ FIX: Status filter (All නෙමෙයි නම් පමණක්)
+    // Status filter
     if (status && status !== 'All') {
       query = query.eq('status', status);
     }
@@ -37,7 +84,7 @@ exports.getAllEmployees = async (req, res) => {
     // Search filter
     if (search && search.trim() !== '') {
       const searchTerm = search.trim();
-      query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`);
     }
 
     // Pagination
@@ -59,13 +106,20 @@ exports.getAllEmployees = async (req, res) => {
       });
     }
 
+    const responseData = {
+      data: data || [],
+      count: data?.length || 0,
+      page: pageNum
+    };
+
+    // Store in cache
+    cache.set(cacheKey, responseData, CACHE_TTL.EMPLOYEES_LIST);
+
     console.log(`[Employees] Found ${data?.length || 0} employees`);
 
     res.status(200).json({
       success: true,
-      data: data || [],
-      count: data?.length || 0,
-      page: pageNum
+      ...responseData
     });
   } catch (error) {
     console.error('[Employees] Server error:', error);
@@ -77,12 +131,21 @@ exports.getAllEmployees = async (req, res) => {
   }
 };
 
-
-
 // ===== GET pending employees =====
 exports.getPendingEmployees = async (req, res) => {
   try {
     console.log('[Employees] Fetching pending employees...');
+    
+    // Check cache
+    const cachedData = cache.get(CACHE_KEYS.PENDING_EMPLOYEES);
+    if (cachedData) {
+      console.log('[Employees] Returning cached pending employees');
+      return res.status(200).json({
+        success: true,
+        data: cachedData,
+        fromCache: true
+      });
+    }
     
     const { data, error } = await supabase
       .from('employees')
@@ -92,6 +155,11 @@ exports.getPendingEmployees = async (req, res) => {
           id,
           role_name,
           description
+        ),
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
         )
       `)
       .eq('status', 'pending')
@@ -105,6 +173,9 @@ exports.getPendingEmployees = async (req, res) => {
         error: error.message
       });
     }
+
+    // Store in cache
+    cache.set(CACHE_KEYS.PENDING_EMPLOYEES, data || [], CACHE_TTL.PENDING_EMPLOYEES);
 
     console.log(`[Employees] Found ${data?.length || 0} pending employees`);
 
@@ -127,13 +198,26 @@ exports.getEmployeeById = async (req, res) => {
   try {
     const { id } = req.params;
     
+    // Check cache
+    const cacheKey = `${CACHE_KEYS.EMPLOYEE_PREFIX}${id}`;
+    const cachedData = cache.get(cacheKey);
+    if (cachedData) {
+      console.log(`[Employees] Returning cached employee: ${id}`);
+      return res.status(200).json({
+        success: true,
+        data: cachedData,
+        fromCache: true
+      });
+    }
+    
     const { data, error } = await supabase
       .from('employees')
       .select(`
         *,
         designation:designation_id (
           id,
-          designation
+          designation,
+          ot_rate
         ),
         role:role_id (
           id,
@@ -152,11 +236,15 @@ exports.getEmployeeById = async (req, res) => {
       });
     }
     
+    // Store in cache
+    cache.set(cacheKey, data, CACHE_TTL.EMPLOYEE_DETAILS);
+    
     res.status(200).json({
       success: true,
       data: data
     });
   } catch (error) {
+    console.error('[Employees] Get by ID error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -169,20 +257,32 @@ exports.getEmployeeById = async (req, res) => {
 exports.createEmployee = async (req, res) => {
   try {
     const {
-  name, designation_id, phone, email, hireDate,
-  birthday, gender, nic, address, marriageStatus,
-  jobType, profileImage, baseSalary, bonus,
-  role_id
-} = req.body;
+      name,
+      designation_id,
+      phone,
+      email,
+      hireDate,
+      birthday,
+      gender,
+      nic,
+      address,
+      marriageStatus,
+      jobType,
+      profileImage,
+      baseSalary,
+      bonus,
+      role_id
+    } = req.body;
 
-if (!name || !email || !phone || !designation_id || !address || !hireDate) {
-  return res.status(400).json({
-    success: false,
-    message: 'Please provide all required fields: name, email, phone, designation, address, hireDate'
-  });
-}
+    // Validation
+    if (!name || !email || !phone || !designation_id || !address || !hireDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide all required fields: name, email, phone, designation, address, hireDate'
+      });
+    }
 
-    // ✅ Email format
+    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email.trim())) {
       return res.status(400).json({
@@ -191,7 +291,7 @@ if (!name || !email || !phone || !designation_id || !address || !hireDate) {
       });
     }
 
-    // ✅ Phone: must be exactly 10 digits (local) or valid intl format
+    // Phone validation
     const cleanedPhone = phone.trim().replace(/\s+/g, '');
     const localPhoneRegex = /^0\d{9}$/;
     const intlPhoneRegex = /^\+94\d{9}$/;
@@ -203,7 +303,7 @@ if (!name || !email || !phone || !designation_id || !address || !hireDate) {
       });
     }
 
-    // ✅ NIC: old (9 digits + V/X) or new (12 digits)
+    // NIC validation (if provided)
     if (nic) {
       const cleanedNic = nic.trim().toUpperCase();
       const oldNicRegex = /^[0-9]{9}[VX]$/;
@@ -217,7 +317,7 @@ if (!name || !email || !phone || !designation_id || !address || !hireDate) {
       }
     }
 
-    // ✅ Duplicate checks
+    // Duplicate checks
     const { data: existingEmail } = await supabase
       .from('employees').select('email').eq('email', email).maybeSingle();
     if (existingEmail) {
@@ -237,15 +337,14 @@ if (!name || !email || !phone || !designation_id || !address || !hireDate) {
         return res.status(409).json({ success: false, message: 'Employee with this NIC already exists' });
       }
     }
-    
+
     const employeeData = {
       name,
-      
       designation_id: designation_id || null,
       phone: cleanedPhone,
       email,
       hire_date: hireDate,
-      status: role_id ? 'pending' : 'active',   // ✅ No role = active immediately, skip pending/account-creation flow
+      status: role_id ? 'pending' : 'active',
       role_id: role_id || null,
       gender: gender || null,
       nic: nic ? nic.trim().toUpperCase() : null,
@@ -263,18 +362,18 @@ if (!name || !email || !phone || !designation_id || !address || !hireDate) {
       .from('employees')
       .insert([employeeData])
       .select(`
-  *,
-  designation:designation_id (
-    id,
-    designation,
-    ot_rate
-  ),
-  role:role_id (
-    id,
-    role_name,
-    description
-  )
-`);
+        *,
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
+        ),
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `);
     
     if (error) {
       console.error('Supabase error:', error);
@@ -284,9 +383,12 @@ if (!name || !email || !phone || !designation_id || !address || !hireDate) {
       return res.status(400).json({ success: false, message: 'Error creating employee', error: error.message });
     }
     
+    // Invalidate caches
+    invalidateEmployeeCaches();
+    
     res.status(201).json({
       success: true,
-      message: 'Employee created successfully (pending)',
+      message: 'Employee created successfully',
       data: data[0]
     });
   } catch (error) {
@@ -301,7 +403,6 @@ exports.updateEmployee = async (req, res) => {
     const { id } = req.params;
     const {
       name,
-      
       designation_id,
       phone,
       email,
@@ -316,7 +417,7 @@ exports.updateEmployee = async (req, res) => {
       status,
       baseSalary,
       bonus,
-      role_id  // ✅ ADDED: Accept role_id from frontend
+      role_id
     } = req.body;
     
     // Check if employee exists
@@ -333,48 +434,35 @@ exports.updateEmployee = async (req, res) => {
       });
     }
     
-    // Build update data object
+    // Build update data
     const updateData = {};
     if (name) updateData.name = name;
-    
     if (designation_id !== undefined) updateData.designation_id = designation_id || null;
     if (phone) updateData.phone = phone;
     if (email) updateData.email = email;
     if (hireDate) updateData.hire_date = hireDate;
     if (address) updateData.address = address;
-    if (role_id !== undefined) updateData.role_id = role_id || null;  // ✅ ADDED: Update role_id
-    
-    // Optional fields
+    if (role_id !== undefined) updateData.role_id = role_id || null;
     if (birthday !== undefined && birthday !== '') updateData.birthday = birthday;
     else if (birthday === '') updateData.birthday = null;
-    
     if (gender !== undefined && gender !== '') updateData.gender = gender;
     else if (gender === '') updateData.gender = null;
-    
     if (nic !== undefined && nic !== '') updateData.nic = nic;
     else if (nic === '') updateData.nic = null;
-    
     if (marriageStatus !== undefined && marriageStatus !== '') updateData.marriage_status = marriageStatus;
     else if (marriageStatus === '') updateData.marriage_status = null;
-    
     if (jobType !== undefined && jobType !== '') updateData.job_type = jobType;
     else if (jobType === '') updateData.job_type = null;
-    
     if (profileImage !== undefined) updateData.profile_image = profileImage;
     if (status) updateData.status = status;
-
     if (status && status !== 'rejected') {
       updateData.rejection_reason = null;
     }
-    
-    // Base Salary
     if (baseSalary !== undefined && baseSalary !== '') {
       updateData.base_salary = parseFloat(baseSalary);
     } else if (baseSalary === '') {
       updateData.base_salary = 0;
     }
-    
-    // Bonus
     if (bonus !== undefined && bonus !== '') {
       updateData.bonus = parseFloat(bonus);
     } else if (bonus === '') {
@@ -383,9 +471,7 @@ exports.updateEmployee = async (req, res) => {
     
     updateData.updated_at = new Date().toISOString();
     
-    console.log('[Employees] Updating employee with data:', updateData);
-    
-    // Check email uniqueness if email is being updated
+    // Check email uniqueness
     if (email) {
       const { data: emailCheck } = await supabase
         .from('employees')
@@ -407,18 +493,18 @@ exports.updateEmployee = async (req, res) => {
       .update(updateData)
       .eq('id', id)
       .select(`
-  *,
-  designation:designation_id (
-    id,
-    designation,
-    ot_rate
-  ),
-  role:role_id (
-    id,
-    role_name,
-    description
-  )
-`);
+        *,
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
+        ),
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `);
     
     if (error) {
       console.error('Supabase update error:', error);
@@ -428,6 +514,9 @@ exports.updateEmployee = async (req, res) => {
         error: error.message
       });
     }
+    
+    // Invalidate caches
+    invalidateEmployeeCaches(id);
     
     res.status(200).json({
       success: true,
@@ -475,11 +564,15 @@ exports.deleteEmployee = async (req, res) => {
       });
     }
     
+    // Invalidate caches
+    invalidateEmployeeCaches(id);
+    
     res.status(200).json({
       success: true,
       message: `Employee ${existingEmployee.name} deleted successfully`
     });
   } catch (error) {
+    console.error('[Employees] Delete error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -489,26 +582,40 @@ exports.deleteEmployee = async (req, res) => {
 };
 
 // ===== GET employee statistics =====
-// ===== GET employee statistics (Optimized Pure Count Query) =====
 exports.getEmployeeStats = async (req, res) => {
   try {
-    // 💡 head: true, count: 'exact' භාවිතයෙන් Data fetch නොකර DB එකෙන් කෙලින්ම count එක පමණක් ගනී.
+    // Check cache
+    const cachedData = cache.get(CACHE_KEYS.EMPLOYEE_STATS);
+    if (cachedData) {
+      return res.status(200).json({
+        success: true,
+        data: cachedData,
+        fromCache: true
+      });
+    }
+    
     const [{ count: total }, { count: active }, { count: pending }] = await Promise.all([
       supabase.from('employees').select('*', { count: 'exact', head: true }),
       supabase.from('employees').select('*', { count: 'exact', head: true }).eq('status', 'active'),
       supabase.from('employees').select('*', { count: 'exact', head: true }).eq('status', 'pending')
     ]);
     
+    const statsData = {
+      total: total || 0,
+      active: active || 0,
+      pending: pending || 0,
+      managers: 0
+    };
+    
+    // Store in cache
+    cache.set(CACHE_KEYS.EMPLOYEE_STATS, statsData, CACHE_TTL.EMPLOYEE_STATS);
+    
     res.status(200).json({
       success: true,
-      data: {
-        total: total || 0,
-        active: active || 0,
-        pending: pending || 0,
-        managers: 0
-      }
+      data: statsData
     });
   } catch (error) {
+    console.error('[Employees] Stats error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -517,7 +624,7 @@ exports.getEmployeeStats = async (req, res) => {
   }
 };
 
-// ===== Update employee status =====
+// ===== UPDATE employee status =====
 exports.updateEmployeeStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -530,24 +637,57 @@ exports.updateEmployeeStatus = async (req, res) => {
       });
     }
     
-    const validStatuses = ['pending', 'active'];
+    const validStatuses = ['pending', 'active', 'rejected'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be: pending, or active'
+        message: 'Invalid status. Must be: pending, active, or rejected'
       });
+    }
+    
+    const { data: existingEmployee } = await supabase
+      .from('employees')
+      .select('id, name, status')
+      .eq('id', id)
+      .maybeSingle();
+    
+    if (!existingEmployee) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employee not found'
+      });
+    }
+    
+    const updateData = {
+      status: status,
+      updated_at: new Date().toISOString()
+    };
+    
+    // If changing from pending to active, clear rejection reason
+    if (status === 'active' && existingEmployee.status === 'rejected') {
+      updateData.rejection_reason = null;
     }
     
     const { data, error } = await supabase
       .from('employees')
-      .update({ 
-        status: status,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
-      .select();
+      .select(`
+        *,
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
+        ),
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `);
     
     if (error) {
+      console.error('[Employees] Status update error:', error);
       return res.status(400).json({
         success: false,
         message: 'Error updating employee status',
@@ -562,12 +702,16 @@ exports.updateEmployeeStatus = async (req, res) => {
       });
     }
     
+    // Invalidate caches
+    invalidateEmployeeCaches(id);
+    
     res.status(200).json({
       success: true,
-      message: 'Employee status updated successfully',
+      message: `Employee status updated to ${status}`,
       data: data[0]
     });
   } catch (error) {
+    console.error('[Employees] Status update error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -580,6 +724,17 @@ exports.updateEmployeeStatus = async (req, res) => {
 exports.getAllRoles = async (req, res) => {
   try {
     console.log('[Roles] Fetching all roles...');
+    
+    // Check cache
+    const cachedData = cache.get(CACHE_KEYS.ROLES);
+    if (cachedData) {
+      console.log('[Roles] Returning cached roles');
+      return res.status(200).json({
+        success: true,
+        data: cachedData,
+        fromCache: true
+      });
+    }
     
     const { data, error } = await supabase
       .from('roles')
@@ -594,6 +749,9 @@ exports.getAllRoles = async (req, res) => {
         error: error.message
       });
     }
+    
+    // Store in cache
+    cache.set(CACHE_KEYS.ROLES, data || [], CACHE_TTL.ROLES_LIST);
     
     console.log(`[Roles] Found ${data?.length || 0} roles`);
     
@@ -645,7 +803,19 @@ exports.rejectEmployee = async (req, res) => {
         updated_at: new Date().toISOString()
       })
       .eq('id', id)
-      .select();
+      .select(`
+        *,
+        designation:designation_id (
+          id,
+          designation,
+          ot_rate
+        ),
+        role:role_id (
+          id,
+          role_name,
+          description
+        )
+      `);
 
     if (error) {
       console.error('[Employees] Reject error:', error);
@@ -655,6 +825,9 @@ exports.rejectEmployee = async (req, res) => {
         error: error.message
       });
     }
+
+    // Invalidate caches
+    invalidateEmployeeCaches(id);
 
     res.status(200).json({
       success: true,
@@ -671,6 +844,7 @@ exports.rejectEmployee = async (req, res) => {
   }
 };
 
+// ===== ✅ ALL METHODS EXPORTED CORRECTLY =====
 module.exports = {
   getAllEmployees: exports.getAllEmployees,
   getPendingEmployees: exports.getPendingEmployees,
@@ -681,6 +855,5 @@ module.exports = {
   getEmployeeStats: exports.getEmployeeStats,
   updateEmployeeStatus: exports.updateEmployeeStatus,
   getAllRoles: exports.getAllRoles,
-  rejectEmployee: exports.rejectEmployee, 
-
+  rejectEmployee: exports.rejectEmployee,
 };
