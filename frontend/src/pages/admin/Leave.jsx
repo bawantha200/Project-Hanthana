@@ -31,14 +31,14 @@ const itemVariants = {
 
 // ========== LEAVE TYPES WITH ICONS ==========
 const LEAVE_TYPES = {
-  'Annual Leave': { color: 'blue', maxDays: 14, icon: '🏖️' },
-  'Sick Leave': { color: 'red', maxDays: 7, icon: '🤒' },
-  'Casual Leave': { color: 'green', maxDays: 5, icon: '🌴' },
-  'Maternity Leave': { color: 'pink', maxDays: 84, icon: '👶' },
-  'Paternity Leave': { color: 'purple', maxDays: 3, icon: '👨‍👦' },
-  'Bereavement Leave': { color: 'gray', maxDays: 3, icon: '🕊️' },
-  'Public Holiday': { color: 'orange', maxDays: 5, icon: '🎉' },
-  'Other': { color: 'gray', maxDays: 10, icon: '📋' },
+  'Annual Leave': { color: 'blue', maxDays: 14 },
+  'Sick Leave': { color: 'red', maxDays: 7 },
+  'Casual Leave': { color: 'green', maxDays: 5 },
+  'Maternity Leave': { color: 'pink', maxDays: 84 },
+  'Paternity Leave': { color: 'purple', maxDays: 3 },
+  'Bereavement Leave': { color: 'gray', maxDays: 3 },
+  'Public Holiday': { color: 'orange', maxDays: 5 },
+  'Other': { color: 'gray', maxDays: 10 },
 };
 
 // ========== LEAVE STATUS ==========
