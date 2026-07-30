@@ -124,7 +124,10 @@ const addSalary = async (salaryData) => {
 const createEmployee = async (employeeData) => {
   const token = localStorage.getItem('token');
   const response = await axios.post(EMPLOYEES_API, employeeData, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
   });
   if (!response.data.success) throw new Error(response.data.message || 'Failed to create employee');
   return response.data.data;
@@ -223,6 +226,8 @@ export default function HRMDashboard() {
     isLoading: employeesLoading,
     error: employeesError,
     refetch: refetchEmployees,
+    isFetching: isEmployeesFetching,
+    dataUpdatedAt: employeesUpdatedAt,
   } = useQuery({
     queryKey: ['hrm-employees'],
     queryFn: fetchEmployees,
@@ -240,6 +245,7 @@ export default function HRMDashboard() {
     isLoading: attendanceLoading,
     error: attendanceError,
     refetch: refetchAttendance,
+    isFetching: isAttendanceFetching,
   } = useQuery({
     queryKey: ['hrm-attendance'],
     queryFn: fetchAttendance,
@@ -290,6 +296,7 @@ export default function HRMDashboard() {
     data: roles = [],
     isLoading: rolesLoading,
     error: rolesError,
+    refetch: refetchRoles,
   } = useQuery({
     queryKey: ['hrm-roles'],
     queryFn: fetchRoles,
@@ -353,17 +360,25 @@ export default function HRMDashboard() {
     onSettled: () => setSubmitting(false),
   });
 
-  useEffect(() => {
-    const today = new Date();
-    setTodayDate(today.toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }));
-    fetchAllData();
-    fetchRoles();
-  }, []);
+  // Update Employee Mutation
+  const updateEmployeeMutation = useMutation({
+    mutationFn: updateEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+      showSuccessNotification('Employee updated successfully!');
+      setShowEmployeeForm(false);
+      resetEmployeeForm();
+      setEditingEmployee(null);
+    },
+    onError: (err) => {
+      if (err.response?.status === 409) {
+        setError('Email already in use by another employee.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to update employee.');
+      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
 
   // Delete Employee
   const deleteEmployeeMutation = useMutation({
@@ -600,11 +615,16 @@ export default function HRMDashboard() {
     }
   };
 
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+    queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
+    queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
+    queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
+  };
+
   // ===== DERIVED DATA =====
 
   const totalStaff = employees.length;
-
-  // Local date (not UTC) — fixes the "shows yesterday" bug near midnight
   const todayStr = getLocalDateString();
 
   const todaysAttendance = attendanceData.filter((a) => (a.date || '').slice(0, 10) === todayStr);
@@ -616,24 +636,9 @@ export default function HRMDashboard() {
   const monthlyPayout = salaryData.reduce((sum, s) => sum + (s.total_salary || s.total || 0), 0);
   const totalOTHours = salaryData.reduce((sum, s) => sum + (s.ot_hours || s.otHours || 0), 0);
 
-  // Today's attendance rate
   const todayAttendanceRate = totalStaff > 0
     ? Math.round((presentToday / totalStaff) * 100)
     : 0;
-
-
-  console.log('[Attendance Rate Debug]', {
-  todayStr,
-  totalStaff,
-  totalAttendanceRecords: attendanceData.length,
-  sampleRawDate: attendanceData[0]?.date, 
-  todaysAttendanceCount: todaysAttendance.length,
-  todaysAttendance,
-  presentToday,
-  absentToday,
-  halfDayToday,
-  todayAttendanceRate,
-});
 
   const pendingLeaves = leaveData.filter(l => l.status === 'pending').length;
   const approvedLeaves = leaveData.filter(l => l.status === 'approved').length;
@@ -646,6 +651,8 @@ export default function HRMDashboard() {
     absentToday,
     monthlyPayout
   };
+
+  const lastUpdated = employeesUpdatedAt ? new Date(employeesUpdatedAt).toLocaleTimeString() : 'Never';
 
   const filteredEmployees = employees.filter((employee) => {
     const matchesPosition = activeFilter === 'All' || employee.position === activeFilter;
@@ -695,12 +702,7 @@ export default function HRMDashboard() {
         <AlertCircle size={48} className="text-red-500 mb-4" />
         <p className="text-gray-600">Failed to load data: {anyError.message}</p>
         <button
-          onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
-            queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
-            queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
-            queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
-          }}
+          onClick={handleRefresh}
           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           Retry
@@ -763,20 +765,26 @@ export default function HRMDashboard() {
             <p className="text-sm text-gray-500 mt-1">
               Comprehensive human resource management — Employees, attendance, and salaries
             </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
-              <span className="text-xs text-gray-400">{loading ? 'Updating...' : 'Live'}</span>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+                <span className="text-xs text-gray-400">{loading ? 'Updating...' : 'Live'}</span>
+              </div>
+              <span className="text-xs text-gray-400">•</span>
+              <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {isEmployeesFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Syncing...
+              </span>
+            )}
             <button
-              onClick={() => {
-                queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
-                queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
-                queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
-                queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+              onClick={handleRefresh}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm disabled:opacity-50"
             >
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               Refresh
@@ -1119,9 +1127,9 @@ export default function HRMDashboard() {
           </div>
 
           {/* ============================================ */}
-          {/* ENLARGED EMPLOYEE TABLE WITH FULL WIDTH */}
+          {/* EMPLOYEE TABLE - FULL WIDTH */}
           {/* ============================================ */}
-          {/* <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="p-6 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
               <div>
                 <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
@@ -1286,7 +1294,7 @@ export default function HRMDashboard() {
                 </tbody>
               </table>
             </div>
-          </div> */}
+          </div>
         </motion.div>
       )}
 
