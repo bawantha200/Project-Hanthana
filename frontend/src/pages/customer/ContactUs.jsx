@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader } from 'lucide-react';
+import { Phone, Mail, MapPin, Clock, Send, MessageSquare, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -26,10 +26,19 @@ const ContactUs = () => {
     message: '',
   });
 
+  const [formErrors, setFormErrors] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    subject: '',
+    message: '',
+  });
+
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState('');
   
-  // 🆕 Settings State
+  // Settings State
   const [settings, setSettings] = useState({
     contactPhone: '+94 76 835 686',
     contactEmail: 'support@hanthana.com',
@@ -43,6 +52,8 @@ const ContactUs = () => {
     address: 'Colombo, Sri Lanka',
     companyName: 'Hanthana Water'
   });
+
+  const [settingsLoading, setSettingsLoading] = useState(true);
 
   // ===== FETCH SETTINGS =====
   useEffect(() => {
@@ -72,45 +83,143 @@ const ContactUs = () => {
         }
       } catch (error) {
         console.error('Fetch settings error:', error);
-        // Fallback values already set in state
       } finally {
-        setLoading(false);
+        setSettingsLoading(false);
       }
     };
 
     fetchSettings();
   }, []);
 
-  
-  const [serverError, setServerError] = useState(''); 
+  const validateField = (name, value) => {
+    let error = '';
 
+    switch (name) {
+      case 'name':
+        if (!value.trim()) {
+          error = 'Name is required';
+        } else if (value.trim().length < 2) {
+          error = 'Name must be at least 2 characters';
+        }
+        break;
+
+      case 'email':
+        if (!value.trim()) {
+          error = 'Email is required';
+        } else {
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(value)) {
+            error = 'Please enter a valid email address';
+          }
+        }
+        break;
+
+      case 'phone':
+        if (!value.trim()) {
+          error = 'Phone is required';
+        } else {
+          const phoneRegex = /^[\+]?[(]?[0-9]{3}[)]?[-\s\.]?[0-9]{3}[-\s\.]?[0-9]{4,6}$/;
+          if (!phoneRegex.test(value.replace(/\s/g, ''))) {
+            error = 'Please enter a valid phone number';
+          }
+        }
+        break;
+
+      case 'subject':
+        if (!value.trim()) {
+          error = 'Subject is required';
+        } else if (value.trim().length < 3) {
+          error = 'Subject must be at least 3 characters';
+        }
+        break;
+
+      case 'message':
+        if (!value.trim()) {
+          error = 'Message is required';
+        } else if (value.trim().length < 10) {
+          error = 'Message must be at least 10 characters';
+        }
+        break;
+
+      default:
+        break;
+    }
+
+    return error;
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    
+    // Clear error for this field when user starts typing
+    if (formErrors[name]) {
+      setFormErrors((prev) => ({ ...prev, [name]: '' }));
+    }
   };
 
+  const handleBlur = (e) => {
+    const { name, value } = e.target;
+    const error = validateField(name, value);
+    setFormErrors((prev) => ({ ...prev, [name]: error }));
+  };
+
+  const validateForm = () => {
+    const errors = {};
+    let isValid = true;
+
+    Object.keys(formData).forEach((key) => {
+      const error = validateField(key, formData[key]);
+      if (error) {
+        errors[key] = error;
+        isValid = false;
+      }
+    });
+
+    setFormErrors(errors);
+    return isValid;
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
     setServerError('');
     setSubmitted(false);
 
+    // Validate form
+    if (!validateForm()) {
+      // Scroll to first error
+      const firstErrorField = Object.keys(formErrors).find(key => formErrors[key]);
+      if (firstErrorField) {
+        document.getElementById(firstErrorField)?.focus();
+      }
+      return;
+    }
+
+    setLoading(true);
+
     try {
-      
       const response = await axios.post('http://localhost:5000/api/contact/send-message', formData);
 
       if (response.data.success) {
         setSubmitted(true);
-       
+        
+        // Scroll to success message
+        setTimeout(() => {
+          document.getElementById('success-message')?.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'center' 
+          });
+        }, 100);
+        
+        // Clear form
         setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
-      
-        setTimeout(() => setSubmitted(false), 5000);
+        setFormErrors({ name: '', email: '', phone: '', subject: '', message: '' });
+        
+        // Auto-hide success message after 10 seconds
+        setTimeout(() => setSubmitted(false), 10000);
       }
     } catch (error) {
       console.error('Frontend Submit Error:', error);
-      
       setServerError(error.response?.data?.message || 'Something went wrong. Please try again.');
     } finally {
       setLoading(false);
@@ -124,7 +233,7 @@ const ContactUs = () => {
     { day: 'Emergency Delivery', hours: settings.businessHours.emergency || '24/7 Available' },
   ];
 
-  if (loading) {
+  if (settingsLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
@@ -134,9 +243,8 @@ const ContactUs = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Hero */}
+      {/* Hero Section - Same as before */}
       <section className="relative overflow-hidden bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600">
-        {/* Image Background – visible and with dark overlay for text contrast */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <img 
             src="/images/contactus.jpeg" 
@@ -260,6 +368,7 @@ const ContactUs = () => {
               {/* Success Alert */}
               {submitted && (
                 <motion.div
+                  id="success-message"
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   className="mb-6 bg-green-50 border border-green-200 text-green-700 rounded-xl px-4 py-3 text-sm font-medium"
@@ -280,11 +389,11 @@ const ContactUs = () => {
                 </motion.div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
                     <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Name
+                      Name <span className="text-red-500"></span>
                     </label>
                     <input
                       type="text"
@@ -292,15 +401,21 @@ const ContactUs = () => {
                       name="name"
                       value={formData.name}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       required
                       disabled={loading}
                       placeholder="Your full name"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
+                      className={`w-full px-4 py-3 rounded-xl border ${
+                        formErrors.name ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-gray-50'
+                      } text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60`}
                     />
+                    {formErrors.name && (
+                      <p className="mt-1.5 text-sm text-red-600">{formErrors.name}</p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Email
+                      Email <span className="text-red-500"></span>
                     </label>
                     <input
                       type="email"
@@ -308,11 +423,17 @@ const ContactUs = () => {
                       name="email"
                       value={formData.email}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       required
                       disabled={loading}
                       placeholder="you@example.com"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
+                      className={`w-full px-4 py-3 rounded-xl border ${
+                        formErrors.email ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-gray-50'
+                      } text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60`}
                     />
+                    {formErrors.email && (
+                      <p className="mt-1.5 text-sm text-red-600">{formErrors.email}</p>
+                    )}
                   </div>
                 </div>
 
@@ -322,19 +443,25 @@ const ContactUs = () => {
                       Phone
                     </label>
                     <input
-                      type="text"
+                      type="tel"
                       id="phone"
                       name="phone"
                       value={formData.phone}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       disabled={loading}
                       placeholder="+94 7X XXX XXXX"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
+                      className={`w-full px-4 py-3 rounded-xl border ${
+                        formErrors.phone ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-gray-50'
+                      } text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60`}
                     />
+                    {formErrors.phone && (
+                      <p className="mt-1.5 text-sm text-red-600">{formErrors.phone}</p>
+                    )}
                   </div>
                   <div>
                     <label htmlFor="subject" className="block text-sm font-medium text-gray-700 mb-1.5">
-                      Subject
+                      Subject <span className="text-red-500"></span>
                     </label>
                     <input
                       type="text"
@@ -342,32 +469,43 @@ const ContactUs = () => {
                       name="subject"
                       value={formData.subject}
                       onChange={handleChange}
+                      onBlur={handleBlur}
                       required
                       disabled={loading}
                       placeholder="How can we help?"
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60"
+                      className={`w-full px-4 py-3 rounded-xl border ${
+                        formErrors.subject ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-gray-50'
+                      } text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 disabled:opacity-60`}
                     />
+                    {formErrors.subject && (
+                      <p className="mt-1.5 text-sm text-red-600">{formErrors.subject}</p>
+                    )}
                   </div>
                 </div>
 
                 <div>
                   <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-1.5">
-                    Message
+                    Message <span className="text-red-500"></span>
                   </label>
                   <textarea
                     id="message"
                     name="message"
                     value={formData.message}
                     onChange={handleChange}
+                    onBlur={handleBlur}
                     required
                     disabled={loading}
                     rows={5}
                     placeholder="Tell us more about your inquiry..."
-                    className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none disabled:opacity-60"
+                    className={`w-full px-4 py-3 rounded-xl border ${
+                      formErrors.message ? 'border-red-500 bg-red-50' : 'border-gray-200 bg-gray-50'
+                    } text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 resize-none disabled:opacity-60`}
                   />
+                  {formErrors.message && (
+                    <p className="mt-1.5 text-sm text-red-600">{formErrors.message}</p>
+                  )}
                 </div>
 
-                {/* Submit Button with Loading Indicator */}
                 <button
                   type="submit"
                   disabled={loading}
@@ -388,7 +526,7 @@ const ContactUs = () => {
               </form>
             </motion.div>
 
-            {/* Info Cards - 🆕 Dynamic Data */}
+            {/* Info Cards */}
             <motion.div
               initial="hidden"
               whileInView="visible"
@@ -396,7 +534,7 @@ const ContactUs = () => {
               variants={staggerContainer}
               className="lg:col-span-2 space-y-6"
             >
-              {/* Hotline Card - 🆕 Dynamic */}
+              {/* Hotline Card */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -418,7 +556,7 @@ const ContactUs = () => {
                 </div>
               </motion.div>
 
-              {/* Email Card - 🆕 Dynamic */}
+              {/* Email Card */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -449,7 +587,7 @@ const ContactUs = () => {
                 </div>
               </motion.div>
 
-              {/* Business Hours Card - 🆕 Dynamic */}
+              {/* Business Hours Card */}
               <motion.div
                 variants={fadeInUp}
                 transition={{ duration: 0.4 }}
@@ -491,7 +629,7 @@ const ContactUs = () => {
         </div>
       </section>
 
-      {/* Business Hours Detailed Section - 🆕 Dynamic */}
+      {/* Business Hours Detailed Section */}
       <section className="py-16 sm:py-20 bg-gradient-to-br from-[#2563EB] via-blue-600 to-cyan-600 relative overflow-hidden">
         <div className="absolute -top-16 -right-16 w-48 h-48 bg-white/5 rounded-full" />
         <div className="absolute -bottom-12 -left-12 w-40 h-40 bg-white/5 rounded-full" />
@@ -541,7 +679,6 @@ const ContactUs = () => {
             ))}
           </motion.div>
 
-          {/* Emergency note - 🆕 Dynamic */}
           <motion.div
             initial="hidden"
             whileInView="visible"

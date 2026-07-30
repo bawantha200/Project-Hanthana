@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import {
   Users, Shield, UserCheck, Clock, ArrowUpRight,
-  UserPlus, ShieldCheck, Activity, ToggleRight, ToggleLeft, UserCog,
+  ShieldCheck, Activity, ToggleRight, ToggleLeft,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -34,6 +34,9 @@ const cardClass =
 
 const ROLE_COLORS = ['#2563eb', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981'];
 
+// How many audit log rows to show in the dashboard preview card
+const ACTIVITY_PREVIEW_LIMIT = 5;
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
 
@@ -42,6 +45,10 @@ export default function AdminDashboard() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [employees, setEmployees] = useState([]);
   const [employeesLoading, setEmployeesLoading] = useState(false);
+
+  // ===== Audit log preview (same source as SystemActivity.jsx) =====
+  const [activityLogs, setActivityLogs] = useState([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   // ===== FETCH USERS =====
   const fetchUsers = useCallback(async () => {
@@ -75,10 +82,28 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  // ===== FETCH RECENT AUDIT LOGS (preview — same backend as SystemActivity.jsx) =====
+  const fetchRecentActivity = useCallback(async () => {
+    setActivityLoading(true);
+    try {
+      const { data } = await axios.get(`${API_BASE}/audit-logs`, {
+        headers: getAuthHeaders(),
+        params: { page: 1, limit: ACTIVITY_PREVIEW_LIMIT },
+      });
+      if (data.success) setActivityLogs(data.data || []);
+    } catch (err) {
+      console.error('Fetch Recent Audit Logs Error:', err);
+      toast.error(err.response?.data?.message || 'Failed to load recent activity');
+    } finally {
+      setActivityLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchUsers();
     fetchEmployees();
-  }, [fetchUsers, fetchEmployees]);
+    fetchRecentActivity();
+  }, [fetchUsers, fetchEmployees, fetchRecentActivity]);
 
   const loading = usersLoading || employeesLoading;
 
@@ -117,34 +142,6 @@ export default function AdminDashboard() {
       .slice(0, 6);
   }, [users]);
 
-  // Simple system activity feed derived from users/employees state
-  const activityFeed = useMemo(() => {
-    const userEvents = users
-      .filter((u) => u.created_at)
-      .map((u) => ({
-        id: `user-${u.id}`,
-        label: `${u.full_name || 'New user'} was added as ${u.roles?.role_name || 'a user'}`,
-        timestamp: u.created_at,
-        icon: UserPlus,
-        color: 'text-blue-600 bg-blue-50',
-      }));
-
-    const employeeEvents = employees
-      .filter((e) => e.status === 'pending')
-      .map((e) => ({
-        id: `emp-${e.id}`,
-        label: `${e.name} is awaiting account creation`,
-        timestamp: e.created_at || null,
-        icon: Clock,
-        color: 'text-yellow-600 bg-yellow-50',
-      }));
-
-    return [...userEvents, ...employeeEvents]
-      .filter((ev) => ev.timestamp)
-      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      .slice(0, 8);
-  }, [users, employees]);
-
   const activeUserCount = users.filter((u) => u.status === 'active').length;
   const inactiveUserCount = users.filter((u) => u.status === 'inactive').length;
 
@@ -158,15 +155,6 @@ export default function AdminDashboard() {
             System overview — users, roles &amp; account activity
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => navigate('/admin/user-management')}
-          className="flex items-center gap-2 rounded-full bg-blue-600 text-white px-4 py-2 text-sm font-medium hover:bg-blue-700 transition shadow-sm"
-        >
-          <UserCog size={14} />
-          Manage Users
-        </motion.button>
       </motion.div>
 
       {/* Stat Cards */}
@@ -241,41 +229,54 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* System activity feed */}
+        {/* System activity feed — now sourced from the real audit_logs table,
+            same backend endpoint that the SystemActivity.jsx page uses */}
         <div className={cardClass}>
           <div className="flex items-center justify-between mb-5">
             <div>
               <h2 className="text-base font-semibold text-gray-900">System Activity</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Recent account &amp; employee events</p>
+              <p className="text-xs text-gray-400 mt-0.5">Recent audit log events</p>
             </div>
-            <div className="w-9 h-9 rounded-lg bg-cyan-50 flex items-center justify-center">
-              <Activity size={18} className="text-cyan-600" />
-            </div>
+            <button
+  type="button"
+  onClick={(e) => {
+    e.preventDefault();
+    navigate('/app/system-activity');
+  }}
+  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors cursor-pointer"
+>
+  View all <ArrowUpRight size={14} />
+</button>
           </div>
-          {loading ? (
+          {activityLoading ? (
             <div className="flex justify-center items-center py-12">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
             </div>
-          ) : activityFeed.length === 0 ? (
+          ) : activityLogs.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-12">No recent activity</p>
           ) : (
             <ul className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
-              {activityFeed.map((ev) => {
-                const Icon = ev.icon;
-                return (
-                  <li key={ev.id} className="flex items-start gap-3">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${ev.color}`}>
-                      <Icon size={14} />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-700">{ev.label}</p>
-                      <p className="text-[11px] text-gray-400">
-                        {new Date(ev.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  </li>
-                );
-              })}
+              {activityLogs.map((log) => (
+                <li key={log.id} className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 text-cyan-600 bg-cyan-50">
+                    <Activity size={14} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium text-gray-900">
+                        {log.profiles?.full_name || log.details?.email || 'Unknown user'}
+                      </span>{' '}
+                      performed <span className="font-medium">{log.action}</span>
+                      {log.ip_address ? (
+                        <span className="text-gray-400"> from {log.ip_address}</span>
+                      ) : null}
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      {new Date(log.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </div>
@@ -291,7 +292,7 @@ export default function AdminDashboard() {
           <motion.button
             whileHover={{ scale: 1.04 }}
             whileTap={{ scale: 0.97 }}
-            onClick={() => navigate('/admin/user-management')}
+            onClick={() => navigate('/app/recently-registered')}
             className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
           >
             View all <ArrowUpRight size={14} />

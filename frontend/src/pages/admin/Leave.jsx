@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Calendar, Search, Plus, X, User, Edit, Trash2, 
@@ -36,16 +36,15 @@ const LEAVE_TYPES = {
   'Maternity Leave': { color: 'pink', maxDays: 84 },
   'Paternity Leave': { color: 'purple', maxDays: 3 },
   'Bereavement Leave': { color: 'gray', maxDays: 3 },
-  'Public Holiday': { color: 'orange', maxDays: 5},
+  'Public Holiday': { color: 'orange', maxDays: 5 },
   'Other': { color: 'gray', maxDays: 10 },
 };
 
 // ========== LEAVE STATUS ==========
 const LEAVE_STATUS = {
-  'pending': { label: 'Pending', color: 'amber', icon: '⏳' },
+  
   'approved': { label: 'Approved', color: 'emerald', icon: '✅' },
-  'rejected': { label: 'Rejected', color: 'red', icon: '❌' },
-  'cancelled': { label: 'Cancelled', color: 'gray', icon: '🚫' },
+  
 };
 
 // ========== HELPER FUNCTION FOR AUTH ==========
@@ -56,6 +55,20 @@ const getAuthHeaders = () => {
       Authorization: `Bearer ${token}`
     }
   };
+};
+
+// ========== GET DESIGNATION NAME ==========
+const getDesignationName = (employee) => {
+  if (!employee) return '';
+  // If designation is an object with designation property
+  if (employee.designation && typeof employee.designation === 'object') {
+    return employee.designation.designation || '';
+  }
+  // If designation is a string
+  if (employee.designation && typeof employee.designation === 'string') {
+    return employee.designation;
+  }
+  return '';
 };
 
 export default function Leave() {
@@ -70,6 +83,11 @@ export default function Leave() {
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // ========== EMPLOYEE SEARCH STATE ==========
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const employeeSearchRef = useRef(null);
 
   // ========== LEAVE BALANCE STATE ==========
   const [leaveBalance, setLeaveBalance] = useState(null);
@@ -103,7 +121,7 @@ export default function Leave() {
     startDate: '',
     endDate: '',
     reason: '',
-    status: 'pending',
+    status: 'approved',
     days: 1
   });
 
@@ -139,25 +157,18 @@ export default function Leave() {
     } catch (err) {
       console.error('❌ Error fetching leave balance:', err);
       
-      if (err.response) {
-        console.error('Response status:', err.response.status);
-        console.error('Response data:', err.response.data);
-        
-        if (err.response.status === 401) {
-          setBalanceError('⚠️ Session expired. Please login again.');
-        } else if (err.response.status === 404) {
-          setBalanceError('⚠️ Balance API not found. Please check server.');
-        } else if (err.response.status === 500) {
-          setBalanceError('⚠️ Server error. Please contact support.');
-        } else {
-          setBalanceError(err.response.data?.message || '⚠️ Could not load leave balance. Please try again.');
-        }
-      } else if (err.request) {
-        console.error('No response received:', err.request);
-        setBalanceError('⚠️ No response from server. Please check your connection.');
+      if (err.response?.status === 401) {
+        setBalanceError('⚠️ Session expired. Please login again.');
+        // Redirect to login or show login modal
+      } else if (err.response?.status === 404) {
+        setBalanceError('⚠️ Balance API not found. Please check server.');
+      } else if (err.response?.status === 500) {
+        setBalanceError('⚠️ Server error. Please contact support.');
+      } else if (err.response?.status === 403) {
+        setBalanceError('⚠️ Access denied. Please login again.');
+        // Redirect to login
       } else {
-        console.error('Error message:', err.message);
-        setBalanceError(`⚠️ ${err.message}`);
+        setBalanceError(err.response?.data?.message || '⚠️ Could not load leave balance. Please try again.');
       }
       
       setLeaveBalance(null);
@@ -179,8 +190,11 @@ export default function Leave() {
       }
     } catch (err) {
       console.error('❌ Error fetching employees:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
+        // Optionally redirect to login
+      } else {
+        setError('Failed to load employees. Please refresh the page.');
       }
     }
   };
@@ -195,8 +209,10 @@ export default function Leave() {
       }
     } catch (err) {
       console.error('❌ Error fetching leaves:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
+      } else {
+        setError('Failed to load leave data. Please refresh the page.');
       }
     }
   };
@@ -320,6 +336,22 @@ export default function Leave() {
 
   const balanceValidation = getBalanceValidation();
 
+  // ========== FILTER EMPLOYEES BY SEARCH ==========
+  const filteredEmployees = employees.filter(emp => 
+    emp.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase())
+  );
+
+  // ========== SELECT EMPLOYEE ==========
+  const selectEmployee = (employee) => {
+    setLeaveForm({
+      ...leaveForm,
+      employeeId: employee.id,
+      employeeName: employee.name
+    });
+    setEmployeeSearchQuery(employee.name);
+    setIsEmployeeDropdownOpen(false);
+  };
+
   // ========== LEAVE CRUD OPERATIONS ==========
 
   const handleLeaveSubmit = async (e) => {
@@ -355,7 +387,7 @@ export default function Leave() {
         startDate: leaveForm.startDate,
         endDate: leaveForm.endDate,
         reason: leaveForm.reason,
-        status: leaveForm.status,
+        status: 'approved',
         days: leaveForm.days
       };
 
@@ -375,7 +407,7 @@ export default function Leave() {
           await fetchLeaves();
           setShowLeaveForm(false);
           resetLeaveForm();
-          showSuccessNotification('Leave request submitted successfully!');
+          showSuccessNotification('Leave request approved successfully!');
           setTimeout(() => {
             setLeaveData(prev => [...prev]);
           }, 300);
@@ -383,7 +415,7 @@ export default function Leave() {
       }
     } catch (err) {
       console.error('Error:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       } else if (err.response?.status === 409) {
         setError('This employee already has a leave request for these dates.');
@@ -409,7 +441,7 @@ export default function Leave() {
       showSuccessNotification('Leave request deleted successfully!');
     } catch (err) {
       console.error('Error deleting leave:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       } else {
         setError('Failed to delete leave request.');
@@ -431,7 +463,11 @@ export default function Leave() {
       showSuccessNotification(`Leave request ${newStatus}!`);
     } catch (err) {
       console.error('Error updating status:', err);
-      setError('Failed to update leave status.');
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        setError('Session expired. Please login again.');
+      } else {
+        setError('Failed to update leave status.');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -440,6 +476,7 @@ export default function Leave() {
   const editLeave = (record) => {
     setIsEditingLeave(true);
     setEditingLeaveId(record.id);
+    setEmployeeSearchQuery(record.employee_name || record.name || '');
     setLeaveForm({
       employeeId: record.employee_id || record.employeeId || '',
       employeeName: record.employee_name || record.name || '',
@@ -447,7 +484,7 @@ export default function Leave() {
       startDate: record.start_date || record.startDate || '',
       endDate: record.end_date || record.endDate || '',
       reason: record.reason || '',
-      status: record.status || 'pending',
+      status: 'approved',
       days: record.days || 1
     });
     setShowLeaveForm(true);
@@ -468,13 +505,15 @@ export default function Leave() {
       startDate: '',
       endDate: '',
       reason: '',
-      status: 'pending',
+      status: 'approved',
       days: 1
     });
+    setEmployeeSearchQuery('');
     setLeaveBalance(null);
     setBalanceError(null);
     setIsEditingLeave(false);
     setEditingLeaveId(null);
+    setIsEmployeeDropdownOpen(false);
   };
 
   const showSuccessNotification = (message) => {
@@ -486,6 +525,7 @@ export default function Leave() {
 
   const openLeaveForm = (employee = null) => {
     if (employee) {
+      setEmployeeSearchQuery(employee.name);
       setLeaveForm({
         employeeId: employee.id,
         employeeName: employee.name,
@@ -493,10 +533,11 @@ export default function Leave() {
         startDate: '',
         endDate: '',
         reason: '',
-        status: 'pending',
+        status: 'approved',
         days: 1
       });
     } else {
+      setEmployeeSearchQuery('');
       setLeaveForm({
         employeeId: '',
         employeeName: '',
@@ -504,7 +545,7 @@ export default function Leave() {
         startDate: '',
         endDate: '',
         reason: '',
-        status: 'pending',
+        status: 'approved',
         days: 1
       });
     }
@@ -769,25 +810,69 @@ export default function Leave() {
 
                 <form onSubmit={handleLeaveSubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    {/* ========== EMPLOYEE SELECT WITH SEARCH ========== */}
+                    <div className="relative" ref={employeeSearchRef}>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5"><User size={14} className="inline mr-1" /> Employee *</label>
-                      <select 
-                        value={leaveForm.employeeId} 
-                        onChange={(e) => { 
-                          const emp = employees.find(emp => emp.id === parseInt(e.target.value)); 
-                          setLeaveForm({ ...leaveForm, employeeId: e.target.value, employeeName: emp ? emp.name : '' });
-                        }} 
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white" 
-                        required 
-                        disabled={submitting || isEditingLeave}
-                      >
-                        <option value="">Select Employee</option>
-                        {employees.map((emp) => (<option key={emp.id} value={emp.id}>{emp.name}</option>))}
-                      </select>
-                      {isEditingLeave && (<p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>)}
-                      {employees.length === 0 && (<p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>)}
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search employee..."
+                          value={employeeSearchQuery}
+                          onChange={(e) => {
+                            setEmployeeSearchQuery(e.target.value);
+                            setIsEmployeeDropdownOpen(true);
+                            if (e.target.value === '') {
+                              setLeaveForm({ ...leaveForm, employeeId: '', employeeName: '' });
+                            }
+                          }}
+                          onFocus={() => setIsEmployeeDropdownOpen(true)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white pr-8"
+                          disabled={submitting || isEditingLeave}
+                        />
+                        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      </div>
+                      
+                      {isEditingLeave && (
+                        <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
+                      )}
+
+                      {/* ========== DROPDOWN ========== */}
+                      {isEmployeeDropdownOpen && !isEditingLeave && (
+                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {filteredEmployees.length > 0 ? (
+                            filteredEmployees.map((emp) => {
+                              const desName = getDesignationName(emp);
+                              return (
+                                <button
+                                  key={emp.id}
+                                  type="button"
+                                  className="w-full px-4 py-2 text-left text-sm hover:bg-indigo-50 transition-colors flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                  onClick={() => selectEmployee(emp)}
+                                >
+                                  <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-medium text-indigo-600 flex-shrink-0">
+                                    {emp.name?.charAt(0).toUpperCase() || 'U'}
+                                  </div>
+                                  <span className="text-gray-700">{emp.name}</span>
+                                  {desName && (
+                                    <span className="text-xs text-gray-400 ml-auto">{desName}</span>
+                                  )}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {employeeSearchQuery ? 'No employees found' : 'Type to search employees'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {employees.length === 0 && (
+                        <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
+                      )}
                     </div>
 
+                    {/* ========== LEAVE TYPE ========== */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5"><Briefcase size={14} className="inline mr-1" /> Leave Type *</label>
                       <select 
@@ -821,15 +906,19 @@ export default function Leave() {
                       )}
                     </div>
 
+                    {/* ========== START DATE ========== */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5"><Calendar size={14} className="inline mr-1" /> Start Date *</label>
                       <input type="date" value={leaveForm.startDate} onChange={(e) => setLeaveForm({ ...leaveForm, startDate: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all" required disabled={submitting} />
                     </div>
+
+                    {/* ========== END DATE ========== */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5"><Calendar size={14} className="inline mr-1" /> End Date *</label>
                       <input type="date" value={leaveForm.endDate} onChange={(e) => setLeaveForm({ ...leaveForm, endDate: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all" required disabled={submitting} />
                     </div>
 
+                    {/* ========== TOTAL DAYS ========== */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5"><Clock size={14} className="inline mr-1" /> Total Days (Auto-calculated)</label>
                       <div className={`px-4 py-2.5 border rounded-lg text-sm font-medium ${
@@ -852,16 +941,17 @@ export default function Leave() {
                       )}
                     </div>
 
+                    {/* ========== STATUS - ONLY APPROVED ========== */}
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><MessageSquare size={14} className="inline mr-1" /> Status</label>
-                      <select value={leaveForm.status} onChange={(e) => setLeaveForm({ ...leaveForm, status: e.target.value })} className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all bg-white" disabled={submitting}>
-                        <option value="pending">⏳ Pending</option>
-                        <option value="approved">✅ Approved</option>
-                        <option value="rejected">❌ Rejected</option>
-                        <option value="cancelled">🚫 Cancelled</option>
-                      </select>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5"><CheckCircle size={14} className="inline mr-1" /> Status</label>
+                      <div className="px-4 py-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-medium text-emerald-700 flex items-center gap-2">
+                        <CheckCircle size={16} className="text-emerald-600" />
+                        Approved
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">Leave requests are automatically approved</p>
                     </div>
 
+                    {/* ========== REASON ========== */}
                     <div className="md:col-span-2">
                       <label className="block text-xs font-medium text-gray-600 mb-1.5"><FileText size={14} className="inline mr-1" /> Reason / Description</label>
                       <textarea value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} rows="3" placeholder="Please provide reason for leave request..." className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all resize-none" disabled={submitting} />

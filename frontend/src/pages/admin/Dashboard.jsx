@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState,useRef } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -18,6 +19,8 @@ import {
   getPendingPayments,
 } from '../../services/reportService';
 import { formatCurrency } from '../../utils/helpers';
+
+
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -164,6 +167,7 @@ export default function Dashboard() {
   const [loadProgress, setLoadProgress] = useState(0);
   const loadRunIdRef = useRef(0);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
   const loadDashboardData = async () => {
@@ -706,12 +710,13 @@ export default function Dashboard() {
             </p>
           </div>
           <motion.button
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.97 }}
-            className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
-          >
-            View all <ArrowUpRight size={14} />
-          </motion.button>
+  whileHover={{ scale: 1.04 }}
+  whileTap={{ scale: 0.97 }}
+  onClick={() => navigate('/app/orders')}
+  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
+>
+  View all <ArrowUpRight size={14} />
+</motion.button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

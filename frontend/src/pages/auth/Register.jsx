@@ -1,181 +1,366 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { User, Mail, Lock, Phone, AlertCircle, CheckCircle, Eye, EyeOff, AlertTriangle, X, LogIn } from 'lucide-react';
+import { User, Mail, Lock, AlertCircle, CheckCircle, Eye, EyeOff, AlertTriangle, X, LogIn, Shield, ShieldCheck, ShieldAlert, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const Register = () => {
   // Form input states
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [touchedFields, setTouchedFields] = useState({ 
-    fullName: false, 
-    email: false, 
-    phone: false, 
-    password: false 
-  });
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [registrationError, setRegistrationError] = useState('');
   
+  // Individual error states
+  const [fullNameError, setFullNameError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  
+  // Touch states
+  const [fullNameTouched, setFullNameTouched] = useState(false);
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
+  const [confirmPasswordTouched, setConfirmPasswordTouched] = useState(false);
+  
+  // Password strength states
+  const [passwordStrength, setPasswordStrength] = useState({
+    score: 0,
+    label: 'Weak',
+    color: 'red',
+    criteria: {
+      length: false,
+      uppercase: false,
+      lowercase: false,
+      number: false,
+      special: false
+    }
+  });
+
   // Modal states
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showFailureModal, setShowFailureModal] = useState(false);
   const [failureMessage, setFailureMessage] = useState('');
-  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const navigate = useNavigate();
   const { loginWithGoogle } = useAuth();
-  const timeoutRef = useRef(null);
 
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
-
-  // Handle field blur to mark as touched
-  const handleFieldBlur = (fieldName) => {
-    setTouchedFields(prev => ({ ...prev, [fieldName]: true }));
-  };
-
-  // ✅ Handle phone number input - only allow numbers
-  const handlePhoneChange = (e) => {
-    const value = e.target.value;
-    // Only allow digits
-    const numericValue = value.replace(/\D/g, '');
-    setPhone(numericValue);
-  };
-
-  // Validate form fields
-  const validateForm = () => {
-    setTouchedFields({ 
-      fullName: true, 
-      email: true, 
-      phone: true, 
-      password: true 
-    });
-
-    if (!fullName.trim()) {
-      setRegistrationError('Full name is required');
+  // Validate full name
+  const validateFullName = (value) => {
+    if (!value.trim()) {
+      setFullNameError('Full name is required');
+      return false;
+    } else if (value.trim().length < 2) {
+      setFullNameError('Name must be at least 2 characters');
       return false;
     }
-    if (!email.trim()) {
-      setRegistrationError('Email address is required');
-      return false;
-    }
-    if (!phone.trim()) {
-      setRegistrationError('Phone number is required');
-      return false;
-    }
-    if (phone.length < 10) {
-      setRegistrationError('Phone number must be at least 10 digits');
-      return false;
-    }
-    if (!password.trim()) {
-      setRegistrationError('Password is required');
-      return false;
-    }
-    if (password.length < 6) {
-      setRegistrationError('Password must be at least 6 characters');
-      return false;
-    }
+    setFullNameError('');
     return true;
   };
 
-  /**
-   * Dispatches form fields down to base backend endpoints for credentials initialization
-   */
+  // Validate email
+  const validateEmail = (value) => {
+    if (!value.trim()) {
+      setEmailError('Email address is required');
+      return false;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      setEmailError('Please enter a valid email address');
+      return false;
+    }
+    setEmailError('');
+    return true;
+  };
+
+  // Validate password
+  const validatePassword = (value) => {
+    if (!value.trim()) {
+      setPasswordError('Password is required');
+      return false;
+    } else if (value.length < 8) {
+      setPasswordError('Password must be at least 8 characters');
+      return false;
+    } else if (!/[A-Z]/.test(value)) {
+      setPasswordError('Password must contain at least one uppercase letter');
+      return false;
+    } else if (!/[a-z]/.test(value)) {
+      setPasswordError('Password must contain at least one lowercase letter');
+      return false;
+    } else if (!/[0-9]/.test(value)) {
+      setPasswordError('Password must contain at least one number');
+      return false;
+    } else if (!/[!@#$%^&*(),.?":{}|<>]/.test(value)) {
+      setPasswordError('Password must contain at least one special character');
+      return false;
+    }
+    setPasswordError('');
+    return true;
+  };
+
+  // Validate confirm password
+  const validateConfirmPassword = (value) => {
+    console.log('validateConfirmPassword called with:', value, 'password is:', password);
+    
+    // If confirm password is empty
+    if (!value || !value.trim()) {
+      setConfirmPasswordError('Please confirm your password');
+      return false;
+    }
+    
+    // If confirm password doesn't match password
+    if (value !== password) {
+      setConfirmPasswordError('Passwords do not match');
+      return false;
+    }
+    
+    // All valid
+    setConfirmPasswordError('');
+    return true;
+  };
+
+  // Check password strength
+  const checkPasswordStrength = (pwd) => {
+    const criteria = {
+      length: pwd.length >= 8,
+      uppercase: /[A-Z]/.test(pwd),
+      lowercase: /[a-z]/.test(pwd),
+      number: /[0-9]/.test(pwd),
+      special: /[!@#$%^&*(),.?":{}|<>]/.test(pwd)
+    };
+
+    const metCount = Object.values(criteria).filter(Boolean).length;
+
+    let score = 0;
+    let label = 'Weak';
+    let color = 'red';
+
+    if (pwd.length === 0) {
+      score = 0;
+      label = 'Weak';
+      color = 'red';
+    } else if (metCount <= 2) {
+      score = 1;
+      label = 'Weak';
+      color = 'red';
+    } else if (metCount === 3) {
+      score = 2;
+      label = 'Fair';
+      color = 'orange';
+    } else if (metCount === 4) {
+      score = 3;
+      label = 'Good';
+      color = 'blue';
+    } else if (metCount === 5) {
+      score = 4;
+      label = 'Strong';
+      color = 'green';
+    }
+
+    setPasswordStrength({ score, label, color, criteria });
+  };
+
+  // Handle input changes
+  const handleFullNameChange = (e) => {
+    const value = e.target.value;
+    setFullName(value);
+    if (fullNameTouched) {
+      validateFullName(value);
+    }
+  };
+
+  const handleEmailChange = (e) => {
+    const value = e.target.value;
+    setEmail(value);
+    if (emailTouched) {
+      validateEmail(value);
+    }
+  };
+
+  const handlePasswordChange = (e) => {
+    const value = e.target.value;
+    setPassword(value);
+    checkPasswordStrength(value);
+    if (passwordTouched) {
+      validatePassword(value);
+    }
+    // If confirm password has content, re-validate it
+    if (confirmPassword && confirmPassword.trim()) {
+      validateConfirmPassword(confirmPassword);
+    }
+  };
+
+  const handleConfirmPasswordChange = (e) => {
+    const value = e.target.value;
+    setConfirmPassword(value);
+    // Always validate confirm password when typing
+    if (value !== undefined) {
+      validateConfirmPassword(value);
+    }
+  };
+
+  // Handle blur events
+  const handleFullNameBlur = () => {
+    setFullNameTouched(true);
+    validateFullName(fullName);
+  };
+
+  const handleEmailBlur = () => {
+    setEmailTouched(true);
+    validateEmail(email);
+  };
+
+  const handlePasswordBlur = () => {
+    setPasswordTouched(true);
+    validatePassword(password);
+  };
+
+  const handleConfirmPasswordBlur = () => {
+    setConfirmPasswordTouched(true);
+    validateConfirmPassword(confirmPassword);
+  };
+
+  // Validate all fields - use the CURRENT state values
+  const validateAllFields = () => {
+    console.log('Validating all fields');
+    console.log('Current confirmPassword value:', confirmPassword);
+    console.log('Current password value:', password);
+    
+    // Get current values directly from state
+    const currentFullName = fullName;
+    const currentEmail = email;
+    const currentPassword = password;
+    const currentConfirmPassword = confirmPassword;
+    
+    const isFullNameValid = validateFullName(currentFullName);
+    const isEmailValid = validateEmail(currentEmail);
+    const isPasswordValid = validatePassword(currentPassword);
+    const isConfirmPasswordValid = validateConfirmPassword(currentConfirmPassword);
+    
+    console.log('Validation results:', {
+      isFullNameValid,
+      isEmailValid,
+      isPasswordValid,
+      isConfirmPasswordValid,
+      confirmPasswordValue: currentConfirmPassword
+    });
+    
+    // Mark all as touched
+    setFullNameTouched(true);
+    setEmailTouched(true);
+    setPasswordTouched(true);
+    setConfirmPasswordTouched(true);
+    
+    return isFullNameValid && isEmailValid && isPasswordValid && isConfirmPasswordValid;
+  };
+
+  // Handle registration
   const handleRegister = useCallback(async (e) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent event bubbling
+    
     setRegistrationError('');
     
-    // Validate form
-    if (!validateForm()) {
+    // Log current state before validation
+    console.log('Before validation - confirmPassword:', confirmPassword);
+    console.log('Before validation - password:', password);
+    
+    if (!validateAllFields()) {
+      setRegistrationError('Please fix all errors before continuing');
+      return;
+    }
+    
+    if (passwordStrength.score < 3) {
+      setRegistrationError('Please use a stronger password (at least "Good" strength)');
       return;
     }
 
     setLoading(true);
 
     try {
-      const response = await fetch('http://localhost:5000/api/auth/register', {
+      const response = await fetch('http://localhost:5000/api/auth/register/phase1', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email,
-          password,
-          fullName,
-          phone,
+          email: email.trim(),
+          password: password,
+          fullName: fullName.trim()
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.message || 'Registration failed');
+      if (!response.ok) {
+        const text = await response.text();
+        let errorMessage;
+        try {
+          const data = JSON.parse(text);
+          errorMessage = data.message || `Server error: ${response.status}`;
+        } catch {
+          errorMessage = `Server error: ${response.status}`;
+        }
+        throw new Error(errorMessage);
       }
 
-      // Show success modal
-      setShowSuccessModal(true);
-      setIsRedirecting(true);
-      
-      // Set timeout for navigation - wait 2.5 seconds
-      timeoutRef.current = setTimeout(() => {
-        setShowSuccessModal(false);
-        setIsRedirecting(false);
-        navigate('/login');
-      }, 2500);
+      const data = await response.json();
 
+      if (!data.success) {
+        throw new Error(data.message || 'Registration phase 1 failed');
+      }
+
+      const registrationData = {
+        fullName: fullName.trim(),
+        email: email.trim(),
+      };
+      localStorage.setItem('registrationData', JSON.stringify(registrationData));
+      
+      if (data.tempToken) {
+        localStorage.setItem('registrationTempToken', data.tempToken);
+      }
+
+      navigate('/complete-profile');
+      
     } catch (error) {
+      console.error('Registration error:', error);
       setFailureMessage(error.message || 'Registration failed. Please try again.');
       setShowFailureModal(true);
     } finally {
       setLoading(false);
     }
-  }, [email, password, fullName, phone, navigate]);
+  }, [email, password, fullName, confirmPassword, navigate, passwordStrength.score]);
 
-  /**
-   * Invokes centralized OAuth workflow pipelines managed by structural context instances
-   */
   const handleGoogleSignIn = async () => {
-    console.log("Initiating Google Sign-In via Context Wrapper Layer...");
     try {
+      localStorage.setItem('googleSignInPending', 'true');
       await loginWithGoogle();
     } catch (error) {
-      console.error("Google Authentication sequence error intercept:", error);
+      console.error("Google Authentication error:", error);
       setFailureMessage('Google Sign-In failed. Please try again.');
       setShowFailureModal(true);
     }
   };
 
+  const getStrengthIcon = () => {
+    const { score } = passwordStrength;
+    const iconClass = `w-5 h-5`;
+    
+    if (score === 0) return <Shield className={`${iconClass} text-gray-300`} />;
+    if (score === 1) return <ShieldAlert className={`${iconClass} text-red-500`} />;
+    if (score === 2) return <ShieldAlert className={`${iconClass} text-orange-500`} />;
+    if (score === 3) return <ShieldCheck className={`${iconClass} text-blue-500`} />;
+    if (score === 4) return <ShieldCheck className={`${iconClass} text-green-500`} />;
+    return <Shield className={`${iconClass} text-gray-300`} />;
+  };
+
   return (
     <div className="min-h-screen bg-blue-50/30 flex flex-col justify-center py-12 px-6 relative overflow-hidden">
-      
-      {/* Video Background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-        <video
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="w-full h-full object-cover opacity-30"
-        >
-          <source 
-            src="/videos/bg_video.mp4" 
-            type="video/mp4" 
-          />
-          Your browser does not support the video tag.
+        <video autoPlay loop muted playsInline className="w-full h-full object-cover opacity-30">
+          <source src="/videos/bg_video.mp4" type="video/mp4" />
         </video>
       </div>
 
-      {/* Background Bubbles */}
       <motion.div
         animate={{ y: [0, -20, 0] }}
         transition={{ duration: 5, repeat: Infinity }}
@@ -187,7 +372,6 @@ const Register = () => {
         className="absolute -bottom-24 -right-24 w-96 h-96 bg-cyan-100 rounded-full blur-3xl opacity-50"
       />
 
-      {/* Main Registration Form Container */}
       <motion.div 
         initial={{ opacity: 0, y: 20 }} 
         animate={{ opacity: 1, y: 0 }} 
@@ -197,10 +381,20 @@ const Register = () => {
           <div className="text-center mb-8">
             <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
             <p className="text-gray-500 text-sm mt-2">Join Hanthana Water Delivery today</p>
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <span className="flex items-center gap-2 text-sm font-medium text-blue-600">
+                <span className="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs">1</span>
+                Basic Info
+              </span>
+              <div className="w-12 h-0.5 bg-gray-300"></div>
+              <span className="flex items-center gap-2 text-sm font-medium text-gray-400">
+                <span className="w-6 h-6 bg-gray-300 text-white rounded-full flex items-center justify-center text-xs">2</span>
+                Details
+              </span>
+            </div>
           </div>
 
-          {/* Registration Error Display */}
-          {registrationError && !showFailureModal && !showSuccessModal && (
+          {registrationError && !showFailureModal && (
             <div className="flex items-start gap-3 rounded-xl p-3 mb-5 border bg-red-50 border-red-200">
               <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
               <div>
@@ -210,175 +404,108 @@ const Register = () => {
             </div>
           )}
           
-          <form onSubmit={handleRegister} className="space-y-5">
+          <form onSubmit={handleRegister} className="space-y-5" noValidate>
             {/* Full Name Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="text-sm font-medium text-gray-700">
-                  Full Name
-                </label>
+                <label className="text-sm font-medium text-gray-700">Full Name</label>
+                {fullNameTouched && fullNameError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
-              <div className={`relative transition-all duration-200 ${
-                touchedFields.fullName && !fullName.trim() 
-                  ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
-                  : ''
-              }`}>
-                <User className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.fullName && !fullName.trim() ? 'text-red-500' : 'text-gray-400'
-                }`} />
+              <div className="relative">
+                <User className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                 <input 
-                  type="text" 
-                  required
+                  type="text"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  onBlur={() => handleFieldBlur('fullName')}
+                  onChange={handleFullNameChange}
+                  onBlur={handleFullNameBlur}
                   className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.fullName && !fullName.trim() 
+                    fullNameTouched && fullNameError
                       ? 'border-red-500 bg-red-50' 
+                      : fullNameTouched && !fullNameError && fullName.trim()
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                   placeholder="Enter your full name"
                 />
-                {touchedFields.fullName && !fullName.trim() && (
-                  <div className="absolute right-3 top-3.5">
-                    <AlertTriangle size={18} className="text-red-500" />
-                  </div>
-                )}
               </div>
-              {touchedFields.fullName && !fullName.trim() && (
+              {fullNameTouched && fullNameError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Full name is required
+                  {fullNameError}
+                </p>
+              )}
+              {fullNameTouched && !fullNameError && fullName.trim() && (
+                <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
+                  <CheckCircle size={12} />
+                  Valid name
                 </p>
               )}
             </div>
 
-            {/* Email Address Field */}
+            {/* Email Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="text-sm font-medium text-gray-700">
-                  Email Address
-                </label>
+                <label className="text-sm font-medium text-gray-700">Email Address</label>
+                {emailTouched && emailError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
-              <div className={`relative transition-all duration-200 ${
-                touchedFields.email && !email.trim() 
-                  ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
-                  : ''
-              }`}>
-                <Mail className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.email && !email.trim() ? 'text-red-500' : 'text-gray-400'
-                }`} />
+              <div className="relative">
+                <Mail className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                 <input 
-                  type="email" 
-                  required
+                  type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onBlur={() => handleFieldBlur('email')}
+                  onChange={handleEmailChange}
+                  onBlur={handleEmailBlur}
                   className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.email && !email.trim() 
+                    emailTouched && emailError
                       ? 'border-red-500 bg-red-50' 
+                      : emailTouched && !emailError && email.trim()
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
                   placeholder="name@example.com"
                 />
-                {touchedFields.email && !email.trim() && (
-                  <div className="absolute right-3 top-3.5">
-                    <AlertTriangle size={18} className="text-red-500" />
-                  </div>
-                )}
               </div>
-              {touchedFields.email && !email.trim() && (
+              {emailTouched && emailError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Email address is required
+                  {emailError}
                 </p>
               )}
-            </div>
-
-            {/* Phone Number Field - Only Numbers */}
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="text-sm font-medium text-gray-700">
-                  Phone Number
-                </label>
-              </div>
-              <div className={`relative transition-all duration-200 ${
-                touchedFields.phone && (!phone.trim() || phone.length < 10)
-                  ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
-                  : ''
-              }`}>
-                <Phone className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.phone && (!phone.trim() || phone.length < 10) ? 'text-red-500' : 'text-gray-400'
-                }`} />
-                <input 
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  required
-                  value={phone}
-                  onChange={handlePhoneChange}
-                  onBlur={() => handleFieldBlur('phone')}
-                  className={`w-full pl-10 pr-4 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.phone && (!phone.trim() || phone.length < 10)
-                      ? 'border-red-500 bg-red-50' 
-                      : 'border-gray-200'
-                  }`}
-                  placeholder="0771234567"
-                  maxLength={15}
-                />
-                {touchedFields.phone && (!phone.trim() || phone.length < 10) && (
-                  <div className="absolute right-3 top-3.5">
-                    <AlertTriangle size={18} className="text-red-500" />
-                  </div>
-                )}
-              </div>
-              {touchedFields.phone && !phone.trim() && (
-                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Phone number is required
-                </p>
-              )}
-              {touchedFields.phone && phone.trim() && phone.length < 10 && (
-                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Phone number must be at least 10 digits
-                </p>
-              )}
-              {touchedFields.phone && phone.trim() && phone.length >= 10 && (
+              {emailTouched && !emailError && email.trim() && (
                 <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
                   <CheckCircle size={12} />
-                  Valid phone number
+                  Valid email
                 </p>
               )}
             </div>
 
-            {/* Password Field with Eye Toggle */}
+            {/* Password Field */}
             <div>
               <div className="flex justify-between items-center mb-1.5">
-                <label className="text-sm font-medium text-gray-700">
-                  Password
-                </label>
+                <label className="text-sm font-medium text-gray-700">Password</label>
+                {passwordTouched && passwordError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
               </div>
-              <div className={`relative transition-all duration-200 ${
-                touchedFields.password && !password.trim() 
-                  ? 'ring-2 ring-red-500 ring-offset-2 rounded-xl' 
-                  : ''
-              }`}>
-                <Lock className={`absolute left-3 top-3.5 h-5 w-5 ${
-                  touchedFields.password && !password.trim() ? 'text-red-500' : 'text-gray-400'
-                }`} />
+              <div className="relative">
+                <Lock className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                 <input 
                   type={showPassword ? 'text' : 'password'}
-                  required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onBlur={() => handleFieldBlur('password')}
+                  onChange={handlePasswordChange}
+                  onBlur={handlePasswordBlur}
                   className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
-                    touchedFields.password && !password.trim() 
+                    passwordTouched && passwordError
                       ? 'border-red-500 bg-red-50' 
+                      : passwordTouched && !passwordError && password.trim()
+                      ? 'border-green-500 bg-green-50'
                       : 'border-gray-200'
                   }`}
-                  placeholder="Min 6 characters"
+                  placeholder="Min 8 characters"
                 />
                 <button
                   type="button"
@@ -387,33 +514,117 @@ const Register = () => {
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
-                {touchedFields.password && !password.trim() && (
-                  <div className="absolute right-12 top-3.5">
-                    <AlertTriangle size={18} className="text-red-500" />
-                  </div>
-                )}
               </div>
-              {touchedFields.password && !password.trim() && (
+
+              {password && (
+                <div className="mt-2 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                      <motion.div
+                        initial={{ width: 0 }}
+                        animate={{ width: `${(passwordStrength.score / 4) * 100}%` }}
+                        transition={{ duration: 0.3 }}
+                        className={`h-full rounded-full transition-all duration-300 ${
+                          passwordStrength.score === 0 ? 'bg-gray-300' :
+                          passwordStrength.score === 1 ? 'bg-red-500' :
+                          passwordStrength.score === 2 ? 'bg-orange-500' :
+                          passwordStrength.score === 3 ? 'bg-blue-500' :
+                          'bg-green-500'
+                        }`}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1.5 min-w-[70px]">
+                      {getStrengthIcon()}
+                      <span className={`text-xs font-medium ${
+                        passwordStrength.score === 0 ? 'text-gray-400' :
+                        passwordStrength.score === 1 ? 'text-red-500' :
+                        passwordStrength.score === 2 ? 'text-orange-500' :
+                        passwordStrength.score === 3 ? 'text-blue-500' :
+                        'text-green-500'
+                      }`}>
+                        {passwordStrength.label}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 mt-1.5">
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.length ? <CheckCircle size={12} className="text-green-500" /> : <AlertCircle size={12} className="text-gray-400" />}
+                      <span className={`text-xs ${passwordStrength.criteria.length ? 'text-green-600' : 'text-gray-500'}`}>≥ 8 characters</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.uppercase ? <CheckCircle size={12} className="text-green-500" /> : <AlertCircle size={12} className="text-gray-400" />}
+                      <span className={`text-xs ${passwordStrength.criteria.uppercase ? 'text-green-600' : 'text-gray-500'}`}>Uppercase</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.lowercase ? <CheckCircle size={12} className="text-green-500" /> : <AlertCircle size={12} className="text-gray-400" />}
+                      <span className={`text-xs ${passwordStrength.criteria.lowercase ? 'text-green-600' : 'text-gray-500'}`}>Lowercase</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {passwordStrength.criteria.number ? <CheckCircle size={12} className="text-green-500" /> : <AlertCircle size={12} className="text-gray-400" />}
+                      <span className={`text-xs ${passwordStrength.criteria.number ? 'text-green-600' : 'text-gray-500'}`}>Number</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 col-span-2">
+                      {passwordStrength.criteria.special ? <CheckCircle size={12} className="text-green-500" /> : <AlertCircle size={12} className="text-gray-400" />}
+                      <span className={`text-xs ${passwordStrength.criteria.special ? 'text-green-600' : 'text-gray-500'}`}>Special character</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {passwordTouched && passwordError && (
                 <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
                   <AlertCircle size={12} />
-                  Password is required
-                </p>
-              )}
-              {touchedFields.password && password.trim() && password.length < 6 && (
-                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
-                  <AlertCircle size={12} />
-                  Password must be at least 6 characters
-                </p>
-              )}
-              {touchedFields.password && password.trim() && password.length >= 6 && (
-                <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
-                  <CheckCircle size={12} />
-                  Password strength: Good
+                  {passwordError}
                 </p>
               )}
             </div>
 
-            {/* Submit Button */}
+            {/* Confirm Password Field */}
+            <div>
+              <div className="flex justify-between items-center mb-1.5">
+                <label className="text-sm font-medium text-gray-700">Confirm Password</label>
+                {confirmPasswordTouched && confirmPasswordError && (
+                  <span className="text-xs text-red-500">Required</span>
+                )}
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                <input 
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  value={confirmPassword}
+                  onChange={handleConfirmPasswordChange}
+                  onBlur={handleConfirmPasswordBlur}
+                  className={`w-full pl-10 pr-12 py-3 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all ${
+                    confirmPasswordTouched && confirmPasswordError
+                      ? 'border-red-500 bg-red-50' 
+                      : confirmPasswordTouched && !confirmPasswordError && confirmPassword.trim() && confirmPassword === password
+                      ? 'border-green-500 bg-green-50'
+                      : 'border-gray-200'
+                  }`}
+                  placeholder="Confirm your password"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-3.5 text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+                </button>
+              </div>
+              {confirmPasswordTouched && confirmPasswordError && (
+                <p className="text-xs text-red-500 mt-1.5 flex items-center gap-1">
+                  <AlertCircle size={12} />
+                  {confirmPasswordError}
+                </p>
+              )}
+              {confirmPasswordTouched && !confirmPasswordError && confirmPassword.trim() && confirmPassword === password && (
+                <p className="text-xs text-green-500 mt-1.5 flex items-center gap-1">
+                  <CheckCircle size={12} />
+                  Passwords match
+                </p>
+              )}
+            </div>
+
             <button 
               type="submit" 
               disabled={loading}
@@ -426,14 +637,13 @@ const Register = () => {
                 </>
               ) : (
                 <>
-                  <User className="w-5 h-5 mr-2" />
-                  Create Account
+                  <span>Continue</span>
+                  <ArrowRight className="w-5 h-5 ml-2" />
                 </>
               )}
             </button>
           </form>
 
-          {/* Social Divider */}
           <div className="mt-6">
             <div className="relative flex py-3 items-center">
               <div className="flex-grow border-t border-gray-400"></div>
@@ -441,7 +651,6 @@ const Register = () => {
               <div className="flex-grow border-t border-gray-400"></div>
             </div>
 
-            {/* Google Authentication Trigger */}
             <button 
               type="button"
               onClick={handleGoogleSignIn} 
@@ -462,56 +671,6 @@ const Register = () => {
         </div>
       </motion.div>
 
-      {/* ── REGISTRATION SUCCESS MODAL ── */}
-      <AnimatePresence>
-        {showSuccessModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
-            onClick={() => {
-              if (!isRedirecting) {
-                setShowSuccessModal(false);
-              }
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.8, y: 30 }}
-              animate={{ scale: 1, y: 0 }}
-              exit={{ scale: 0.8, y: 30 }}
-              transition={{ type: "spring", damping: 25 }}
-              className="relative max-w-sm w-full"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="bg-white rounded-3xl shadow-2xl p-8 text-center border border-green-100">
-                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="w-10 h-10 text-green-600" />
-                </div>
-                <h3 className="text-2xl font-bold text-gray-900">Registration Successful!</h3>
-                <p className="text-gray-500 mt-2">
-                  Your account has been created successfully.
-                </p>
-                <p className="text-sm text-green-600 mt-1 font-medium">
-                  {isRedirecting ? 'Redirecting to login...' : 'Click anywhere to continue'}
-                </p>
-                {isRedirecting && (
-                  <div className="mt-4 w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-                    <motion.div
-                      className="h-full bg-green-600 rounded-full"
-                      initial={{ width: "0%" }}
-                      animate={{ width: "100%" }}
-                      transition={{ duration: 2, ease: "linear" }}
-                    />
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* ── REGISTRATION FAILURE MODAL ── */}
       <AnimatePresence>
         {showFailureModal && (
           <motion.div
@@ -540,9 +699,7 @@ const Register = () => {
                   <AlertCircle className="w-10 h-10 text-red-600" />
                 </div>
                 <h3 className="text-2xl font-bold text-gray-900">Registration Failed</h3>
-                <p className="text-gray-500 mt-2">
-                  {failureMessage || 'Something went wrong. Please try again.'}
-                </p>
+                <p className="text-gray-500 mt-2">{failureMessage || 'Something went wrong. Please try again.'}</p>
                 <div className="mt-6 flex flex-col gap-3">
                   <button
                     onClick={() => {

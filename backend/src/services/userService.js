@@ -1,5 +1,23 @@
 const supabase = require('../config/db');
 const { supabaseAdmin } = require('../config/db');
+const { v4: uuidv4 } = require('uuid');   // ✅ NEW — add this require
+
+// ✅ NEW — add this helper function here, before the class
+async function uploadProfileImage(file) {
+  if (!file) return null;
+  const fileExt = file.originalname.split('.').pop();
+  const fileName = `${uuidv4()}.${fileExt}`;
+  const bucket = process.env.SUPABASE_PROFILE_BUCKET || 'profile-images';
+
+  const { error } = await supabase.storage
+    .from(bucket)
+    .upload(fileName, file.buffer, { contentType: file.mimetype });
+  if (error) throw new Error(`Image upload failed: ${error.message}`);
+
+  const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
+  return urlData.publicUrl;
+}
+
 
 class UserService {
   // ============================================================
@@ -81,71 +99,64 @@ class UserService {
   // CREATE USER (Regular Admin Create)
   // ============================================================
   async createUser(userData) {
-    try {
-      console.log('[UserService] ➕ Creating user...');
+  try {
+    console.log('[UserService] ➕ Creating user...');
+    const { fullName, email, phone, address, role, password, file } = userData;   // ✅ file added
 
-      const { fullName, email, phone, address, role, password } = userData;
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('email', email)
+      .maybeSingle();
 
-      // Check if user exists in profiles
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('email', email)
-        .maybeSingle();
-
-      if (existingProfile) {
-        throw new Error('User with this email already exists');
-      }
-
-      // ✅ Create auth user using SUPABASE ADMIN client
-      const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: { full_name: fullName, phone_number: phone }
-      });
-
-      if (authError) {
-        console.error('[UserService] ❌ Auth error:', authError);
-        throw authError;
-      }
-
-      const userId = authData.user.id;
-      console.log(`[UserService] ✅ Auth user created: ${userId}`);
-
-      // ✅ Insert into profiles
-      // ✅ Trigger already created the profile row
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: fullName,
-          email,
-          phone_number: phone || '',
-          address: address || '',
-          role_id: role
-        })
-        .eq('id', userId);
-
-      if (profileError) {
-        console.error('[UserService] ❌ Profile insert error:', profileError);
-        await supabaseAdmin.auth.admin.deleteUser(userId);
-        throw profileError;
-      }
-
-      console.log('[UserService] ✅ Profile created');
-      console.log(`[UserService] 🎯 User created: ${email}`);
-
-      return { id: userId, email, fullName, role };
-    } catch (error) {
-      console.error('[UserService] ❌ createUser error:', error);
-      throw error;
+    if (existingProfile) {
+      throw new Error('User with this email already exists');
     }
+
+    // ✅ Upload image BEFORE creating auth user, so we fail early if upload breaks
+    const profileImageUrl = await uploadProfileImage(file);
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName, phone_number: phone }
+    });
+
+    if (authError) {
+      console.error('[UserService] ❌ Auth error:', authError);
+      throw authError;
+    }
+
+    const userId = authData.user.id;
+
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .update({
+        full_name: fullName,
+        email,
+        phone_number: phone || '',
+        address: address || '',
+        role_id: role,
+        profile_image: profileImageUrl   // ✅ NEW
+      })
+      .eq('id', userId);
+
+    if (profileError) {
+      console.error('[UserService] ❌ Profile insert error:', profileError);
+      await supabaseAdmin.auth.admin.deleteUser(userId);
+      throw profileError;
+    }
+
+    return { id: userId, email, fullName, role };
+  } catch (error) {
+    console.error('[UserService] ❌ createUser error:', error);
+    throw error;
   }
+}
 
   // ============================================================
   // CREATE USER FROM EMPLOYEE (Pending → Active)
-  // ✅ Employee Data අරගෙන Profile එකක් Create කරනවා
-  // ✅ Join කරන්නේ නැහැ - වෙන වෙනම Tables
   // ============================================================
   async createUserFromEmployee(employeeId, password) {
     try {
@@ -231,16 +242,17 @@ class UserService {
       console.log(`[UserService] ✅ Auth user created: ${userId}`);
 
       // 4️⃣ Insert into profiles — role_id now resolved dynamically from position
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .upsert([{
-          id: userId,
-          full_name: employee.name,
-          phone_number: employee.phone || '',
-          email: employee.email,
-          address: employee.address || '',
-          role_id: resolvedRoleId   // ✅ dynamic, no more hardcoded 3
-        }]);
+const { error: profileError } = await supabase
+  .from('profiles')
+  .upsert([{
+    id: userId,
+    full_name: employee.name,
+    phone_number: employee.phone || '',
+    email: employee.email,
+    address: employee.address || '',
+    role_id: resolvedRoleId,   // ✅ dynamic, no more hardcoded 3
+    profile_image: employee.profile_image || null   // ✅ carry over employee's photo
+  }]);
 
       if (profileError) {
         console.error('[UserService] ❌ Profile insert error:', profileError);
@@ -282,13 +294,19 @@ class UserService {
   // ============================================================
   // UPDATE USER (Update profile only)
   // ============================================================
-  async updateUser(id, userData) {
+async updateUser(id, userData) {
   try {
     console.log(`[UserService] ✏️ Updating user: ${id}`);
+    const {
+      fullName, email, phone, address, role, status, password, file,
+      jobType, hireDate, birthday, gender, nic, marriageStatus
+    } = userData;
 
-    const { fullName, email, phone, address, role, status, password, profileImage } = userData; // ✅ added profileImage
+    let profileImageUrl;
+    if (file) {
+      profileImageUrl = await uploadProfileImage(file);
+    }
 
-    // Update profiles
     const { error: profileError } = await supabase
       .from('profiles')
       .update({
@@ -297,46 +315,42 @@ class UserService {
         phone_number: phone,
         address,
         role_id: role,
-        ...(profileImage !== undefined && { profile_image: profileImage }) // ✅ only update if provided
+        ...(profileImageUrl !== undefined && { profile_image: profileImageUrl })
       })
       .eq('id', id);
 
-    if (profileError) {
-      console.error('[UserService] ❌ Profile update error:', profileError);
-      throw profileError;
-    }
+    if (profileError) throw profileError;
 
-    console.log('[UserService] ✅ Profile updated');
-
-    // ✅ NEW: update auth password if a new one was provided
     if (password) {
-      const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(id, {
-        password
-      });
-
-      if (passwordError) {
-        console.error('[UserService] ❌ Password update error:', passwordError);
-        throw passwordError;
-      }
-
-      console.log('[UserService] ✅ Password updated');
+      const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(id, { password });
+      if (passwordError) throw passwordError;
     }
 
-    // ✅ Update employee status separately (if status provided)
-    if (status) {
+    // ✅ employee-linked fields, kept in sync with the account
+    const employeeUpdates = {};
+    if (role) employeeUpdates.role_id = role;          // ✅ ADD THIS — sync role to employees table too
+    if (status) employeeUpdates.status = status;
+    if (jobType) employeeUpdates.job_type = jobType;
+    if (hireDate) employeeUpdates.hire_date = hireDate;
+    if (birthday) employeeUpdates.birthday = birthday;
+    if (gender) employeeUpdates.gender = gender;
+    if (nic) employeeUpdates.nic = nic;
+    if (marriageStatus) employeeUpdates.marriage_status = marriageStatus;
+
+    if (Object.keys(employeeUpdates).length > 0) {
+      employeeUpdates.updated_at = new Date().toISOString();
       const { error: empError } = await supabase
         .from('employees')
-        .update({ status })
-        .eq('email', email);
+        .update(employeeUpdates)
+        .eq('email', email);   // ✅ email now stays unchanged (disabled in UI), so this match is safe
 
       if (empError) {
         console.error('[UserService] ❌ Employee update error:', empError);
       } else {
-        console.log('[UserService] ✅ Employee status updated');
+        console.log('[UserService] ✅ Employee fields (incl. role_id) updated');
       }
     }
 
-    console.log(`[UserService] 🎯 User updated: ${email}`);
     return { id, email, fullName, role };
   } catch (error) {
     console.error('[UserService] ❌ updateUser error:', error);
@@ -550,22 +564,21 @@ async updateUserStatus(id, status) {
       // ✅ NEW: if an employeeId was supplied, flip that employee to 'active'
       // (covers the "employee already has an account, just update their role" flow)
       if (employeeId) {
-        const { error: empError } = await supabase
-          .from('employees')
-          .update({
-            status: 'active',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', employeeId);
+  const { error: empError } = await supabase
+    .from('employees')
+    .update({
+      status: 'active',
+      role_id: roleId,              // ✅ ADD THIS — keep employees.role_id in sync
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', employeeId);
 
-        if (empError) {
-          // Don't fail the whole request — role update already succeeded.
-          // Log it clearly so it's visible, but return the role-update result.
-          console.error('[UserService] ⚠️ Employee status update failed after role update:', empError);
-        } else {
-          console.log(`[UserService] ✅ Employee ${employeeId} status updated to active`);
-        }
-      }
+  if (empError) {
+    console.error('[UserService] ⚠️ Employee status update failed after role update:', empError);
+  } else {
+    console.log(`[UserService] ✅ Employee ${employeeId} status + role updated`);
+  }
+}
 
       return data;
     } catch (error) {

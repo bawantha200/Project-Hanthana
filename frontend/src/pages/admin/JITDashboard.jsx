@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   TrendingUp,
   Package,
@@ -13,6 +14,7 @@ import {
   ChevronRight,
   Eye,
   ArrowLeft,
+  RefreshCw,
 } from 'lucide-react';
 import {
   BarChart,
@@ -29,6 +31,14 @@ import { inventoryAPI } from '../../services/api';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 
+// ─── Query Keys ───
+const QUERY_KEYS = {
+  PRODUCTS: ['products'],
+  FORECAST: (productId) => ['forecast', productId],
+  ALL_FORECASTS: ['forecasts'],
+};
+
+// ─── Animation Variants ───
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -42,6 +52,25 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
+// ─── Helper Functions ───
+const getDateForDayOffset = (offset) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return date;
+};
+
+const formatDate = (date) => {
+  return date.toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+};
+
+const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+// ─── Custom Tooltip ───
 const CustomTooltip = ({ active, payload }) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
@@ -61,230 +90,152 @@ const CustomTooltip = ({ active, payload }) => {
   return null;
 };
 
-// Helper to get date for a specific day offset
-const getDateForDayOffset = (offset) => {
-  const date = new Date();
-  date.setDate(date.getDate() + offset);
-  return date;
-};
-
-// Format date for display
-const formatDate = (date) => {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
-};
-
 export default function JIT() {
   const navigate = useNavigate();
-  const [products, setProducts] = useState([]);
-  const [currentDay, setCurrentDay] = useState('');
-  const [viewOffset, setViewOffset] = useState(0);
-  const [weeklySchedule, setWeeklySchedule] = useState([]);
-  const [productDeficits, setProductDeficits] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const queryClient = useQueryClient();
 
-  // For drill-down
+  // ─── State ───
+  const [viewOffset, setViewOffset] = useState(0);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
   const [selectedDayProducts, setSelectedDayProducts] = useState([]);
   const [showDailyModal, setShowDailyModal] = useState(false);
   const [showWeeklyModal, setShowWeeklyModal] = useState(false);
   const [productDailyData, setProductDailyData] = useState({});
-  
-  // For date navigation
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [forecastDays, setForecastDays] = useState([]);
 
-  // Get the day name for the current view offset
-  const getViewDayName = () => {
-    const date = getDateForDayOffset(viewOffset);
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return days[date.getDay()];
-  };
+  // ─── React Query: Fetch Products ───
+  const {
+    data: productsData = [],
+    isLoading: productsLoading,
+    isFetching: productsFetching,
+    error: productsError,
+    refetch: refetchProducts,
+  } = useQuery({
+    queryKey: QUERY_KEYS.PRODUCTS,
+    queryFn: async () => {
+      const response = await inventoryAPI.getProductsWithStock();
+      return response.data?.products || [];
+    },
+    staleTime: 120000, // 2 minutes
+    gcTime: 600000, // 10 minutes
+    refetchOnWindowFocus: false,
+    refetchInterval: 300000, // 5 minutes
+    placeholderData: (previousData) => previousData,
+  });
 
-  // Get tomorrow's day name (with wrap-around)
-  const getTomorrowDayName = () => {
-    const nextOffset = viewOffset + 1;
-    const wrappedOffset = nextOffset > 6 ? 0 : nextOffset;
-    const date = getDateForDayOffset(wrappedOffset);
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    return days[date.getDay()];
-  };
+  // ─── React Query: Fetch Forecasts for All Products ───
+  const fetchAllForecasts = useCallback(async (products) => {
+    if (!products || products.length === 0) return [];
 
-  // Get tomorrow's forecast value (with wrap-around)
-  const getTomorrowForecastValue = (fullForecast) => {
-    const nextOffset = viewOffset + 1;
-    const wrappedOffset = nextOffset > 6 ? 0 : nextOffset;
-    return fullForecast[wrappedOffset]?.overall || 0;
-  };
-
-  // Navigate to previous/next day (only within 0-6 range)
-  const navigateDay = (direction) => {
-    const newOffset = viewOffset + direction;
-    if (newOffset < 0 || newOffset > 6) return;
-    setViewOffset(newOffset);
-    const newDate = getDateForDayOffset(newOffset);
-    setSelectedDate(newDate);
-  };
-
-  // Reset to today
-  const goToToday = () => {
-    setViewOffset(0);
-    setSelectedDate(new Date());
-  };
-
-  useEffect(() => {
-    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const today = new Date().getDay();
-    setCurrentDay(days[today]);
-    setSelectedDate(new Date());
-
-    const loadData = async () => {
+    const forecastPromises = products.map(async (p) => {
       try {
-        setLoading(true);
-        const response = await inventoryAPI.getProductsWithStock();
-        const productsData = response.data?.products || [];
-        setProducts(productsData);
-        setError(null);
+        const response = await fetch(`/api/forecast/next-week/${p.id}`);
+        if (!response.ok) throw new Error(`Failed to fetch forecast for product ${p.id}`);
+        const data = await response.json();
+        return {
+          ...data,
+          productId: p.id,
+          productName: p.name,
+        };
       } catch (err) {
-        console.error('Failed to load products:', err);
-        const errorMsg = err.response?.data?.message || err.message || 'Failed to load products';
-        setError(errorMsg);
-        toast.error(errorMsg);
-      } finally {
-        setLoading(false);
+        console.error(`Failed to fetch forecast for product ${p.id}:`, err);
+        return null;
       }
-    };
+    });
 
-    loadData();
+    const results = await Promise.all(forecastPromises);
+    return results.filter(r => r !== null);
   }, []);
 
-  useEffect(() => {
-    if (!products.length) {
-      setWeeklySchedule([]);
-      setProductDeficits([]);
-      setProductDailyData({});
-      return;
+  const {
+    data: forecastsData = [],
+    isLoading: forecastsLoading,
+    isFetching: forecastsFetching,
+    error: forecastsError,
+    refetch: refetchForecasts,
+  } = useQuery({
+    queryKey: QUERY_KEYS.ALL_FORECASTS,
+    queryFn: () => fetchAllForecasts(productsData),
+    enabled: productsData.length > 0,
+    staleTime: 300000, // 5 minutes
+    gcTime: 600000, // 10 minutes
+    refetchOnWindowFocus: false,
+    refetchInterval: 300000, // 5 minutes
+    placeholderData: (previousData) => previousData,
+  });
+
+  // ─── Process Forecast Data (Memoized) ───
+  const processedData = useMemo(() => {
+    if (!productsData.length || !forecastsData.length) {
+      return {
+        weeklySchedule: [],
+        productDeficits: [],
+        productDailyData: {},
+        weeklyTotalsArray: [],
+        productDayTotals: [],
+        rotatedDayNames: [],
+        productsNeedingAction: 0,
+        tomorrowUnits: 0,
+        storageEfficiency: 0,
+        totalStock: 0,
+        chartData: [],
+        currentDay: dayNames[new Date().getDay()],
+        viewDayName: dayNames[getDateForDayOffset(viewOffset).getDay()],
+        isViewToday: viewOffset === 0,
+        viewDate: getDateForDayOffset(viewOffset),
+        allZero: true,
+      };
     }
 
-    const loadForecasts = async () => {
-      try {
-        setLoading(true);
+    const currentDay = dayNames[new Date().getDay()];
+    const viewDayName = dayNames[getDateForDayOffset(viewOffset).getDay()];
+    const isViewToday = viewOffset === 0;
+    const viewDate = getDateForDayOffset(viewOffset);
 
-        const forecastPromises = products.map(p =>
-          fetch(`/api/forecast/next-week/${p.id}`)
-            .then(res => {
-              if (!res.ok) throw new Error(`Failed to fetch forecast for product ${p.id}`);
-              return res.json();
-            })
-            .then(data => {
-              return {
-                ...data,
-                productId: p.id,
-                productName: p.name
-              };
-            })
-            .catch(err => {
-              console.error(`Failed to fetch forecast for product ${p.id}:`, err);
-              return null;
-            })
-        );
+    // Build per-product daily data
+    const perProductData = {};
+    const dailyTotals = {};
+    const productForecastData = {};
 
-        const results = await Promise.all(forecastPromises);
+    forecastsData.forEach((result) => {
+      if (!result || !result.forecast) return;
+      const product = productsData.find(p => p.id === result.productId);
+      if (!product) return;
 
-        // Build per-product daily data
-        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const perProductData = {};
-        const dailyTotals = {};
+      productForecastData[result.productId] = {
+        reorderLevel: result.reorder_level || 0,
+        todayForecast: result.forecast[0]?.overall || 0,
+        tomorrowForecast: result.forecast[1]?.overall || 0,
+        forecast: result.forecast
+      };
 
-        // Store product forecast data for reorder level comparison
-        const productForecastData = {};
-
-        // Store all forecast days
-        const allForecastDays = [];
-
-        results.forEach((result, idx) => {
-          if (!result || !result.forecast) return;
-          const product = products[idx];
-          
-          // Store the forecast days
-          result.forecast.forEach((day, index) => {
-            if (!allForecastDays.includes(day.day)) {
-              allForecastDays.push(day.day);
-            }
-          });
-
-          // The forecast array is already ordered starting from today
-          const todayForecast = result.forecast[0]?.overall || 0;
-          const tomorrowForecast = result.forecast[1]?.overall || 0;
-          
-          // Store reorder level and forecast data
-          productForecastData[product.id] = {
-            reorderLevel: result.reorder_level || 0,
-            todayForecast: todayForecast,
-            tomorrowForecast: tomorrowForecast,
-            forecast: result.forecast
-          };
-
-          result.forecast.forEach(day => {
-            const dayName = day.day;
-            if (!perProductData[dayName]) perProductData[dayName] = [];
-            perProductData[dayName].push({
-              productName: product.name,
-              forecast: day.overall || 0,
-              productId: product.id,
-            });
-            dailyTotals[dayName] = (dailyTotals[dayName] || 0) + (day.overall || 0);
-          });
+      result.forecast.forEach(day => {
+        const dayName = day.day;
+        if (!perProductData[dayName]) perProductData[dayName] = [];
+        perProductData[dayName].push({
+          productName: product.name,
+          forecast: day.overall || 0,
+          productId: product.id,
         });
+        dailyTotals[dayName] = (dailyTotals[dayName] || 0) + (day.overall || 0);
+      });
+    });
 
-        // Set forecast days (should be 7 days)
-        setForecastDays(allForecastDays);
-        setProductDailyData(perProductData);
+    // Build weekly schedule
+    const schedule = dayNames.map(day => ({
+      day,
+      units: dailyTotals[day] || 0,
+    }));
 
-        // Build weekly schedule
-        const schedule = dayNames.map(day => ({
-          day,
-          units: dailyTotals[day] || 0,
-        }));
-        setWeeklySchedule(schedule);
-
-        // Compute per-product deficit for the current view
-        updateProductDeficits(productForecastData, 0);
-
-        setError(null);
-      } catch (err) {
-        setError(err.message || 'Failed to load forecast data');
-        console.error('Error loading forecasts:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadForecasts();
-  }, [products]);
-
-  // Update product deficits based on view offset
-  const updateProductDeficits = (forecastData, offset) => {
-    const deficits = products.map(p => {
-      const data = forecastData?.[p.id] || {};
+    // Compute product deficits for current view
+    const deficits = productsData.map(p => {
+      const data = productForecastData[p.id] || {};
       const forecast = data.forecast || [];
-      
-      // Get forecast for the current view day
-      const viewIndex = Math.min(offset, forecast.length - 1);
+      const viewIndex = Math.min(viewOffset, forecast.length - 1);
       const viewForecast = forecast[viewIndex]?.overall || 0;
-      
-      // Get tomorrow's forecast (with wrap-around)
-      const tomorrowIndex = offset + 1;
-      const wrappedTomorrowIndex = tomorrowIndex > 6 ? 0 : Math.min(tomorrowIndex, forecast.length - 1);
-      const tomorrowForecast = forecast[wrappedTomorrowIndex]?.overall || 0;
-      
+      const tomorrowIndex = viewOffset + 1 > 6 ? 0 : Math.min(viewOffset + 1, forecast.length - 1);
+      const tomorrowForecast = forecast[tomorrowIndex]?.overall || 0;
       const currentStock = p.stock || 0;
-      const deficit = viewForecast - currentStock;
       const needsAction = currentStock < viewForecast;
 
       return {
@@ -293,122 +244,179 @@ export default function JIT() {
         todayForecast: forecast[0]?.overall || 0,
         tomorrowForecast: tomorrowForecast,
         viewForecast: viewForecast,
-        deficit: deficit,
+        deficit: viewForecast - currentStock,
         needsAction: needsAction,
         shouldReorder: needsAction,
         fullForecast: forecast
       };
     });
 
-    setProductDeficits(deficits);
+    // Compute weekly product totals
+    const weeklyTotals = Object.keys(perProductData).reduce((acc, day) => {
+      perProductData[day].forEach(p => {
+        if (!acc[p.productId]) {
+          acc[p.productId] = { name: p.productName, total: 0 };
+        }
+        acc[p.productId].total += p.forecast;
+      });
+      return acc;
+    }, {});
+    const weeklyTotalsArray = Object.values(weeklyTotals).sort((a, b) => b.total - a.total);
+
+    // Build product-day matrix
+    const productDayMatrix = {};
+    const productNames = {};
+    Object.keys(perProductData).forEach(day => {
+      perProductData[day].forEach(item => {
+        const pid = item.productId;
+        if (!productDayMatrix[pid]) {
+          productDayMatrix[pid] = {};
+          productNames[pid] = item.productName;
+        }
+        productDayMatrix[pid][day] = item.forecast;
+      });
+    });
+
+    const productDayTotals = Object.keys(productDayMatrix).map(pid => {
+      const days = productDayMatrix[pid];
+      const total = Object.values(days).reduce((sum, v) => sum + v, 0);
+      return { productId: pid, productName: productNames[pid], days, total };
+    }).sort((a, b) => b.total - a.total);
+
+    // Rotate day names
+    const todayIndex = dayNames.indexOf(currentDay);
+    const rotatedDayNames = [];
+    for (let i = 0; i < 7; i++) {
+      rotatedDayNames.push(dayNames[(todayIndex + i) % 7]);
+    }
+
+    // Rotate schedule for chart
+    const currentIdx = schedule.findIndex(item => item.day === currentDay);
+    let rotatedSchedule = [...schedule];
+    if (currentIdx > 0) {
+      rotatedSchedule = [
+        ...schedule.slice(currentIdx),
+        ...schedule.slice(0, currentIdx)
+      ];
+    }
+
+    const chartData = rotatedSchedule.map(item => ({
+      ...item,
+      isPeak: item.units > 60,
+      label: item.day.slice(0, 3),
+    }));
+
+    const allZero = chartData.length > 0 && chartData.every(item => item.units === 0);
+
+    // Tomorrow's units
+    const tomorrowScheduleIndex = 1;
+    const wrappedTomorrowIndex = tomorrowScheduleIndex > 6 ? 0 : tomorrowScheduleIndex;
+    const tomorrowSchedule = rotatedSchedule[wrappedTomorrowIndex] || rotatedSchedule[0];
+    const tomorrowUnits = tomorrowSchedule ? tomorrowSchedule.units : 0;
+
+    // Storage efficiency
+    const totalStock = productsData.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const capacity = 1000;
+    const storageEfficiency = Math.max(0, Math.min(100, ((capacity - totalStock) / capacity) * 100));
+
+    const productsNeedingAction = deficits.filter(p => p.needsAction).length;
+
+    return {
+      weeklySchedule: schedule,
+      productDeficits: deficits,
+      productDailyData: perProductData,
+      weeklyTotalsArray,
+      productDayTotals,
+      rotatedDayNames,
+      productsNeedingAction,
+      tomorrowUnits,
+      storageEfficiency,
+      totalStock,
+      chartData,
+      currentDay,
+      viewDayName,
+      isViewToday,
+      viewDate,
+      allZero,
+    };
+  }, [productsData, forecastsData, viewOffset]);
+
+  // ─── Save Production Plan Mutation ───
+  const saveProductionPlanMutation = useMutation({
+    mutationFn: async (planData) => {
+      const response = await fetch('/api/forecast/save-production-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(planData),
+      });
+      if (!response.ok) throw new Error('Failed to save production plan');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ALL_FORECASTS });
+      toast.success('Production plan saved successfully');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to save production plan');
+    },
+  });
+
+  // ─── Update Reorder Levels Mutation ───
+  const updateReorderLevelsMutation = useMutation({
+    mutationFn: async (productId) => {
+      const url = productId 
+        ? `/api/forecast/update-reorder-levels/${productId}`
+        : '/api/forecast/update-reorder-levels';
+      const response = await fetch(url, { method: 'POST' });
+      if (!response.ok) throw new Error('Failed to update reorder levels');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.ALL_FORECASTS });
+      toast.success('Reorder levels updated successfully');
+    },
+    onError: (error) => {
+      toast.error(error.message || 'Failed to update reorder levels');
+    },
+  });
+
+  // ─── Handlers ───
+  const navigateDay = (direction) => {
+    const newOffset = viewOffset + direction;
+    if (newOffset < 0 || newOffset > 6) return;
+    setViewOffset(newOffset);
+    setSelectedDate(getDateForDayOffset(newOffset));
   };
 
-  // Update view when offset changes
-  useEffect(() => {
-    if (productDailyData && Object.keys(productDailyData).length > 0) {
-      // Recalculate deficits based on current view
-      const forecastData = {};
-      products.forEach(p => {
-        const fullForecast = productDeficits.find(d => d.id === p.id)?.fullForecast || [];
-        forecastData[p.id] = { forecast: fullForecast };
-      });
-      updateProductDeficits(forecastData, viewOffset);
-    }
-  }, [viewOffset]);
+  const goToToday = () => {
+    setViewOffset(0);
+    setSelectedDate(new Date());
+  };
 
-  // Rotate schedule so today is first (for chart)
-  const dayOrder = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const currentIdx = weeklySchedule.findIndex(item => item.day === currentDay);
-  let rotatedSchedule = [...weeklySchedule];
-  if (currentIdx > 0) {
-    rotatedSchedule = [
-      ...weeklySchedule.slice(currentIdx),
-      ...weeklySchedule.slice(0, currentIdx)
-    ];
-  } else if (currentIdx === -1 && weeklySchedule.length > 0) {
-    rotatedSchedule = [...weeklySchedule];
-  }
-
-  const chartData = rotatedSchedule.map(item => ({
-    ...item,
-    isPeak: item.units > 60,
-    label: item.day.slice(0, 3),
-  }));
-
-  const allZero = chartData.length > 0 && chartData.every(item => item.units === 0);
-
-  // Scheduled Production = tomorrow's forecast (with wrap-around)
-  const tomorrowScheduleIndex = 1;
-  const wrappedTomorrowIndex = tomorrowScheduleIndex > 6 ? 0 : tomorrowScheduleIndex;
-  const tomorrowSchedule = rotatedSchedule[wrappedTomorrowIndex] || rotatedSchedule[0];
-  const tomorrowUnits = tomorrowSchedule ? tomorrowSchedule.units : 0;
-
-  // Compute weekly product totals (for quick summary)
-  const weeklyProductTotals = Object.keys(productDailyData).reduce((acc, day) => {
-    productDailyData[day].forEach(p => {
-      if (!acc[p.productId]) {
-        acc[p.productId] = { name: p.productName, total: 0 };
-      }
-      acc[p.productId].total += p.forecast;
-    });
-    return acc;
-  }, {});
-
-  const weeklyTotalsArray = Object.values(weeklyProductTotals).sort((a, b) => b.total - a.total);
-
-  // Build product-day matrix for detailed weekly view
-  const productDayMatrix = {};
-  const productNames = {};
-
-  Object.keys(productDailyData).forEach(day => {
-    productDailyData[day].forEach(item => {
-      const pid = item.productId;
-      if (!productDayMatrix[pid]) {
-        productDayMatrix[pid] = {};
-        productNames[pid] = item.productName;
-      }
-      productDayMatrix[pid][day] = item.forecast;
-    });
-  });
-
-  // For each product, compute total across all days
-  const productDayTotals = Object.keys(productDayMatrix).map(pid => {
-    const days = productDayMatrix[pid];
-    const total = Object.values(days).reduce((sum, v) => sum + v, 0);
-    return { productId: pid, productName: productNames[pid], days, total };
-  });
-
-  // Sort by total descending
-  productDayTotals.sort((a, b) => b.total - a.total);
-
-  // Rotate day names for the weekly modal (starting from today)
-  const todayIndex = dayOrder.indexOf(currentDay);
-  const rotatedDayNames = [];
-  for (let i = 0; i < 7; i++) {
-    rotatedDayNames.push(dayOrder[(todayIndex + i) % 7]);
-  }
-
-  // Handle bar click for daily breakdown
   const handleBarClick = (data) => {
     if (data && data.activePayload && data.activePayload.length) {
       const day = data.activePayload[0].payload.day;
-      const productsForDay = productDailyData[day] || [];
+      const productsForDay = processedData.productDailyData[day] || [];
       setSelectedDay(day);
       setSelectedDayProducts(productsForDay);
       setShowDailyModal(true);
     }
   };
 
-  // Open weekly modal
-  const openWeeklyModal = () => {
-    setShowWeeklyModal(true);
+  const openWeeklyModal = () => setShowWeeklyModal(true);
+
+  const handleRefresh = () => {
+    refetchProducts();
+    refetchForecasts();
+    toast.success('Refreshing data...');
   };
 
-  const totalStock = products.reduce((sum, p) => sum + (p.stock || 0), 0);
-  const capacity = 1000;
-  const storageEfficiency = Math.max(0, Math.min(100, ((capacity - totalStock) / capacity) * 100));
+  const handleUpdateReorderLevels = () => {
+    updateReorderLevelsMutation.mutate();
+  };
 
-  if (loading) {
+  // ─── Loading State ───
+  if (productsLoading || (forecastsLoading && forecastsData.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
@@ -417,35 +425,43 @@ export default function JIT() {
     );
   }
 
-  if (error) {
+  // ─── Error State ───
+  if (productsError || forecastsError) {
+    const error = productsError || forecastsError;
     return (
       <div className="bg-red-50 border border-red-200 rounded-xl p-6 text-red-700">
         <h3 className="font-semibold text-lg mb-2">Error Loading Data</h3>
-        <p>{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-        >
-          Retry
-        </button>
+        <p>{error.message || 'Failed to load data'}</p>
+        <div className="flex gap-3 mt-4">
+          <button
+            onClick={handleRefresh}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
 
-  // Count products that need action
-  const productsNeedingAction = productDeficits.filter(p => p.needsAction).length;
+  const {
+    chartData,
+    productDeficits,
+    productDayTotals,
+    rotatedDayNames,
+    productsNeedingAction,
+    tomorrowUnits,
+    storageEfficiency,
+    totalStock,
+    currentDay,
+    viewDayName,
+    isViewToday,
+    viewDate,
+    allZero,
+  } = processedData;
 
-  const viewDayName = getViewDayName();
-  const isViewToday = viewOffset === 0;
-  const viewDate = getDateForDayOffset(viewOffset);
-
-  // Get the day names for the 7-day forecast
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const todayDayIndex = new Date().getDay();
-  const forecastDayNames = [];
-  for (let i = 0; i < 7; i++) {
-    forecastDayNames.push(dayNames[(todayDayIndex + i) % 7]);
-  }
+  const isUpdating = updateReorderLevelsMutation.isPending;
+  const isRefreshing = productsFetching || forecastsFetching;
 
   return (
     <motion.div
@@ -454,7 +470,7 @@ export default function JIT() {
       animate="visible"
       className="space-y-6"
     >
-      {/* Header with Back Button */}
+      {/* ─── Header ─── */}
       <motion.div variants={itemVariants} className="flex flex-col sm:flex-row sm:items-center justify-between">
         <div className="flex items-center gap-3">
           <button
@@ -470,13 +486,31 @@ export default function JIT() {
             </p>
           </div>
         </div>
-        <div className="mt-2 sm:mt-0 flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-xl border border-gray-100 shadow-sm">
-          <Clock size={16} className="text-blue-500" />
-          <span>Today: <strong className="text-gray-900">{currentDay}</strong></span>
+        <div className="mt-2 sm:mt-0 flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            Refresh
+          </button>
+          <button
+            onClick={handleUpdateReorderLevels}
+            disabled={isUpdating}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-50"
+          >
+            <TrendingUp size={14} className={isUpdating ? 'animate-spin' : ''} />
+            Update Reorder Levels
+          </button>
+          <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-xl border border-gray-100 shadow-sm">
+            <Clock size={16} className="text-blue-500" />
+            <span>Today: <strong className="text-gray-900">{currentDay}</strong></span>
+          </div>
         </div>
       </motion.div>
 
-      {/* Date Navigation - 7 Day Forecast */}
+      {/* ─── Date Navigation ─── */}
       <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -528,29 +562,33 @@ export default function JIT() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Quick navigation dots for 7 days */}
             <div className="flex items-center gap-1 mr-2">
-              {forecastDayNames.map((day, index) => (
-                <button
-                  key={day}
-                  onClick={() => {
-                    setViewOffset(index);
-                    setSelectedDate(getDateForDayOffset(index));
-                  }}
-                  className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
-                    viewOffset === index
-                      ? 'bg-indigo-600 text-white'
-                      : index === 0
-                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                      : index === 1
-                      ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                  title={day}
-                >
-                  {day.slice(0, 3)}
-                </button>
-              ))}
+              {dayNames.map((day, index) => {
+                const date = getDateForDayOffset(index);
+                const isToday = index === 0;
+                const isSelected = viewOffset === index;
+                return (
+                  <button
+                    key={day}
+                    onClick={() => {
+                      setViewOffset(index);
+                      setSelectedDate(date);
+                    }}
+                    className={`w-8 h-8 rounded-full text-xs font-medium transition-colors ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white'
+                        : isToday
+                        ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        : index === 1
+                        ? 'bg-amber-100 text-amber-700 hover:bg-amber-200'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                    title={day}
+                  >
+                    {day.slice(0, 3)}
+                  </button>
+                );
+              })}
             </div>
 
             {!isViewToday && (
@@ -571,7 +609,6 @@ export default function JIT() {
           </div>
         </div>
 
-        {/* Progress bar showing position in 7-day forecast */}
         <div className="mt-3 w-full bg-gray-100 rounded-full h-1.5">
           <div 
             className="h-1.5 rounded-full bg-gradient-to-r from-indigo-500 to-blue-500 transition-all duration-300"
@@ -579,13 +616,13 @@ export default function JIT() {
           />
         </div>
         <div className="flex justify-between text-xs text-gray-400 mt-1">
-          <span>{forecastDayNames[0] || 'Today'}</span>
+          <span>{dayNames[0] || 'Today'}</span>
           <span>Day {viewOffset + 1} of 7</span>
-          <span>{forecastDayNames[6] || 'Last Day'}</span>
+          <span>{dayNames[6] || 'Last Day'}</span>
         </div>
       </motion.div>
 
-      {/* Metrics Cards */}
+      {/* ─── Metrics Cards ─── */}
       <motion.div
         variants={itemVariants}
         className="grid grid-cols-1 sm:grid-cols-3 gap-5"
@@ -613,7 +650,6 @@ export default function JIT() {
           </p>
         </div>
 
-        {/* Scheduled Production Card */}
         <div
           className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow duration-200 cursor-pointer"
           onClick={openWeeklyModal}
@@ -653,7 +689,7 @@ export default function JIT() {
         </div>
       </motion.div>
 
-      {/* Action Plan */}
+      {/* ─── Action Plan ─── */}
       <motion.div variants={itemVariants}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-semibold text-gray-900">
@@ -692,7 +728,6 @@ export default function JIT() {
                 )}
                 <h3 className="text-sm font-medium text-gray-800">{product.name}</h3>
                 
-                {/* Stock Status */}
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">Current Stock</span>
@@ -702,7 +737,6 @@ export default function JIT() {
                   </div>
                 </div>
 
-                {/* Forecast Section */}
                 <div className="mt-3 pt-3 border-t border-gray-100">
                   <div className="grid grid-cols-2 gap-2">
                     <div className="bg-blue-50 rounded-lg p-2">
@@ -726,7 +760,6 @@ export default function JIT() {
                   </div>
                 </div>
 
-                {/* Action Button */}
                 <div className="mt-4 pt-3 border-t border-gray-100">
                   {needsAction ? (
                     <motion.div
@@ -751,7 +784,7 @@ export default function JIT() {
         </div>
       </motion.div>
 
-      {/* Chart */}
+      {/* ─── Chart ─── */}
       <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
         <div className="flex items-center justify-between mb-5">
           <div>
@@ -831,7 +864,7 @@ export default function JIT() {
         </div>
       </motion.div>
 
-      {/* Daily Breakdown Modal */}
+      {/* ─── Daily Breakdown Modal ─── */}
       <AnimatePresence>
         {showDailyModal && (
           <motion.div
@@ -880,7 +913,7 @@ export default function JIT() {
         )}
       </AnimatePresence>
 
-      {/* Weekly Summary Modal */}
+      {/* ─── Weekly Summary Modal ─── */}
       <AnimatePresence>
         {showWeeklyModal && (
           <motion.div
@@ -945,7 +978,6 @@ export default function JIT() {
                           </td>
                         </tr>
                       ))}
-                      {/* Grand total row */}
                       <tr className="border-t-2 border-gray-200 bg-gray-50/80">
                         <td className="py-2 px-3 font-bold text-gray-800 sticky left-0 bg-gray-50">Grand Total</td>
                         {rotatedDayNames.map(day => {

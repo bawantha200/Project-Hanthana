@@ -223,8 +223,191 @@ async function sendBroadcastEmailToCustomers({ subject, message }) {
   }
 }
 
+/**
+ * Send email change verification email to the new email address
+ */
+async function sendEmailChangeVerification({ 
+  to, 
+  newEmail, 
+  oldEmail, 
+  userName, 
+  verificationLink,
+  token 
+}) {
+  const activeTransporter = getTransporter();
+  if (!activeTransporter) {
+    console.warn('⚠️ [mailer] SMTP not configured, cannot send verification email.');
+    return false;
+  }
+
+  const fromName = process.env.SMTP_FROM_NAME || 'Hanthana Water';
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+
+  const htmlContent = `
+    <h2 style="color: #1e3a8a; margin-top: 0;">Verify Your Email Change</h2>
+    <p>Hello${userName ? ' ' + userName : ''},</p>
+    <p>You requested to change the email address associated with your Hanthana Water account.</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f8fafc; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #475569;">Current Email</td>
+        <td style="padding: 12px 16px; border-bottom: 1px solid #e2e8f0; color: #1e293b;">${oldEmail}</td>
+      </tr>
+      <tr>
+        <td style="padding: 12px 16px; font-weight: 600; color: #475569;">New Email</td>
+        <td style="padding: 12px 16px; color: #1e293b; font-weight: 600; color: #2563eb;">${newEmail}</td>
+      </tr>
+    </table>
+    
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${verificationLink}" 
+         style="display: inline-block; background: #2563eb; color: white; padding: 14px 32px; 
+                text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px;
+                box-shadow: 0 2px 4px rgba(37, 99, 235, 0.3);">
+        Confirm Email Change
+      </a>
+    </div>
+    
+    <div style="background: #fef3c7; padding: 16px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+      <strong style="color: #92400e;">⏰ Important:</strong>
+      <span style="color: #78350f;">This verification link will expire in <strong>24 hours</strong>.</span>
+    </div>
+    
+    <div style="background: #dbeafe; padding: 16px; border-radius: 8px; border-left: 4px solid #3b82f6; margin: 20px 0;">
+      <strong style="color: #1e40af;">🔒 Security Notice:</strong>
+      <span style="color: #1e3a8a;">If you did not request this change, please ignore this email and contact support.</span>
+    </div>
+    
+    <p style="margin-top: 24px; color: #64748b; font-size: 14px;">
+      If the button doesn't work, copy and paste this link into your browser:<br>
+      <span style="word-break: break-all; color: #2563eb;">${verificationLink}</span>
+    </p>
+  `;
+
+  try {
+    await activeTransporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: to,
+      subject: 'Confirm Your Email Change - Hanthana Water',
+      text: `Please confirm your email change by visiting: ${verificationLink}`,
+      html: buildBrandedHtml(htmlContent),
+    });
+    console.log(`📧 [mailer] Sent email change verification to ${to}`);
+    return true;
+  } catch (err) {
+    console.error('❌ [mailer] Failed to send verification email:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Send email change confirmation email (after successful verification)
+ */
+async function sendEmailChangeConfirmation({ to, newEmail, userName }) {
+  const activeTransporter = getTransporter();
+  if (!activeTransporter) {
+    console.warn('⚠️ [mailer] SMTP not configured, cannot send confirmation email.');
+    return false;
+  }
+
+  const fromName = process.env.SMTP_FROM_NAME || 'Hanthana Water';
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+
+  const htmlContent = `
+    <h2 style="color: #16a34a; margin-top: 0;">✅ Email Changed Successfully</h2>
+    <p>Hello${userName ? ' ' + userName : ''},</p>
+    <p>Your email address has been successfully changed.</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #f0fdf4; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px 16px; font-weight: 600; color: #166534;">New Email Address</td>
+        <td style="padding: 12px 16px; color: #15803d; font-weight: 600;">${newEmail}</td>
+      </tr>
+    </table>
+    
+    <div style="background: #fef2f2; padding: 16px; border-radius: 8px; border-left: 4px solid #ef4444; margin: 20px 0;">
+      <strong style="color: #991b1b;">🔒 Important:</strong>
+      <span style="color: #7f1d1d;">If you did not make this change, please contact support immediately.</span>
+    </div>
+    
+    <p style="margin-top: 24px; color: #64748b; font-size: 14px;">
+      You can now log in to your account using your new email address.
+    </p>
+  `;
+
+  try {
+    await activeTransporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: to,
+      subject: 'Email Changed Successfully - Hanthana Water',
+      text: `Your email has been successfully changed to ${newEmail}`,
+      html: buildBrandedHtml(htmlContent),
+    });
+    console.log(`📧 [mailer] Sent email change confirmation to ${to}`);
+    return true;
+  } catch (err) {
+    console.error('❌ [mailer] Failed to send confirmation email:', err.message);
+    return false;
+  }
+}
+
+/**
+ * Send notification to old email address when a change is requested
+ */
+async function sendOldEmailNotification({ to, newEmail, userName }) {
+  const activeTransporter = getTransporter();
+  if (!activeTransporter) {
+    console.warn('⚠️ [mailer] SMTP not configured, cannot send notification email.');
+    return false;
+  }
+
+  const fromName = process.env.SMTP_FROM_NAME || 'Hanthana Water';
+  const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER;
+
+  const htmlContent = `
+    <h2 style="color: #d97706; margin-top: 0;">📧 Email Change Requested</h2>
+    <p>Hello${userName ? ' ' + userName : ''},</p>
+    <p>We received a request to change the email address associated with your account.</p>
+    
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background: #fffbeb; border-radius: 8px;">
+      <tr>
+        <td style="padding: 12px 16px; font-weight: 600; color: #92400e;">New Email Requested</td>
+        <td style="padding: 12px 16px; color: #d97706; font-weight: 600;">${newEmail}</td>
+      </tr>
+    </table>
+    
+    <div style="background: #fef3c7; padding: 16px; border-radius: 8px; border-left: 4px solid #f59e0b; margin: 20px 0;">
+      <strong style="color: #92400e;">⚠️ Did you request this?</strong>
+      <span style="color: #78350f;">If not, please contact our support team immediately.</span>
+    </div>
+    
+    <p style="margin-top: 24px; color: #64748b; font-size: 14px;">
+      This is a notification email. No action is required on your part unless you did not make this request.
+    </p>
+  `;
+
+  try {
+    await activeTransporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: to,
+      subject: 'Email Change Requested - Hanthana Water',
+      text: `A request was made to change your email to ${newEmail}`,
+      html: buildBrandedHtml(htmlContent),
+    });
+    console.log(`📧 [mailer] Sent notification to old email ${to}`);
+    return true;
+  } catch (err) {
+    console.error('❌ [mailer] Failed to send notification email:', err.message);
+    return false;
+  }
+}
+
+
 module.exports = {
   sendNotificationEmails,
   sendOrderConfirmationEmail,
   sendBroadcastEmailToCustomers,
+  sendEmailChangeVerification,
+  sendEmailChangeConfirmation,
+  sendOldEmailNotification
 };

@@ -8,7 +8,10 @@ import {
   Briefcase, Save, RefreshCw, Filter, ChevronDown, BarChart,
   PieChart, Activity, UserCheck, UserX, UserPlusIcon,
   CalendarDays, Coins, Wallet, Receipt, Settings, Bell,
-  Shield, Crown, Headphones, Truck, Bike, Package
+  Shield, Crown, Headphones, Truck, Bike, Package,
+  Eye, MoreHorizontal, UserMinus, UserPlus, Clock as ClockIcon,
+  Check, XCircle, AlertTriangle, Users as UsersIcon,
+  Calendar as CalendarIcon, FileCheck
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import { formatCurrency } from '../../utils/helpers';
@@ -18,6 +21,7 @@ const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
 const ATTENDANCE_API = `${API_BASE_URL}/attendance`;
 const SALARIES_API = `${API_BASE_URL}/salaries`;
+const LEAVE_API = `${API_BASE_URL}/leaves`;
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -32,7 +36,6 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// REMOVED: tabs array - only keeping Overview
 const tabs = [
   { key: 'overview', label: 'Overview', icon: BarChart },
 ];
@@ -50,6 +53,7 @@ export default function HRMDashboard() {
   const [employees, setEmployees] = useState([]);
   const [attendanceData, setAttendanceData] = useState([]);
   const [salaryData, setSalaryData] = useState([]);
+  const [leaveData, setLeaveData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
@@ -67,6 +71,7 @@ export default function HRMDashboard() {
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [roles, setRoles] = useState([]);
   const [rolesLoading, setRolesLoading] = useState(false);
+  const [todayDate, setTodayDate] = useState('');
 
   const [attendanceForm, setAttendanceForm] = useState({
     employeeId: '',
@@ -120,15 +125,17 @@ export default function HRMDashboard() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      const [employeesRes, attendanceRes, salariesRes] = await Promise.all([
+      const [employeesRes, attendanceRes, salariesRes, leavesRes] = await Promise.all([
         axios.get(EMPLOYEES_API, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(ATTENDANCE_API, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(SALARIES_API, { headers: { Authorization: `Bearer ${token}` } })
+        axios.get(SALARIES_API, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(LEAVE_API, { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
       if (employeesRes.data.success) setEmployees(employeesRes.data.data);
       if (attendanceRes.data.success) setAttendanceData(attendanceRes.data.data);
       if (salariesRes.data.success) setSalaryData(salariesRes.data.data);
+      if (leavesRes.data.success) setLeaveData(leavesRes.data.data);
       setError(null);
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -158,6 +165,13 @@ export default function HRMDashboard() {
   };
 
   useEffect(() => {
+    const today = new Date();
+    setTodayDate(today.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    }));
     fetchAllData();
     fetchRoles();
   }, []);
@@ -471,8 +485,18 @@ export default function HRMDashboard() {
   const totalStaff = employees.length;
   const presentToday = attendanceData.filter(a => a.status === 'present').length;
   const absentToday = attendanceData.filter(a => a.status === 'absent').length;
+  const halfDayToday = attendanceData.filter(a => a.status === 'half_day').length;
   const monthlyPayout = salaryData.reduce((sum, s) => sum + (s.total_salary || s.total || 0), 0);
   const totalOTHours = salaryData.reduce((sum, s) => sum + (s.ot_hours || s.otHours || 0), 0);
+
+  // Today's attendance rate
+  const todayAttendanceRate = totalStaff > 0 ? Math.round((presentToday / totalStaff) * 100) : 0;
+
+  // Leave summary
+  const pendingLeaves = leaveData.filter(l => l.status === 'pending').length;
+  const approvedLeaves = leaveData.filter(l => l.status === 'approved').length;
+  const rejectedLeaves = leaveData.filter(l => l.status === 'rejected').length;
+  const totalLeaves = leaveData.length;
 
   const statsValues = {
     totalStaff,
@@ -581,7 +605,6 @@ export default function HRMDashboard() {
               <RefreshCw size={16} />
               Refresh
             </button>
-            {/* REMOVED: Add Employee button */}
           </div>
         </div>
       </motion.div>
@@ -688,6 +711,10 @@ export default function HRMDashboard() {
                   <span className="w-2 h-2 rounded-full bg-red-500"></span>
                   <span>{absentToday} Absent</span>
                 </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span>{halfDayToday} Half Day</span>
+                </div>
               </div>
             </div>
 
@@ -711,7 +738,7 @@ export default function HRMDashboard() {
                 <div>
                   <p className="text-xs font-medium text-purple-600 uppercase tracking-wider">Attendance Rate</p>
                   <p className="text-3xl font-bold text-gray-900 mt-1">
-                    {totalStaff > 0 ? Math.round((presentToday / totalStaff) * 100) : 0}%
+                    {todayAttendanceRate}%
                   </p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
@@ -721,14 +748,17 @@ export default function HRMDashboard() {
               <div className="mt-3 w-full bg-purple-200 rounded-full h-1.5">
                 <div
                   className="bg-purple-600 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${totalStaff > 0 ? (presentToday / totalStaff) * 100 : 0}%` }}
+                  style={{ width: `${todayAttendanceRate}%` }}
                 />
               </div>
             </div>
           </div>
 
-          {/* Recent Activity */}
+          {/* ============================================ */}
+          {/* RECENT ATTENDANCE & RECENT LEAVES CARDS */}
+          {/* ============================================ */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Recent Attendance Card */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
@@ -753,7 +783,340 @@ export default function HRMDashboard() {
               </div>
             </div>
 
-            {/* REMOVED: Top Earners card */}
+            {/* ============================================ */}
+            {/* RECENT LEAVES CARD - NEW */}
+            {/* ============================================ */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <CalendarIcon size={16} className="text-indigo-500" />
+                  Recent Leaves
+                </h3>
+                <span className="text-xs text-gray-400">{leaveData.length} records</span>
+              </div>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {leaveData.slice(0, 5).map((record) => {
+                  const statusColors = {
+                    pending: 'bg-amber-50 text-amber-700 border-amber-200',
+                    approved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                    rejected: 'bg-red-50 text-red-700 border-red-200',
+                    cancelled: 'bg-gray-50 text-gray-700 border-gray-200'
+                  };
+                  const statusIcons = {
+                    pending: '⏳',
+                    approved: '✅',
+                    rejected: '❌',
+                    cancelled: '🚫'
+                  };
+                  const statusLabel = {
+                    pending: 'Pending',
+                    approved: 'Approved',
+                    rejected: 'Rejected',
+                    cancelled: 'Cancelled'
+                  };
+                  const statusColor = statusColors[record.status] || statusColors.pending;
+                  const statusIcon = statusIcons[record.status] || '📋';
+                  const statusLabelText = statusLabel[record.status] || record.status;
+
+                  return (
+                    <div key={record.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{record.employee_name || record.name}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-gray-400">{record.leave_type || record.leaveType}</span>
+                          <span className="text-xs text-gray-300">•</span>
+                          <span className="text-xs text-gray-400">{record.start_date || record.startDate} - {record.end_date || record.endDate}</span>
+                        </div>
+                      </div>
+                      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${statusColor}`}>
+                        <span>{statusIcon}</span>
+                        {statusLabelText}
+                      </span>
+                    </div>
+                  );
+                })}
+                {leaveData.length === 0 && (
+                  <p className="text-center text-gray-400 text-sm py-4">No leave records</p>
+                )}
+              </div>
+              <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+                <span>Total: {totalLeaves} requests</span>
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    {pendingLeaves} Pending
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    {approvedLeaves} Approved
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    {rejectedLeaves} Rejected
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ============================================ */}
+          {/* ATTENDANCE SUMMARY CARD - Below the two cards */}
+          {/* ============================================ */}
+          <div className="grid grid-cols-1 gap-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <PieChart size={16} className="text-purple-500" />
+                  Attendance Summary
+                </h3>
+                <span className="text-xs text-gray-400">{todayDate}</span>
+              </div>
+
+              {/* Today's Stats */}
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <UserCheck size={14} className="text-emerald-600" />
+                    <span className="text-xs text-gray-500">Present</span>
+                  </div>
+                  <p className="text-xl font-bold text-emerald-700">{presentToday}</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <ClockIcon size={14} className="text-amber-600" />
+                    <span className="text-xs text-gray-500">Half Day</span>
+                  </div>
+                  <p className="text-xl font-bold text-amber-700">{halfDayToday}</p>
+                </div>
+                <div className="bg-red-50 rounded-xl p-3 text-center">
+                  <div className="flex items-center justify-center gap-1">
+                    <UserX size={14} className="text-red-600" />
+                    <span className="text-xs text-gray-500">Absent</span>
+                  </div>
+                  <p className="text-xl font-bold text-red-700">{absentToday}</p>
+                </div>
+              </div>
+
+              {/* Progress Bars */}
+              <div className="space-y-2">
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-600">Attendance Rate</span>
+                    <span className="font-semibold text-gray-900">{todayAttendanceRate}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                    <div
+                      className="bg-emerald-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${todayAttendanceRate}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-600">Absent Rate</span>
+                    <span className="font-semibold text-gray-900">{totalStaff > 0 ? Math.round((absentToday / totalStaff) * 100) : 0}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                    <div
+                      className="bg-red-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${totalStaff > 0 ? (absentToday / totalStaff) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-gray-600">Half Day Rate</span>
+                    <span className="font-semibold text-gray-900">{totalStaff > 0 ? Math.round((halfDayToday / totalStaff) * 100) : 0}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                    <div
+                      className="bg-amber-500 h-2 rounded-full transition-all duration-500"
+                      style={{ width: `${totalStaff > 0 ? (halfDayToday / totalStaff) * 100 : 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Stats Footer */}
+              <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
+                <span>Total Staff: {totalStaff}</span>
+                <span>Today: {todayDate.split(',')[0]}</span>
+                <span className="flex items-center gap-1">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                  {presentToday} / {totalStaff}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* ============================================ */}
+          {/* ENLARGED EMPLOYEE TABLE WITH FULL WIDTH */}
+          {/* ============================================ */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="p-6 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                  <Users size={18} className="text-blue-500" />
+                  Employee Directory
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {filteredEmployees.length} employees found
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <button
+                    onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
+                    className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    <Filter size={14} />
+                    {activeFilter === 'All' ? 'All Positions' : activeFilter.replace(/_/g, ' ')}
+                    <ChevronDown size={14} className={`transition-transform ${isFilterDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {isFilterDropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 z-20 py-1 max-h-60 overflow-y-auto">
+                      {filterTabs.map((tab) => {
+                        const Icon = tab.icon;
+                        return (
+                          <button
+                            key={tab.key}
+                            onClick={() => {
+                              setActiveFilter(tab.key);
+                              setIsFilterDropdownOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors ${
+                              activeFilter === tab.key ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
+                            }`}
+                          >
+                            <Icon size={14} />
+                            {tab.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => openEmployeeForm()}
+                  className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                >
+                  <Plus size={14} />
+                  Add Employee
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
+                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Hire Date</th>
+                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredEmployees.length > 0 ? (
+                    filteredEmployees.map((employee) => (
+                      <tr
+                        key={employee.id}
+                        className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors cursor-pointer group"
+                      >
+                        <td className="py-3 px-6">
+                          <div className="flex items-center gap-3">
+                            {employee.profile_image ? (
+                              <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-blue-400 transition-all flex-shrink-0">
+                                <img src={employee.profile_image} alt={employee.name} className="w-full h-full object-cover" />
+                              </div>
+                            ) : (
+                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center font-semibold text-white shadow-sm flex-shrink-0">
+                                {employee.name?.charAt(0).toUpperCase() || 'U'}
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
+                                {employee.name}
+                              </p>
+                              <p className="text-xs text-gray-400">{employee.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-6">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                            {employee.position || 'N/A'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-6">
+                          <div className="flex flex-col">
+                            <span className="text-gray-700">{employee.phone}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-6 text-gray-600">{employee.hire_date}</td>
+                        <td className="py-3 px-6">
+                          <StatusBadge status={employee.status} />
+                        </td>
+                        <td className="py-3 px-6">
+                          <div className="flex items-center justify-center gap-2">
+                            <button
+                              onClick={() => openDetailModal(employee)}
+                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="View Details"
+                            >
+                              <Eye size={15} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setShowDetailModal(false);
+                                openEmployeeForm(employee);
+                              }}
+                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Edit size={15} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEmployeeToDelete(employee);
+                                setShowDeleteConfirm(true);
+                              }}
+                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                            <button
+                              onClick={() => openAttendanceForm(employee)}
+                              className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors"
+                              title="Add Attendance"
+                            >
+                              <Clock size={15} />
+                            </button>
+                            <button
+                              onClick={() => openSalaryForm(employee)}
+                              className="p-1.5 text-purple-500 hover:bg-purple-50 rounded-lg transition-colors"
+                              title="Add Salary"
+                            >
+                              <DollarSign size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="text-center py-12 text-gray-500">
+                        <Users size={36} className="mx-auto mb-3 text-gray-300" />
+                        <p className="font-medium">No employees found</p>
+                        <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filter criteria</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </motion.div>
       )}
