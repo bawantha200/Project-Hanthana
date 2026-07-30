@@ -5,7 +5,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, LogIn, AlertCircle, CheckCircle, Eye, EyeOff, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
-import { getLandingRouteForPermissions } from '../../context/AuthContext';
 
 
 const Login = ({ onSuccess, isModal = false }) => {
@@ -146,31 +145,11 @@ const Login = ({ onSuccess, isModal = false }) => {
         return;
       }
 
-// src/pages/auth/Login.jsx (කොටස් පමණක් දක්වා ඇත)
+      // Login successful
+      login(data.user, data.session.access_token, data.permissions || []);
 
       // Show success modal
       setShowSuccessModal(true);
-      setIsRedirecting(true);
-      
-      // Guaranteed landing page for the fixed system roles — these always win,
-// regardless of what order their permissions happen to be granted in.
-
-// Login සාර්ථක වූ විට (success block)
-login(data.user, data.session.access_token, data.permissions || []);
-setShowSuccessModal(true);
-setIsRedirecting(true);
-
-// Login.jsx (Success block)
-login(data.user, data.session.access_token, data.permissions || []);
-setShowSuccessModal(true);
-setIsRedirecting(true);
-
-const targetRole = String(data.user.role || data.user.role_name || '').toUpperCase();
-const targetPermissions = data.permissions || [];
-
-if (timeoutRef.current) clearTimeout(timeoutRef.current);
-
-      // const targetRole = data.user.role || data.user.role_name;
       
       // Clear any existing timeout
       if (timeoutRef.current) {
@@ -178,24 +157,27 @@ if (timeoutRef.current) clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
       
-      // Set timeout for navigation - wait 2.5 seconds
-timeoutRef.current = setTimeout(() => {
-  setShowSuccessModal(false);
-  setIsRedirecting(false);
-
-  if (isModal && onSuccess) {
-    onSuccess();
-  } else if (targetRole === 'CUSTOMER') {
-    window.location.replace('/');
-  } else {
-    // Permissions අනුව අදාළ නිවැරදි Landing Route එක සොයාගෙන එතැනට කෙලින්ම යවන්න
-    const targetRoute = getLandingRouteForPermissions(targetPermissions);
-    window.location.replace(targetRoute);
-  }
-  timeoutRef.current = null;
-}, 2500);
-
-
+      // Set timeout for navigation
+      timeoutRef.current = setTimeout(() => {
+        setShowSuccessModal(false);
+        
+        // Navigate based on role
+        const targetRole = data.user.role || data.user.role_name;
+        
+        if (isModal && onSuccess) {
+          onSuccess();
+        } else {
+          if (targetRole === 'ADMIN') {
+            navigate('/app/dashboard', { replace: true });
+          } else if (targetRole === 'RIDER') {
+            navigate('/app/rider-dashboard', { replace: true });
+          } else {
+            // CUSTOMER or any other role goes to home
+            navigate('/', { replace: true });
+          }
+        }
+        timeoutRef.current = null;
+      }, 2000);
 
       setLoading(false);
 

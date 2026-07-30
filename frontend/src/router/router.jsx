@@ -68,6 +68,7 @@ import PaymentResult from '../pages/customer/PaymentResult';
 import PaymentCancel from '../pages/customer/PaymentCancel';
 import ForgotPassword from '../pages/customer/ForgotPassword';
 import ResetPassword from '../pages/customer/ResetPassword';
+import PickupConfirmation from '../pages/customer/PickupConfirmation';
 
 
 

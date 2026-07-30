@@ -1,66 +1,69 @@
 const supabase = require('../config/db');
 
-// GET all employees with optional filters
-// Update the getAllEmployees function to include designation details
-// ===== GET all employees with optional filters =====
 exports.getAllEmployees = async (req, res) => {
   try {
     const { position, status, search, limit, page } = req.query;
-    
+
     console.log('[Employees] Fetching with params:', { position, status, search, limit, page });
 
-    // 💡 Performance Fix: Select ONLY needed fields for table view instead of '*'
     let query = supabase
-      .from('employees')
-      .select(`
-        id,
-        name,
-        email,
-        phone,
-        position,
-        status,
-        hire_date,
-        profile_image,
-        designation:designation_id (
-          id,
-          designation,
-          ot_rate
-        )
-      `);
-    
+  .from('employees')
+  .select(`
+    id,
+    name,
+    email,
+    phone,
+    position,
+    status,
+    hire_date,
+    profile_image,
+    base_salary,
+    role_id,  
+    bonus,        
+    designation:designation_id (
+      id,
+      designation,
+      ot_rate
+    )
+  `);
+
+    // Position filter (All නෙමෙයි නම් පමණක්)
     if (position && position !== 'All') {
       query = query.eq('position', position);
     }
-    
-    if (status) {
+
+    // ✅ FIX: Status filter (All නෙමෙයි නම් පමණක්)
+    if (status && status !== 'All') {
       query = query.eq('status', status);
     }
-    
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,position.ilike.%${search}%,email.ilike.%${search}%`);
+
+    // Search filter
+    if (search && search.trim() !== '') {
+      const searchTerm = search.trim();
+      query = query.or(`name.ilike.%${searchTerm}%,position.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
     }
 
-    // 💡 Pagination / Limit support (Default limit 50, if not specified)
+    // Pagination
     const pageNum = parseInt(page, 10) || 1;
     const limitNum = parseInt(limit, 10) || 50;
     const from = (pageNum - 1) * limitNum;
     const to = from + limitNum - 1;
 
     query = query.order('id', { ascending: false }).range(from, to);
-    
+
     const { data, error } = await query;
-    
+
     if (error) {
-      console.error('[Employees] Supabase error:', error);
+      console.error('[Employees] Supabase error detail:', error);
       return res.status(400).json({
         success: false,
         message: 'Error fetching employees',
         error: error.message
       });
     }
-    
+
     console.log(`[Employees] Found ${data?.length || 0} employees`);
-    
+
     res.status(200).json({
       success: true,
       data: data || [],
