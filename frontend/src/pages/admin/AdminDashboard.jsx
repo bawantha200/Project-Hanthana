@@ -237,14 +237,16 @@ export default function AdminDashboard() {
               <h2 className="text-base font-semibold text-gray-900">System Activity</h2>
               <p className="text-xs text-gray-400 mt-0.5">Recent audit log events</p>
             </div>
-            <motion.button
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.97 }}
-              onClick={() => navigate('/app/system-activity')}
-              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
-            >
-              View all <ArrowUpRight size={14} />
-            </motion.button>
+            <button
+  type="button"
+  onClick={(e) => {
+    e.preventDefault();
+    navigate('/app/system-activity');
+  }}
+  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors cursor-pointer"
+>
+  View all <ArrowUpRight size={14} />
+</button>
           </div>
           {activityLoading ? (
             <div className="flex justify-center items-center py-12">

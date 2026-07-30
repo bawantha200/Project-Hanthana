@@ -13,7 +13,7 @@ exports.getAllEmployees = async (req, res) => {
     name,
     email,
     phone,
-    position,
+    
     status,
     hire_date,
     profile_image,
@@ -27,10 +27,7 @@ exports.getAllEmployees = async (req, res) => {
     )
   `);
 
-    // Position filter (All නෙමෙයි නම් පමණක්)
-    if (position && position !== 'All') {
-      query = query.eq('position', position);
-    }
+   
 
     // ✅ FIX: Status filter (All නෙමෙයි නම් පමණක්)
     if (status && status !== 'All') {
@@ -40,7 +37,7 @@ exports.getAllEmployees = async (req, res) => {
     // Search filter
     if (search && search.trim() !== '') {
       const searchTerm = search.trim();
-      query = query.or(`name.ilike.%${searchTerm}%,position.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
+      query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`);
     }
 
     // Pagination
@@ -172,18 +169,18 @@ exports.getEmployeeById = async (req, res) => {
 exports.createEmployee = async (req, res) => {
   try {
     const {
-      name, position, designation, designation_id, phone, email, hireDate,
-      birthday, gender, nic, address, marriageStatus,
-      jobType, profileImage, baseSalary, bonus,
-      role_id  // ✅ ADDED: Accept role_id from frontend
-    } = req.body;
-    
-    if (!name || !email || !phone || !position || !address || !hireDate) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide all required fields: name, email, phone, position, address, hireDate'
-      });
-    }
+  name, designation_id, phone, email, hireDate,
+  birthday, gender, nic, address, marriageStatus,
+  jobType, profileImage, baseSalary, bonus,
+  role_id
+} = req.body;
+
+if (!name || !email || !phone || !designation_id || !address || !hireDate) {
+  return res.status(400).json({
+    success: false,
+    message: 'Please provide all required fields: name, email, phone, designation, address, hireDate'
+  });
+}
 
     // ✅ Email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -243,7 +240,7 @@ exports.createEmployee = async (req, res) => {
     
     const employeeData = {
       name,
-      position,
+      
       designation_id: designation_id || null,
       phone: cleanedPhone,
       email,
@@ -304,7 +301,7 @@ exports.updateEmployee = async (req, res) => {
     const { id } = req.params;
     const {
       name,
-      position,
+      
       designation_id,
       phone,
       email,
@@ -339,7 +336,7 @@ exports.updateEmployee = async (req, res) => {
     // Build update data object
     const updateData = {};
     if (name) updateData.name = name;
-    if (position) updateData.position = position;
+    
     if (designation_id !== undefined) updateData.designation_id = designation_id || null;
     if (phone) updateData.phone = phone;
     if (email) updateData.email = email;
