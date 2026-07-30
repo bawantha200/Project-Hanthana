@@ -1819,8 +1819,9 @@ const getPermissionsByRoleName = async (req, res) => {
   }
 };
 
+
 /**
- * @desc    Get current user's permissions based on POSITION or ROLE
+ * @desc    Get current user's permissions based on DESIGNATION or ROLE
  * @route   GET /api/auth/permissions
  */
 const getUserPermissions = async (req, res) => {
@@ -1828,45 +1829,48 @@ const getUserPermissions = async (req, res) => {
     const userId = req.user.id;
 
     // Get user's role_id from profiles table
-    // const { data: profile, error: profileError } = await supabase
-    //   .from('profiles')
-    //   .select('role_id')
-    //   .eq('id', userId)
-    //   .single();
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('role_id')
+      .eq('id', userId)
+      .single();
 
     if (profileError || !profile) {
       return res.status(200).json({ success: true, permissions: [] });
     }
 
     let permissions = [];
-    let positionId = null;
+    let designationId = null; // ✅ Changed from positionId
 
-    // Get user's position_id from employees table
+    // ✅ FIX: Get user's designation_id from employees table
     const { data: employee, error: empError } = await supabase
       .from('employees')
-      .select('position')
+      .select('designation_id') // ✅ Changed from position_id
       .eq('profile_id', userId)
       .maybeSingle();
 
     if (!empError && employee) {
-      positionId = employee.position_id;
+      designationId = employee.designation_id; // ✅ Changed from position_id
     }
 
-    // If position exists, get permissions from position (override role)
-    if (positionId) {
-      const { data: posPerms, error: posError } = await supabase
-        .from('position_permissions')
+    // If designation exists, get permissions from designation
+    if (designationId) {
+      const { data: desPerms, error: desError } = await supabase
+        .from('designation_permissions')
         .select('permissions ( permission_name )')
-        .eq('position_id', positionId);
+        .eq('designation_id', designationId);
 
-      if (!posError && posPerms && posPerms.length > 0) {
-        permissions = posPerms.map(rp => rp.permissions.permission_name);
-        console.log(`[POSITION PERMISSIONS] User ${userId} (Position ID: ${positionId}) got ${permissions.length} permissions.`);
+      if (!desError && desPerms && desPerms.length > 0) {
+        permissions = desPerms.map(rp => rp.permissions.permission_name);
+        console.log(`[DESIGNATION PERMISSIONS] User ${userId} (Designation ID: ${designationId}) got ${permissions.length} permissions.`);
+        
+        // Add cache headers
+        setCacheHeaders(res, 600);
         return res.status(200).json({ success: true, permissions });
       }
     }
 
-    // Fallback to role permissions if no position permissions found
+    // Fallback to role permissions if no designation permissions found
     if (profile.role_id) {
       const { data: rolePerms, error: rpError } = await supabase
         .from('role_permissions')
@@ -1878,6 +1882,9 @@ const getUserPermissions = async (req, res) => {
         console.log(`[ROLE PERMISSIONS] User ${userId} fell back to role permissions.`);
       }
     }
+
+    // Add cache headers
+    setCacheHeaders(res, 600);
 
     return res.status(200).json({ success: true, permissions });
   } catch (error) {
@@ -2441,6 +2448,7 @@ const verifySetup2FA = async (req, res) => {
   }
 };
 
+
 /**
  * Helper: Fetches permissions for a given user (position override, fallback to role)
  */
@@ -2455,29 +2463,33 @@ const getPermissionsForUserId = async (userId) => {
     if (profileError || !profile) return [];
 
     let permissions = [];
-    let positionId = null;
+    let designationId = null; // ✅ Changed from positionId
 
+    // ✅ FIX: Use designation_id instead of position_id
     const { data: employee, error: empError } = await supabase
       .from('employees')
-      .select('position_id')
+      .select('designation_id')  // ✅ Changed from position_id
       .eq('profile_id', userId)
       .maybeSingle();
 
     if (!empError && employee) {
-      positionId = employee.position_id;
+      designationId = employee.designation_id; // ✅ Changed from position_id
     }
 
-    if (positionId) {
-      const { data: posPerms, error: posError } = await supabase
-        .from('position_permissions')
+    // If designation exists, get permissions from designation
+    if (designationId) {
+      // If you have a designation_permissions table, use it
+      const { data: desPerms, error: desError } = await supabase
+        .from('designation_permissions')  // Update table name if different
         .select('permissions ( permission_name )')
-        .eq('position_id', positionId);
+        .eq('designation_id', designationId);
 
-      if (!posError && posPerms && posPerms.length > 0) {
-        return posPerms.map(rp => rp.permissions.permission_name);
+      if (!desError && desPerms && desPerms.length > 0) {
+        return desPerms.map(rp => rp.permissions.permission_name);
       }
     }
 
+    // Fallback to role permissions if no designation permissions found
     if (profile.role_id) {
       const { data: rolePerms, error: rpError } = await supabase
         .from('role_permissions')
@@ -2495,6 +2507,7 @@ const getPermissionsForUserId = async (userId) => {
     return [];
   }
 };
+
  /* @desc    Decode token (for frontend to check token validity)
  * @route   GET /api/auth/decode-token/:token
  */
