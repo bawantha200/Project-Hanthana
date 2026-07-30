@@ -1083,7 +1083,7 @@ export default function UserManagement() {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Briefcase size={16} className="text-gray-400" />
-                    <span className="text-gray-600">{selectedEmployee.position}</span>
+                    <span className="text-gray-600">{selectedEmployee.designation?.designation || 'N/A'}</span>
                   </div>
                 </div>
 

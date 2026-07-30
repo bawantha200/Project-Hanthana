@@ -16,7 +16,6 @@ const reportRoutes = require('./src/routes/reportRoutes');
 const customerRoutes = require('./src/routes/customerRoutes');
 const settingsRoutes = require('./src/routes/settingsRoutes');
 const roleRoutes = require('./src/routes/roleRoutes');
-const positionRoutes = require('./src/routes/positionRoutes');
 const permissionRoutes = require('./src/routes/permissionRoutes');
 const notificationsRoutes = require('./src/routes/notificationsRoutes');
 const auditLogRoutes = require('./src/routes/auditLogRoutes');
@@ -73,7 +72,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/roles', roleRoutes);
-app.use('/api/positions', positionRoutes);
 app.use('/api', permissionRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/products', productsRoutes);
@@ -99,7 +97,6 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/contact', contactRoutes);
-app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/delivery-fee', deliveryFeeRoutes);
 app.use('/api/demand-forecast', demandForecastingRoutes);
@@ -108,7 +105,7 @@ app.use('/api/financial-summary', financialSummaryRoutes);
 
 
 
-app.use('/api/contact', contactRoutes); 
+
 
 // Health check
 app.get('/', (req, res) => {
