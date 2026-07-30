@@ -691,7 +691,6 @@ export default function Leave() {
     { key: 'pending', label: 'Pending', value: pendingLeaves, icon: Clock, bgClass: 'bg-amber-50', textClass: 'text-amber-600' },
     { key: 'approved', label: 'Approved', value: approvedLeaves, icon: CheckCircle, bgClass: 'bg-emerald-50', textClass: 'text-emerald-600' },
     { key: 'rejected', label: 'Rejected', value: rejectedLeaves, icon: XIcon, bgClass: 'bg-red-50', textClass: 'text-red-600' },
-    { key: 'days', label: 'Total Days', value: totalDays, icon: Calendar, bgClass: 'bg-purple-50', textClass: 'text-purple-600' },
   ];
 
   // ========== GET LAST UPDATED TIME ==========
