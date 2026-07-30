@@ -837,7 +837,7 @@ const fetchEmployees = useCallback(async () => {
       
       const employeeData = {
         name: formData.fullName,
-        position: formData.designation,
+        
         designation_id: formData.designationId ? parseInt(formData.designationId) : null,
         phone: formData.phoneNo,
         email: formData.email,
@@ -924,7 +924,7 @@ const fetchEmployees = useCallback(async () => {
       
      const updateData = {
   name: formData.fullName,
-  position: formData.designation,        // ✅ ADD THIS LINE — keep position text in sync with designation_id
+         // ✅ ADD THIS LINE — keep position text in sync with designation_id
   designation_id: formData.designationId ? parseInt(formData.designationId) : null,
   phone: formData.phoneNo,
   email: formData.email,

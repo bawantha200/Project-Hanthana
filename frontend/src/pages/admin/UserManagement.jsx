@@ -78,16 +78,13 @@ export default function UserManagement() {
       )
     : null;
 
-  // Employee's position matched against roles list (auto-resolved, same logic as backend)
-  // Employee's role resolved from role_id first (set directly on Employees page),
-  // falling back to matching position -> role_name only if no role_id is set
   const resolvedRoleName = selectedEmployee?.role_id
-    ? roles.find((r) => r.id === selectedEmployee.role_id)?.role_name
-    : selectedEmployee?.position
-    ? roles.find(
-        (r) => r.role_name?.toUpperCase() === selectedEmployee.position.trim().toUpperCase()
-      )?.role_name
-    : null;
+  ? roles.find((r) => r.id === selectedEmployee.role_id)?.role_name
+  : selectedEmployee?.designation?.designation
+  ? roles.find(
+      (r) => r.role_name?.toUpperCase() === selectedEmployee.designation.designation.trim().toUpperCase()
+    )?.role_name
+  : null;
 
   // ===== FORM STATE FOR CREATE/EDIT USER (maps to `profiles` table columns only) =====
   const [formData, setFormData] = useState({
@@ -541,7 +538,7 @@ export default function UserManagement() {
     const matchesSearch =
       emp.name?.toLowerCase().includes(employeeSearch.toLowerCase()) ||
       emp.email?.toLowerCase().includes(employeeSearch.toLowerCase()) ||
-      emp.position?.toLowerCase().includes(employeeSearch.toLowerCase());
+      emp.designation?.designation?.toLowerCase().includes(employeeSearch.toLowerCase());
     const matchesStatus =
       statusFilter === "ALL" ||
       (statusFilter === "PENDING" && emp.status === "pending") ||
@@ -968,7 +965,7 @@ export default function UserManagement() {
                       >
                         <td className="py-3 px-4 font-medium text-gray-900">{emp.name}</td>
                         <td className="py-3 px-4 text-gray-600">{emp.email}</td>
-                        <td className="py-3 px-4 text-gray-600">{emp.position}</td>
+                        <td className="py-3 px-4 text-gray-600">{emp.designation?.designation || 'N/A'}</td>
                         <td className="py-3 px-4 text-gray-600">{emp.phone}</td>
                         <td className="py-3 px-4">
                           <StatusBadge status={emp.status} />
