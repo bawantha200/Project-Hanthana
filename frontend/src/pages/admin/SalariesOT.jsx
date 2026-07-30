@@ -9,10 +9,12 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/helpers';
 import axios from 'axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
 const SALARIES_API = `${API_BASE_URL}/salaries`;
+const DESIGNATIONS_API = `${API_BASE_URL}/designations`;
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -78,13 +80,48 @@ const getDesignationName = (employee) => {
   return '';
 };
 
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchEmployees = async () => {
+  const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch employees');
+  return response.data.data || [];
+};
+
+const fetchDesignations = async () => {
+  const response = await axios.get(DESIGNATIONS_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch designations');
+  return response.data.data || [];
+};
+
+const fetchSalaries = async () => {
+  const response = await axios.get(SALARIES_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch salaries');
+  return response.data.data || [];
+};
+
+const createSalary = async (salaryData) => {
+  const response = await axios.post(SALARIES_API, salaryData, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to create salary');
+  return response.data.data;
+};
+
+const updateSalary = async ({ id, data }) => {
+  const response = await axios.put(`${SALARIES_API}/${id}`, data, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to update salary');
+  return response.data.data;
+};
+
+const deleteSalary = async (id) => {
+  const response = await axios.delete(`${SALARIES_API}/${id}`, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to delete salary');
+  return response.data;
+};
+
 export default function SalariesOT() {
+  const queryClient = useQueryClient();
+
   // ========== STATE ==========
   const [searchQuery, setSearchQuery] = useState('');
-  const [employees, setEmployees] = useState([]);
-  const [designations, setDesignations] = useState([]);
-  const [salaryData, setSalaryData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -137,6 +174,111 @@ export default function SalariesOT() {
     month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
   });
 
+  // ===== REACT QUERY HOOKS =====
+
+  // 1. Employees Query (cached 5 minutes)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+  } = useQuery({
+    queryKey: ['salary-employees'],
+    queryFn: fetchEmployees,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 2. Designations Query (cached 10 minutes)
+  const {
+    data: designations = [],
+    isLoading: designationsLoading,
+    error: designationsError,
+    refetch: refetchDesignations,
+  } = useQuery({
+    queryKey: ['salary-designations'],
+    queryFn: fetchDesignations,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 3. Salaries Query (poll every 10 seconds)
+  const {
+    data: salaryData = [],
+    isLoading: salariesLoading,
+    error: salariesError,
+    refetch: refetchSalaries,
+    isFetching: isSalariesFetching,
+    dataUpdatedAt: salariesUpdatedAt,
+  } = useQuery({
+    queryKey: ['salary-records'],
+    queryFn: fetchSalaries,
+    staleTime: 10 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  const loading = employeesLoading || designationsLoading || salariesLoading;
+  const anyError = employeesError || designationsError || salariesError;
+
+  // ===== MUTATIONS =====
+
+  // Create Salary
+  const createSalaryMutation = useMutation({
+    mutationFn: createSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+      showSuccessNotification('Salary added successfully!');
+      setShowSalaryForm(false);
+      resetSalaryForm();
+    },
+    onError: (err) => {
+      if (err.response?.status === 409) {
+        setError('Salary already recorded for this month.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to save salary.');
+      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Update Salary
+  const updateSalaryMutation = useMutation({
+    mutationFn: updateSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+      showSuccessNotification('Salary updated successfully!');
+      setShowSalaryForm(false);
+      resetSalaryForm();
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to update salary.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Delete Salary
+  const deleteSalaryMutation = useMutation({
+    mutationFn: deleteSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+      showSuccessNotification('Salary record deleted successfully!');
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to delete salary record.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
   // ========== FILTER EMPLOYEES BY SEARCH ==========
   const filteredEmployees = employees.filter(emp => 
     emp.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase())
@@ -165,50 +307,6 @@ export default function SalariesOT() {
     setIsEmployeeDropdownOpen(false);
   };
 
-  // ========== FETCH FUNCTIONS ==========
-  
-  const fetchDesignations = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/designations', getAuthHeaders());
-      if (response.data.success) {
-        setDesignations(response.data.data);
-        console.log('✅ Designations loaded:', response.data.data.length);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching designations:', err);
-    }
-  };
-
-  const fetchEmployees = async () => {
-    try {
-      const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
-      if (response.data.success) {
-        setEmployees(response.data.data);
-        console.log('✅ Employees loaded:', response.data.data.length);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching employees:', err);
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        setError('Session expired. Please login again.');
-      }
-    }
-  };
-
-  const fetchSalaries = async () => {
-    try {
-      const response = await axios.get(SALARIES_API, getAuthHeaders());
-      if (response.data.success) {
-        setSalaryData(response.data.data);
-        console.log('✅ Salaries loaded:', response.data.data.length);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching salaries:', err);
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        setError('Session expired. Please login again.');
-      }
-    }
-  };
-
   // ========== FETCH PREVIOUS MONTHS DATA ==========
   const fetchPreviousSalaries = async () => {
     setLoadingPrevious(true);
@@ -217,62 +315,29 @@ export default function SalariesOT() {
       const currentMonth = currentDate.getMonth();
       const currentYear = currentDate.getFullYear();
       
-      const response = await axios.get(SALARIES_API, getAuthHeaders());
-      if (response.data.success) {
-        const allData = response.data.data;
-        const previousMonths = allData.filter(record => {
-          if (record.date) {
-            const recordDate = new Date(record.date);
-            return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
-          }
-          if (record.month) {
-            const monthYear = record.month.split(' ');
-            const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
-              .indexOf(monthYear[0]);
-            const year = parseInt(monthYear[1]);
-            return monthIndex !== currentMonth || year !== currentYear;
-          }
-          return true;
-        });
-        setPreviousSalaryData(previousMonths);
-        console.log('✅ Previous salaries loaded:', previousMonths.length);
-      }
+      const allData = salaryData;
+      const previousMonths = allData.filter(record => {
+        if (record.date) {
+          const recordDate = new Date(record.date);
+          return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
+        }
+        if (record.month) {
+          const monthYear = record.month.split(' ');
+          const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
+            .indexOf(monthYear[0]);
+          const year = parseInt(monthYear[1]);
+          return monthIndex !== currentMonth || year !== currentYear;
+        }
+        return true;
+      });
+      setPreviousSalaryData(previousMonths);
     } catch (err) {
-      console.error('❌ Error fetching previous salaries:', err);
+      console.error('Error fetching previous salaries:', err);
       setError('Failed to load previous salary data.');
     } finally {
       setLoadingPrevious(false);
     }
   };
-
-  // ========== LOAD DATA ==========
-  useEffect(() => {
-    const loadData = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please login to access salary data');
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      
-      try {
-        await Promise.all([
-          fetchEmployees(),
-          fetchDesignations(),
-          fetchSalaries()
-        ]);
-      } catch (err) {
-        console.error('Error loading data:', err);
-        setError('Failed to load data. Please refresh the page.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     if (showSuccess) {
@@ -331,58 +396,26 @@ export default function SalariesOT() {
         totalSalary: parseFloat(salaryForm.finalSalary) || 0
       };
 
-      let response;
       if (isEditingSalary && editingSalaryId) {
-        response = await axios.put(`${SALARIES_API}/${editingSalaryId}`, data, getAuthHeaders());
-        if (response.data.success) {
-          await fetchSalaries();
-          setShowSalaryForm(false);
-          resetSalaryForm();
-          showSuccessNotification('Salary updated successfully!');
-        }
+        updateSalaryMutation.mutate({ id: editingSalaryId, data });
       } else {
-        response = await axios.post(SALARIES_API, data, getAuthHeaders());
-        if (response.data.success) {
-          await fetchSalaries();
-          setShowSalaryForm(false);
-          resetSalaryForm();
-          showSuccessNotification('Salary added successfully!');
-        }
+        createSalaryMutation.mutate(data);
       }
     } catch (err) {
       console.error('Error:', err);
       if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
-      } else if (err.response?.status === 409) {
-        setError('Salary already recorded for this month.');
       } else {
         setError(err.response?.data?.message || 'Failed to save salary.');
       }
-    } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteSalary = async () => {
     if (!deleteId) return;
-    
-    try {
-      setSubmitting(true);
-      await axios.delete(`${SALARIES_API}/${deleteId}`, getAuthHeaders());
-      await fetchSalaries();
-      setShowDeleteConfirm(false);
-      setDeleteId(null);
-      showSuccessNotification('Salary record deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting salary:', err);
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        setError('Session expired. Please login again.');
-      } else {
-        setError('Failed to delete salary record.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    setSubmitting(true);
+    deleteSalaryMutation.mutate(deleteId);
   };
 
   const editSalary = (record) => {
@@ -493,7 +526,6 @@ export default function SalariesOT() {
     setShowPreviousSalaries(newState);
     if (newState) {
       fetchPreviousSalaries();
-      // Reset pagination when opening
       setPrevCurrentPage(1);
     }
   };
@@ -531,21 +563,18 @@ export default function SalariesOT() {
   const applyPrevFilters = (data) => {
     let filtered = [...data];
 
-    // Search by employee name
     if (prevSearchQuery) {
       filtered = filtered.filter(rec =>
         (rec.employee_name || rec.name || '').toLowerCase().includes(prevSearchQuery.toLowerCase())
       );
     }
 
-    // Filter by Employee
     if (prevFilterEmployeeId) {
       filtered = filtered.filter(rec => 
         (rec.employee_id || rec.employeeId) === parseInt(prevFilterEmployeeId)
       );
     }
 
-    // Filter by Month
     if (prevFilterMonth) {
       filtered = filtered.filter(rec => {
         const monthYear = rec.month ? rec.month.split(' ') : [];
@@ -555,7 +584,6 @@ export default function SalariesOT() {
       });
     }
 
-    // Filter by Year
     if (prevFilterYear) {
       filtered = filtered.filter(rec => {
         const monthYear = rec.month ? rec.month.split(' ') : [];
@@ -576,7 +604,6 @@ export default function SalariesOT() {
   const prevEndIndex = prevStartIndex + prevItemsPerPage;
   const paginatedPrevData = filteredPreviousSalary.slice(prevStartIndex, prevEndIndex);
 
-  // Reset previous page when filters change
   useEffect(() => {
     setPrevCurrentPage(1);
   }, [prevSearchQuery, prevFilterEmployeeId, prevFilterMonth, prevFilterYear, prevItemsPerPage]);
@@ -635,7 +662,6 @@ export default function SalariesOT() {
     setCurrentPage(1);
   }, [searchQuery]);
 
-  // Get page numbers to display
   const getPageNumbers = () => {
     const pages = [];
     const maxPagesToShow = 5;
@@ -748,6 +774,9 @@ export default function SalariesOT() {
     },
   ];
 
+  // ========== GET LAST UPDATED TIME ==========
+  const lastUpdated = salariesUpdatedAt ? new Date(salariesUpdatedAt).toLocaleTimeString() : 'Never';
+
   // ========== LOADING ==========
 
   if (loading) {
@@ -757,6 +786,26 @@ export default function SalariesOT() {
           <Loader size={48} className="text-blue-600 animate-spin mx-auto" />
           <p className="mt-4 text-gray-500">Loading salary data...</p>
         </div>
+      </div>
+    );
+  }
+
+  // ========== ERROR STATE ==========
+  if (anyError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <AlertCircle size={48} className="text-red-500" />
+        <p className="text-gray-600">Failed to load data: {anyError.message}</p>
+        <button
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+            queryClient.invalidateQueries({ queryKey: ['salary-employees'] });
+            queryClient.invalidateQueries({ queryKey: ['salary-designations'] });
+          }}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -807,24 +856,32 @@ export default function SalariesOT() {
             <p className="text-sm text-gray-500 mt-1">
               Manage employee salaries, overtime calculations, and bonus payments
             </p>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${isSalariesFetching ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+                <span className="text-xs text-gray-400">{isSalariesFetching ? 'Updating...' : 'Live'}</span>
+              </div>
+              <span className="text-xs text-gray-400">•</span>
+              <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            {isSalariesFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Syncing...
+              </span>
+            )}
             <button
-              onClick={async () => {
-                setLoading(true);
-                setError(null);
-                try {
-                  await fetchSalaries();
-                  showSuccessNotification('Salaries refreshed successfully!');
-                } catch (err) {
-                  setError('Failed to refresh salary data.');
-                } finally {
-                  setLoading(false);
-                }
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+                queryClient.invalidateQueries({ queryKey: ['salary-employees'] });
+                queryClient.invalidateQueries({ queryKey: ['salary-designations'] });
+                showSuccessNotification('Salaries refreshed successfully!');
               }}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={16} className={isSalariesFetching ? 'animate-spin' : ''} />
               Refresh
             </button>
             <button
@@ -1415,7 +1472,7 @@ export default function SalariesOT() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
               onClick={() => {
-                if (!submitting) {
+                if (!submitting && !createSalaryMutation.isPending && !updateSalaryMutation.isPending) {
                   setShowSalaryForm(false);
                   resetSalaryForm();
                 }
@@ -1430,13 +1487,13 @@ export default function SalariesOT() {
               <div className="relative p-6 md:p-8">
                 <button
                   onClick={() => {
-                    if (!submitting) {
+                    if (!submitting && !createSalaryMutation.isPending && !updateSalaryMutation.isPending) {
                       setShowSalaryForm(false);
                       resetSalaryForm();
                     }
                   }}
                   className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
-                  disabled={submitting}
+                  disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                 >
                   <X size={24} className="text-gray-400" />
                 </button>
@@ -1471,7 +1528,7 @@ export default function SalariesOT() {
                           }}
                           onFocus={() => setIsEmployeeDropdownOpen(true)}
                           className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white pr-8"
-                          disabled={submitting || isEditingSalary}
+                          disabled={submitting || isEditingSalary || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                         />
                         <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
                       </div>
@@ -1566,7 +1623,7 @@ export default function SalariesOT() {
                         onChange={(e) => setSalaryForm({ ...salaryForm, otHours: e.target.value })}
                         placeholder="Enter OT hours"
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        disabled={submitting}
+                        disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                       />
                       <p className="text-xs text-gray-400 mt-1">
                         OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr (from designation)
@@ -1596,7 +1653,7 @@ export default function SalariesOT() {
                         onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                         required
-                        disabled={submitting}
+                        disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                       >
                         {Array.from({ length: 12 }, (_, i) => {
                           const month = new Date(2000, i, 1).toLocaleString('default', { month: 'long' });
@@ -1634,13 +1691,13 @@ export default function SalariesOT() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (!submitting) {
+                        if (!submitting && !createSalaryMutation.isPending && !updateSalaryMutation.isPending) {
                           setShowSalaryForm(false);
                           resetSalaryForm();
                         }
                       }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
+                      disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                     >
                       Cancel
                     </button>
@@ -1649,9 +1706,9 @@ export default function SalariesOT() {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
+                      disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           {isEditingSalary ? 'Updating...' : 'Saving...'}
@@ -1681,7 +1738,7 @@ export default function SalariesOT() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
               onClick={() => {
-                if (!submitting) {
+                if (!submitting && !deleteSalaryMutation.isPending) {
                   setShowDeleteConfirm(false);
                   setDeleteId(null);
                 }
@@ -1709,22 +1766,22 @@ export default function SalariesOT() {
                   <div className="flex items-center justify-center gap-3">
                     <button
                       onClick={() => {
-                        if (!submitting) {
+                        if (!submitting && !deleteSalaryMutation.isPending) {
                           setShowDeleteConfirm(false);
                           setDeleteId(null);
                         }
                       }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
+                      disabled={submitting || deleteSalaryMutation.isPending}
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleDeleteSalary}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                      disabled={submitting}
+                      disabled={submitting || deleteSalaryMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || deleteSalaryMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           Deleting...

@@ -8,10 +8,11 @@ import {
   Circle, CheckCircle, AlertCircle, Loader, Shield, BarChart, Package, 
   Calculator, Truck, Bike, Headphones, Crown, ChevronDown, Wallet, Coins,
   Settings, List, PlusCircle, Pencil, Trash, Save, Users as UsersIcon,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, RefreshCw
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const API_URL = 'http://localhost:5000/api/employees';
 const DESIGNATION_API_URL = 'http://localhost:5000/api/designations';
@@ -53,10 +54,96 @@ const summaryCards = [
     bgClass: 'bg-amber-50',
     textClass: 'text-amber-600',
   },
-  
 ];
 
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchEmployees = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(API_URL, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch employees');
+  return response.data.data;
+};
+
+const fetchDesignations = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(DESIGNATION_API_URL, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch designations');
+  return response.data.data || [];
+};
+
+const fetchRoles = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(ROLES_API_URL, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch roles');
+  return response.data.data || [];
+};
+
+const createEmployee = async (employeeData) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.post(API_URL, employeeData, {
+    headers: { 
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json' 
+    },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to create employee');
+  return response.data.data;
+};
+
+const updateEmployee = async ({ id, data }) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.put(`${API_URL}/${id}`, data, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to update employee');
+  return response.data.data;
+};
+
+const deleteEmployee = async (id) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.delete(`${API_URL}/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to delete employee');
+  return response.data;
+};
+
+const createDesignation = async (designationData) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.post(DESIGNATION_API_URL, designationData, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to create designation');
+  return response.data.data;
+};
+
+const updateDesignation = async ({ id, data }) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.put(`${DESIGNATION_API_URL}/${id}`, data, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to update designation');
+  return response.data.data;
+};
+
+const deleteDesignation = async (id) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.delete(`${DESIGNATION_API_URL}/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to delete designation');
+  return response.data;
+};
+
 export default function Employees() {
+  const queryClient = useQueryClient();
+  
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -64,15 +151,11 @@ export default function Employees() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState(null);
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [roles, setRoles] = useState([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
   
   // ========== PAGINATION STATE ==========
   const [currentPage, setCurrentPage] = useState(1);
@@ -98,14 +181,12 @@ export default function Employees() {
   });
 
   // Designation CRUD States
-  const [designations, setDesignations] = useState([]);
   const [showDesignationModal, setShowDesignationModal] = useState(false);
   const [isEditingDesignation, setIsEditingDesignation] = useState(false);
   const [editingDesignationId, setEditingDesignationId] = useState(null);
   const [designationForm, setDesignationForm] = useState({ name: '', otRate: 500 });
   const [showDesignationDeleteConfirm, setShowDesignationDeleteConfirm] = useState(false);
   const [designationToDelete, setDesignationToDelete] = useState(null);
-  const [designationLoading, setDesignationLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -127,21 +208,191 @@ export default function Employees() {
     role: ''
   });
 
+  // ===== REACT QUERY HOOKS =====
+  
+  // 1. Employees Query with Polling (3 seconds)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+    isFetching: isEmployeesFetching,
+    dataUpdatedAt: employeesUpdatedAt,
+  } = useQuery({
+    queryKey: ['employees'],
+    queryFn: fetchEmployees,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 3000, // Poll every 3 seconds
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 2. Designations Query
+  const {
+    data: designations = [],
+    isLoading: designationsLoading,
+    refetch: refetchDesignations,
+  } = useQuery({
+    queryKey: ['designations'],
+    queryFn: fetchDesignations,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 3. Roles Query
+  const {
+    data: roles = [],
+    isLoading: rolesLoading,
+    refetch: refetchRoles,
+  } = useQuery({
+    queryKey: ['roles'],
+    queryFn: fetchRoles,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // ===== MUTATIONS =====
+  
+  const createEmployeeMutation = useMutation({
+    mutationFn: createEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      showSuccessNotification('Employee added successfully!');
+      setShowCreateForm(false);
+      resetForm();
+    },
+    onError: (error) => {
+      if (error.response?.status === 409) {
+        setError('An employee with this email already exists. Please use a different email address.');
+      } else if (error.response?.status === 400) {
+        setError(error.response.data?.message || 'Please check all required fields.');
+      } else {
+        setError(error.message || 'Failed to add employee. Please try again.');
+      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  const updateEmployeeMutation = useMutation({
+    mutationFn: updateEmployee,
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      const statusToSend = variables.data.status || 'active';
+      showSuccessNotification(
+        statusToSend === 'pending' 
+          ? 'Employee re-activated — pending account creation!'
+          : 'Employee updated successfully!'
+      );
+      setShowCreateForm(false);
+      setShowDetailModal(false);
+      setSelectedEmployee(data);
+      resetForm();
+    },
+    onError: (error) => {
+      if (error.response?.status === 409) {
+        setError('Email already in use by another employee.');
+      } else if (error.response?.status === 404) {
+        setError('Employee not found.');
+      } else if (error.response?.status === 400) {
+        setError(error.response.data?.message || 'Please check all required fields.');
+      } else {
+        setError(error.message || 'Failed to update employee. Please try again.');
+      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  const deleteEmployeeMutation = useMutation({
+    mutationFn: deleteEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      showSuccessNotification('Employee deleted successfully!');
+      setShowDeleteConfirm(false);
+      setEmployeeToDelete(null);
+      setShowDetailModal(false);
+      setSelectedEmployee(null);
+    },
+    onError: (error) => {
+      setError(error.message || 'Failed to delete employee. Please try again.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  const createDesignationMutation = useMutation({
+    mutationFn: createDesignation,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['designations'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      showSuccessNotification('Designation added successfully!');
+      setShowDesignationModal(false);
+      setDesignationForm({ name: '', otRate: 500 });
+    },
+    onError: (error) => {
+      if (error.response?.status === 409) {
+        setError(error.response.data?.message || 'This designation already exists.');
+      } else {
+        setError(error.message || 'Failed to add designation.');
+      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  const updateDesignationMutation = useMutation({
+    mutationFn: updateDesignation,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['designations'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      showSuccessNotification('Designation updated successfully!');
+      setShowDesignationModal(false);
+      setDesignationForm({ name: '', otRate: 500 });
+      setIsEditingDesignation(false);
+      setEditingDesignationId(null);
+    },
+    onError: (error) => {
+      if (error.response?.status === 409) {
+        setError(error.response.data?.message || 'This designation name already exists.');
+      } else if (error.response?.status === 404) {
+        setError('Designation not found. It may have been deleted already.');
+      } else {
+        setError(error.message || 'Failed to update designation.');
+      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  const deleteDesignationMutation = useMutation({
+    mutationFn: deleteDesignation,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['designations'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      showSuccessNotification('Designation deleted successfully!');
+      setShowDesignationDeleteConfirm(false);
+      setDesignationToDelete(null);
+    },
+    onError: (error) => {
+      setError(error.message || 'Failed to delete designation.');
+      setShowDesignationDeleteConfirm(false);
+      setDesignationToDelete(null);
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
   // ========== HELPER FUNCTIONS ==========
   
-  // Get role display name from employee object
   const getRoleDisplay = (employee) => {
     if (!employee) return 'No Role';
-    
-    // If role is an object with role_name property (from join)
     if (employee.role && typeof employee.role === 'object') {
       return employee.role.role_name || 'No Role';
     }
-    // If role is a string
     if (employee.role && typeof employee.role === 'string') {
       return employee.role;
     }
-    // If role_id exists but role object doesn't
     if (employee.role_id) {
       const foundRole = roles.find(r => r.id === employee.role_id);
       return foundRole ? foundRole.role_name : 'No Role';
@@ -149,12 +400,9 @@ export default function Employees() {
     return 'No Role';
   };
 
-  // Get role color based on role name
   const getRoleColor = (employee) => {
     let roleName = '';
-    
     if (!employee) return 'bg-gray-50 text-gray-400';
-    
     if (employee.role && typeof employee.role === 'object') {
       roleName = employee.role.role_name || '';
     } else if (employee.role && typeof employee.role === 'string') {
@@ -163,9 +411,7 @@ export default function Employees() {
       const foundRole = roles.find(r => r.id === employee.role_id);
       roleName = foundRole ? foundRole.role_name : '';
     }
-    
     if (!roleName) return 'bg-gray-50 text-gray-400';
-    
     const lowerRole = roleName.toLowerCase();
     if (lowerRole === 'admin') return 'bg-purple-50 text-purple-700';
     if (lowerRole === 'manager') return 'bg-indigo-50 text-indigo-700';
@@ -174,7 +420,6 @@ export default function Employees() {
     return 'bg-gray-50 text-gray-700';
   };
 
-  // Get designation name from employee
   const getDesignationName = (employee) => {
     if (!employee) return '';
     if (employee.designation && typeof employee.designation === 'object') {
@@ -189,13 +434,6 @@ export default function Employees() {
       return employee.designation.id;
     }
     return employee.designation_id || null;
-  };
-
-  // Helper function to get role name by ID
-  const getRoleName = (roleId) => {
-    if (!roleId) return 'No Role';
-    const role = roles.find(r => r.id === roleId);
-    return role ? role.role_name : 'No Role';
   };
 
   // ========== VALIDATION FUNCTIONS ==========
@@ -222,62 +460,6 @@ export default function Employees() {
     const oldRegex = /^[0-9]{9}[VX]$/;
     const newRegex = /^[0-9]{12}$/;
     return oldRegex.test(cleaned) || newRegex.test(cleaned);
-  };
-
-  const validateFullName = (name) => {
-    return name.trim().length >= 2;
-  };
-
-  const validateGender = (gender) => {
-    return gender && gender !== '';
-  };
-
-  const validateDesignation = (designation) => {
-    return designation && designation !== '';
-  };
-
-  const validateAddress = (address) => {
-    return address.trim().length >= 5;
-  };
-
-  const validateHiredDate = (date) => {
-    return date && date !== '';
-  };
-
-  const validateBirthday = (date) => {
-    if (!date) return true;
-    const today = new Date();
-    const birthDate = new Date(date);
-    const age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      return age - 1 >= 16;
-    }
-    return age >= 16;
-  };
-
-  const validateMarriageStatus = (status) => {
-    return status && status !== '';
-  };
-
-  const validateJobType = (type) => {
-    return type && type !== '';
-  };
-
-  const validateSalary = (salary) => {
-    if (!salary) return true;
-    const num = parseFloat(salary);
-    return !isNaN(num) && num >= 0;
-  };
-
-  const validateBonus = (bonus) => {
-    if (!bonus) return true;
-    const num = parseFloat(bonus);
-    return !isNaN(num) && num >= 0;
-  };
-
-  const validateStatus = (status) => {
-    return status && status !== '';
   };
 
   const validateField = (fieldName, value) => {
@@ -329,8 +511,16 @@ export default function Employees() {
         }
         break;
       case 'birthday':
-        if (value && !validateBirthday(value)) {
-          error = 'Employee must be at least 16 years old';
+        if (value) {
+          const today = new Date();
+          const birthDate = new Date(value);
+          const age = today.getFullYear() - birthDate.getFullYear();
+          const monthDiff = today.getMonth() - birthDate.getMonth();
+          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+            if (age - 1 < 16) error = 'Employee must be at least 16 years old';
+          } else if (age < 16) {
+            error = 'Employee must be at least 16 years old';
+          }
         }
         break;
       case 'marriageStatus':
@@ -344,13 +534,15 @@ export default function Employees() {
         }
         break;
       case 'baseSalary':
-        if (value && !validateSalary(value)) {
-          error = 'Please enter a valid salary amount';
+        if (value) {
+          const num = parseFloat(value);
+          if (isNaN(num) || num < 0) error = 'Please enter a valid salary amount';
         }
         break;
       case 'bonus':
-        if (value && !validateBonus(value)) {
-          error = 'Please enter a valid bonus amount';
+        if (value) {
+          const num = parseFloat(value);
+          if (isNaN(num) || num < 0) error = 'Please enter a valid bonus amount';
         }
         break;
       case 'status':
@@ -403,58 +595,6 @@ export default function Employees() {
     return isValid;
   };
 
-  // ========== FETCH ROLES ==========
-  const fetchRoles = async () => {
-    try {
-      setRolesLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(ROLES_API_URL, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log('Roles from API:', response.data);
-      if (response.data.success && response.data.data) {
-        setRoles(response.data.data);
-      } else {
-        setRoles([
-          { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
-          { id: 2, role_name: 'MANAGER', description: 'Manager role' },
-          { id: 3, role_name: 'ADMIN', description: 'Administrator' },
-          { id: 4, role_name: 'HR', description: 'Human Resources' }
-        ]);
-      }
-    } catch (err) {
-      console.error('Error fetching roles:', err);
-      setRoles([
-        { id: 1, role_name: 'EMPLOYEE', description: 'Standard employee' },
-        { id: 2, role_name: 'MANAGER', description: 'Manager role' },
-        { id: 3, role_name: 'ADMIN', description: 'Administrator' },
-        { id: 4, role_name: 'HR', description: 'Human Resources' }
-      ]);
-    } finally {
-      setRolesLoading(false);
-    }
-  };
-
-  // ========== FETCH DESIGNATIONS ==========
-  const fetchDesignations = async () => {
-    try {
-      setDesignationLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await axios.get(DESIGNATION_API_URL, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      console.log('Designations from API:', response.data);
-      if (response.data.success && response.data.data.length > 0) {
-        setDesignations(response.data.data);
-      }
-    } catch (err) {
-      console.error('Error fetching designations:', err);
-      setDesignations([]);
-    } finally {
-      setDesignationLoading(false);
-    }
-  };
-
   // ========== CRUD OPERATIONS FOR DESIGNATIONS ==========
 
   const handleAddDesignation = async (e) => {
@@ -463,53 +603,23 @@ export default function Employees() {
       setError('Please enter a designation name');
       return;
     }
-
     if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
       setError('Please enter a valid OT rate');
       return;
     }
-
     const exists = designations.some(d =>
       d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
-
     if (exists) {
       setError(`"${designationForm.name.trim()}" already exists!`);
       return;
     }
-
-    try {
-      setSubmitting(true);
-      setError(null);
-      const token = localStorage.getItem('token');
-      const response = await axios.post(DESIGNATION_API_URL,
-        {
-          designation: designationForm.name.trim(),
-          ot_rate: parseFloat(designationForm.otRate)
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data.success) {
-        setDesignations([...designations, response.data.data]);
-        setDesignationForm({ name: '', otRate: 500 });
-        setShowDesignationModal(false);
-        showSuccessNotification('Designation added successfully!');
-      }
-    } catch (err) {
-      console.error('Error adding designation:', err);
-      if (err.response) {
-        if (err.response.status === 409) {
-          setError(err.response.data?.message || 'This designation already exists.');
-        } else {
-          setError(err.response.data?.message || 'Failed to add designation.');
-        }
-      } else {
-        setError('Network error. Please check if the server is running.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    setSubmitting(true);
+    setError(null);
+    createDesignationMutation.mutate({
+      designation: designationForm.name.trim(),
+      ot_rate: parseFloat(designationForm.otRate)
+    });
   };
 
   const handleEditDesignation = async (e) => {
@@ -518,92 +628,34 @@ export default function Employees() {
       setError('Please enter a designation name');
       return;
     }
-
     if (!designationForm.otRate || parseFloat(designationForm.otRate) <= 0) {
       setError('Please enter a valid OT rate');
       return;
     }
-
     const exists = designations.some(d =>
       d.id !== editingDesignationId &&
       d.designation.toLowerCase() === designationForm.name.trim().toLowerCase()
     );
-
     if (exists) {
       setError(`"${designationForm.name.trim()}" already exists!`);
       return;
     }
-
-    try {
-      setSubmitting(true);
-      setError(null);
-      const token = localStorage.getItem('token');
-      const response = await axios.put(`${DESIGNATION_API_URL}/${editingDesignationId}`,
-        {
-          designation: designationForm.name.trim(),
-          ot_rate: parseFloat(designationForm.otRate)
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      if (response.data.success) {
-        setDesignations(designations.map(d =>
-          d.id === editingDesignationId ? response.data.data : d
-        ));
-        setDesignationForm({ name: '', otRate: 500 });
-        setIsEditingDesignation(false);
-        setEditingDesignationId(null);
-        setShowDesignationModal(false);
-        showSuccessNotification('Designation updated successfully!');
-        fetchEmployees();
+    setSubmitting(true);
+    setError(null);
+    updateDesignationMutation.mutate({
+      id: editingDesignationId,
+      data: {
+        designation: designationForm.name.trim(),
+        ot_rate: parseFloat(designationForm.otRate)
       }
-    } catch (err) {
-      console.error('Error updating designation:', err);
-      if (err.response) {
-        if (err.response.status === 409) {
-          setError(err.response.data?.message || 'This designation name already exists.');
-        } else if (err.response.status === 404) {
-          setError('Designation not found. It may have been deleted already.');
-        } else {
-          setError(err.response.data?.message || 'Failed to update designation.');
-        }
-      } else {
-        setError('Network error. Please check if the server is running.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    });
   };
 
   const handleDeleteDesignation = async () => {
     if (!designationToDelete) return;
-
-    try {
-      setSubmitting(true);
-      setError(null);
-      const token = localStorage.getItem('token');
-      const response = await axios.delete(`${DESIGNATION_API_URL}/${designationToDelete.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (response.data.success) {
-        setDesignations(designations.filter(d => d.id !== designationToDelete.id));
-        setShowDesignationDeleteConfirm(false);
-        setDesignationToDelete(null);
-        showSuccessNotification('Designation deleted successfully!');
-      }
-    } catch (err) {
-      console.error('Error deleting designation:', err);
-      setShowDesignationDeleteConfirm(false);
-      if (err.response) {
-        setError(err.response.data?.message || 'Failed to delete designation.');
-      } else {
-        setError('Network error. Please check if the server is running.');
-      }
-      setDesignationToDelete(null);
-    } finally {
-      setSubmitting(false);
-    }
+    setSubmitting(true);
+    setError(null);
+    deleteDesignationMutation.mutate(designationToDelete.id);
   };
 
   const openAddDesignationModal = () => {
@@ -631,361 +683,110 @@ export default function Employees() {
     setError(null);
   };
 
+  // ========== EMPLOYEE CRUD OPERATIONS ==========
 
-// ========== FETCH EMPLOYEES ==========
-const fetchEmployees = useCallback(async () => {
-  try {
-    setLoading(true);
-    const token = localStorage.getItem('token');
-    
-    // 💡 Frontend Search / Filter / Pagination params API එකට යවනවා නම්:
-    const response = await axios.get(API_URL, {
-      headers: { Authorization: `Bearer ${token}` },
-      params: {
-        search: searchQuery,
-        status: activeFilter,
-        page: currentPage,
-        limit: itemsPerPage
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
       }
-    });
-
-    console.log('Employees from API:', response.data);
-    if (response.data.success) {
-      setEmployees(response.data.data);
+      return;
     }
+
+    setSubmitting(true);
     setError(null);
-  } catch (err) {
-    console.error('Error fetching employees:', err);
-    setError('Failed to load employees. Please try again.');
-  } finally {
-    setLoading(false);
-  }
-}, [searchQuery, activeFilter, currentPage, itemsPerPage]); // 💡 මේ dependencies වෙනස් වෙද්දී විතරක් function එක Re-create වේ.
-
-  useEffect(() => {
-  const today = new Date().toISOString().split('T')[0];
-  setFormData(prev => ({ ...prev, hiredDate: today }));
-
-  (async () => {
-    await fetchEmployees();
-    await fetchDesignations();
-    await fetchRoles();
-  })();
-}, []);
-
-  useEffect(() => {
-    if (showSuccess) {
-      const timer = setTimeout(() => {
-        setShowSuccess(false);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [showSuccess]);
-
-  const totalStaff = employees.length;
-  const activeStaff = employees.filter((e) => e.status === 'active').length;
-  const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
-  
-  const managers = employees.filter((e) => {
-    const desName = getDesignationName(e);
-    const roleName = e.role && typeof e.role === 'object' ? e.role.role_name : e.role || '';
-    return desName.toLowerCase().includes('manager') || 
-           roleName.toLowerCase().includes('manager') ||
-           e.role_id === 2;
-  }).length;
-
-  const summaryValues = {
-    total: totalStaff,
-    active: activeStaff,
-    onLeave: onLeaveStaff,
-    managers: managers,
-  };
-
-  // Build filter tabs from designations
-  const filterTabs = [
-    { key: 'All', label: 'All', icon: Filter },
-    ...designations.map(d => ({ key: d.designation, label: d.designation, icon: Briefcase }))
-  ];
-
-  // ========== FILTER EMPLOYEES (Status Filter Removed) ==========
-  const filteredEmployees = employees.filter((employee) => {
-    const employeeDesignation = getDesignationName(employee);
-    const matchesPosition = activeFilter === 'All' || employeeDesignation === activeFilter;
-    const matchesSearch =
-      employee.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      employeeDesignation.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      employee.email?.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesPosition && matchesSearch;
-  });
-
-  // ========== PAGINATION ==========
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
-  const paginatedEmployees = filteredEmployees.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
-
-  // Reset to first page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, activeFilter, itemsPerPage]);
-
-  // ========== PAGINATION FUNCTIONS ==========
-  const goToPage = (page) => {
-    setCurrentPage(Math.max(1, Math.min(totalPages, page)));
-  };
-
-  const goToPrevPage = () => {
-    if (currentPage > 1) setCurrentPage(currentPage - 1);
-  };
-
-  const goToNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
-  };
-
-  // Get page numbers to display
-  const getPageNumbers = () => {
-    const pages = [];
-    const maxPagesToShow = 5;
     
-    if (totalPages <= maxPagesToShow) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i);
+    const birthdayValue = formData.birthday && formData.birthday.trim() !== '' 
+      ? formData.birthday 
+      : null;
+    
+    const employeeData = {
+      name: formData.fullName,
+      designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+      phone: formData.phoneNo,
+      email: formData.email,
+      hireDate: formData.hiredDate,
+      birthday: birthdayValue,
+      gender: formData.gender || null,
+      nic: formData.nic || null,
+      address: formData.address,
+      marriageStatus: formData.marriageStatus || null,
+      jobType: formData.jobType || null,
+      profileImage: formData.profileImage || null,
+      baseSalary: parseFloat(formData.baseSalary) || 0,
+      bonus: parseFloat(formData.bonus) || 0,
+      status: formData.status || 'active',
+      role_id: formData.role || null
+    };
+
+    createEmployeeMutation.mutate(employeeData);
+  };
+
+  const handleEditEmployee = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) {
+      setError('Please fix all validation errors before submitting');
+      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
+      if (firstErrorField) {
+        const element = document.querySelector(`[name="${firstErrorField}"]`);
+        if (element) {
+          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          element.focus();
+        }
       }
-    } else {
-      pages.push(1);
-      
-      let startPage = Math.max(2, currentPage - 1);
-      let endPage = Math.min(totalPages - 1, currentPage + 1);
-      
-      if (currentPage <= 3) {
-        startPage = 2;
-        endPage = 4;
-      }
-      
-      if (currentPage >= totalPages - 2) {
-        startPage = totalPages - 3;
-        endPage = totalPages - 1;
-      }
-      
-      if (startPage > 2) {
-        pages.push('...');
-      }
-      
-      for (let i = startPage; i <= endPage; i++) {
-        pages.push(i);
-      }
-      
-      if (endPage < totalPages - 1) {
-        pages.push('...');
-      }
-      
-      pages.push(totalPages);
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    let statusToSend = formData.status;
+    const originalRoleId = selectedEmployee?.role_id 
+      ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
+            ? selectedEmployee.role.id 
+            : null);
+    const newRoleId = formData.role ? parseInt(formData.role) : null;
+
+    if (newRoleId && newRoleId !== originalRoleId) {
+      statusToSend = 'pending';
     }
     
-    return pages;
+    const updateData = {
+      name: formData.fullName,
+      designation_id: formData.designationId ? parseInt(formData.designationId) : null,
+      phone: formData.phoneNo,
+      email: formData.email,
+      hireDate: formData.hiredDate,
+      address: formData.address,
+      baseSalary: parseFloat(formData.baseSalary) || 0,
+      bonus: parseFloat(formData.bonus) || 0,
+      status: statusToSend,
+      role_id: formData.role || null
+    };
+    
+    if (formData.birthday && formData.birthday.trim() !== '') {
+      updateData.birthday = formData.birthday;
+    }
+    if (formData.gender) updateData.gender = formData.gender;
+    if (formData.nic) updateData.nic = formData.nic;
+    if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
+    if (formData.jobType) updateData.jobType = formData.jobType;
+    if (formData.profileImage) updateData.profileImage = formData.profileImage;
+
+    updateEmployeeMutation.mutate({ id: selectedEmployee.id, data: updateData });
   };
 
   const handleDelete = async () => {
     if (employeeToDelete) {
-      try {
-        setSubmitting(true);
-        const token = localStorage.getItem('token');
-        await axios.delete(`${API_URL}/${employeeToDelete.id}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        setEmployees(employees.filter(emp => emp.id !== employeeToDelete.id));
-        setShowDeleteConfirm(false);
-        setEmployeeToDelete(null);
-        setShowDetailModal(false);
-        setSelectedEmployee(null);
-        showSuccessNotification('Employee deleted successfully!');
-      } catch (err) {
-        console.error('Error deleting employee:', err);
-        setError(err.response?.data?.message || 'Failed to delete employee. Please try again.');
-      } finally {
-        setSubmitting(false);
-      }
-    }
-  };
-
-  // ========== FIXED: handleAddEmployee with birthday ==========
-  const handleAddEmployee = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      setError('Please fix all validation errors before submitting');
-      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
-      if (firstErrorField) {
-        const element = document.querySelector(`[name="${firstErrorField}"]`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          element.focus();
-        }
-      }
-      return;
-    }
-
-    try {
       setSubmitting(true);
-      setError(null);
-      
-      // Handle birthday properly - if empty string, send null
-      const birthdayValue = formData.birthday && formData.birthday.trim() !== '' 
-        ? formData.birthday 
-        : null;
-      
-      const employeeData = {
-        name: formData.fullName,
-        
-        designation_id: formData.designationId ? parseInt(formData.designationId) : null,
-        phone: formData.phoneNo,
-        email: formData.email,
-        hireDate: formData.hiredDate,
-        birthday: birthdayValue,
-        gender: formData.gender || null,
-        nic: formData.nic || null,
-        address: formData.address,
-        marriageStatus: formData.marriageStatus || null,
-        jobType: formData.jobType || null,
-        profileImage: formData.profileImage || null,
-        baseSalary: parseFloat(formData.baseSalary) || 0,
-        bonus: parseFloat(formData.bonus) || 0,
-        status: formData.status || 'active',
-        role_id: formData.role || null
-      };
-
-      console.log('Sending employee data:', JSON.stringify(employeeData, null, 2));
-
-      const token = localStorage.getItem('token');
-      const response = await axios.post(API_URL, employeeData, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json' 
-        }
-      });
-      
-      if (response.data.success) {
-        setEmployees([...employees, response.data.data]);
-        setShowCreateForm(false);
-        resetForm();
-        showSuccessNotification('Employee added successfully!');
-      }
-    } catch (err) {
-      console.error('Error adding employee:', err);
-      if (err.response) {
-        if (err.response.status === 409) {
-          setError('An employee with this email already exists. Please use a different email address.');
-        } else if (err.response.status === 400) {
-          setError(err.response.data.message || 'Please check all required fields.');
-        } else {
-          setError(err.response.data?.message || 'Failed to add employee. Please try again.');
-        }
-      } else {
-        setError('Network error. Please check your connection.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // ========== FIXED: handleEditEmployee with birthday ==========
-  const handleEditEmployee = async (e) => {
-    e.preventDefault();
-    
-    if (!validateForm()) {
-      setError('Please fix all validation errors before submitting');
-      const firstErrorField = Object.keys(validationErrors).find(key => validationErrors[key]);
-      if (firstErrorField) {
-        const element = document.querySelector(`[name="${firstErrorField}"]`);
-        if (element) {
-          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          element.focus();
-        }
-      }
-      return;
-    }
-
-    try {
-      setSubmitting(true);
-      setError(null);
-
-      let statusToSend = formData.status;
-
-      const originalRoleId = selectedEmployee?.role_id 
-        ?? (selectedEmployee?.role && typeof selectedEmployee.role === 'object' 
-              ? selectedEmployee.role.id 
-              : null);
-
-      const newRoleId = formData.role ? parseInt(formData.role) : null;
-
-      if (newRoleId && newRoleId !== originalRoleId) {
-        statusToSend = 'pending';
-      }
-      
-     const updateData = {
-  name: formData.fullName,
-         // ✅ ADD THIS LINE — keep position text in sync with designation_id
-  designation_id: formData.designationId ? parseInt(formData.designationId) : null,
-  phone: formData.phoneNo,
-  email: formData.email,
-  hireDate: formData.hiredDate,
-  address: formData.address,
-  baseSalary: parseFloat(formData.baseSalary) || 0,
-  bonus: parseFloat(formData.bonus) || 0,
-  status: statusToSend,
-  role_id: formData.role || null
-};
-      
-      // Handle birthday properly - only add if not empty
-      if (formData.birthday && formData.birthday.trim() !== '') {
-        updateData.birthday = formData.birthday;
-      }
-      
-      if (formData.gender) updateData.gender = formData.gender;
-      if (formData.nic) updateData.nic = formData.nic;
-      if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
-      if (formData.jobType) updateData.jobType = formData.jobType;
-      if (formData.profileImage) updateData.profileImage = formData.profileImage;
-
-      console.log('Updating employee data:', updateData);
-
-      const token = localStorage.getItem('token');
-      const response = await axios.put(`${API_URL}/${selectedEmployee.id}`, updateData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (response.data.success) {
-        setEmployees(employees.map(emp => 
-          emp.id === selectedEmployee.id ? response.data.data : emp
-        ));
-        setShowCreateForm(false);
-        setShowDetailModal(false);
-        setSelectedEmployee(response.data.data);
-        resetForm();
-        showSuccessNotification(
-          statusToSend === 'pending' && selectedEmployee?.status === 'rejected'
-            ? 'Employee re-activated — pending account creation!'
-            : 'Employee updated successfully!'
-        );
-      }
-    } catch (err) {
-      console.error('Error updating employee:', err);
-      if (err.response) {
-        if (err.response.status === 409) {
-          setError('Email already in use by another employee.');
-        } else if (err.response.status === 404) {
-          setError('Employee not found.');
-        } else if (err.response.status === 400) {
-          setError(err.response.data?.message || 'Please check all required fields.');
-        } else {
-          setError(err.response.data?.message || 'Failed to update employee. Please try again.');
-        }
-      } else {
-        setError('Network error. Please check your connection.');
-      }
-    } finally {
-      setSubmitting(false);
+      deleteEmployeeMutation.mutate(employeeToDelete.id);
     }
   };
 
@@ -1094,21 +895,132 @@ const fetchEmployees = useCallback(async () => {
   const showSuccessNotification = (message) => {
     setSuccessMessage(message);
     setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 3000);
+  };
+
+  // ========== COMPUTED VALUES ==========
+  
+  const totalStaff = employees.length;
+  const activeStaff = employees.filter((e) => e.status === 'active').length;
+  const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
+
+  const summaryValues = {
+    total: totalStaff,
+    active: activeStaff,
+    onLeave: onLeaveStaff,
+  };
+
+  // Build filter tabs from designations
+  const filterTabs = [
+    { key: 'All', label: 'All', icon: Filter },
+    ...designations.map(d => ({ key: d.designation, label: d.designation, icon: Briefcase }))
+  ];
+
+  // ========== FILTER EMPLOYEES ==========
+  const filteredEmployees = employees.filter((employee) => {
+    const employeeDesignation = getDesignationName(employee);
+    const matchesPosition = activeFilter === 'All' || employeeDesignation === activeFilter;
+    const matchesSearch =
+      employee.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employeeDesignation.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      employee.email?.toLowerCase().includes(searchQuery.toLowerCase());
+    return matchesPosition && matchesSearch;
+  });
+
+  // ========== PAGINATION ==========
+  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const paginatedEmployees = filteredEmployees.slice(
+    (currentPage - 1) * itemsPerPage,
+    currentPage * itemsPerPage
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeFilter, itemsPerPage]);
+
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(totalPages, page)));
+  };
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) setCurrentPage(currentPage - 1);
+  };
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) setCurrentPage(currentPage + 1);
+  };
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, currentPage - 1);
+      let endPage = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (currentPage >= totalPages - 2) {
+        startPage = totalPages - 3;
+        endPage = totalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < totalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(totalPages);
+    }
+    
+    return pages;
   };
 
   const currentTab = filterTabs.find(tab => tab.key === activeFilter) || filterTabs[0];
   const CurrentIcon = currentTab.icon;
-
-  // Check if designations are loaded
   const isDesignationsLoaded = designations.length > 0;
+  const lastUpdated = employeesUpdatedAt ? new Date(employeesUpdatedAt).toLocaleTimeString() : 'Never';
 
-  if (loading) {
+  // ===== LOADING STATE =====
+  if (employeesLoading || designationsLoading || rolesLoading) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <Loader size={48} className="text-blue-600 animate-spin mx-auto" />
           <p className="mt-4 text-gray-500">Loading employees...</p>
         </div>
+      </div>
+    );
+  }
+
+  // ===== ERROR STATE =====
+  if (employeesError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <AlertCircle size={40} className="text-red-500" />
+        <p className="text-sm text-gray-600">Failed to load employees</p>
+        <button
+          onClick={() => refetchEmployees()}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -1142,8 +1054,25 @@ const fetchEmployees = useCallback(async () => {
           <div>
             <h1 className="text-xl font-bold text-gray-900">Employees</h1>
             <p className="text-sm text-gray-500">Manage staff, track performance, and monitor employee activity</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Last updated: {lastUpdated} • Auto-refresh every 3s
+            </p>
           </div>
           <div className="flex items-center gap-3">
+            {isEmployeesFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Updating...
+              </span>
+            )}
+            <button
+              onClick={() => refetchEmployees()}
+              disabled={isEmployeesFetching}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={15} className={isEmployeesFetching ? 'animate-spin' : ''} />
+              Refresh
+            </button>
             <motion.button
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
@@ -1192,10 +1121,9 @@ const fetchEmployees = useCallback(async () => {
           })}
         </motion.div>
 
-        {/* Filter Dropdown & Search - Status Filter Removed */}
+        {/* Filter Dropdown & Search */}
         <motion.div variants={itemVariants} className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            
             <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
               <Briefcase size={16} className="text-gray-400" />
               <span>Designation:</span>
@@ -1259,11 +1187,9 @@ const fetchEmployees = useCallback(async () => {
                 </>
               )}
             </div>
-
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Items per page selector */}
             <select
               value={itemsPerPage}
               onChange={(e) => {
@@ -1368,7 +1294,7 @@ const fetchEmployees = useCallback(async () => {
             </table>
           </div>
           
-          {/* ========== ENHANCED PAGINATION CONTROLS ========== */}
+          {/* Pagination Controls */}
           {filteredEmployees.length > 0 && (
             <div className="flex flex-col sm:flex-row items-center justify-between px-5 py-3 border-t border-gray-100 bg-gray-50/30 gap-3">
               <span className="text-xs text-gray-500">
@@ -1488,9 +1414,6 @@ const fetchEmployees = useCallback(async () => {
                         required
                         disabled={submitting}
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        {isEditingDesignation ? 'Update the designation name' : 'Add a new designation for employees'}
-                      </p>
                     </div>
 
                     <div>
@@ -1508,12 +1431,9 @@ const fetchEmployees = useCallback(async () => {
                         required
                         disabled={submitting}
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        This rate will be used for OT calculations for employees with this designation
-                      </p>
                     </div>
 
-                    {/* Display existing designations with OT rates */}
+                    {/* Display existing designations */}
                     <div className="mt-4">
                       <label className="block text-xs font-medium text-gray-600 mb-2">
                         <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
@@ -1536,7 +1456,6 @@ const fetchEmployees = useCallback(async () => {
                                   type="button"
                                   onClick={() => openEditDesignationModal(d)}
                                   className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                                  title="Edit Designation"
                                   disabled={submitting}
                                 >
                                   <Pencil size={14} />
@@ -1545,7 +1464,6 @@ const fetchEmployees = useCallback(async () => {
                                   type="button"
                                   onClick={() => openDeleteDesignationConfirm(d)}
                                   className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                                  title="Delete Designation"
                                   disabled={submitting}
                                 >
                                   <Trash size={14} />
@@ -1582,9 +1500,9 @@ const fetchEmployees = useCallback(async () => {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
+                      disabled={submitting || createDesignationMutation.isPending || updateDesignationMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || createDesignationMutation.isPending || updateDesignationMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           {isEditingDesignation ? 'Updating...' : 'Adding...'}
@@ -1662,9 +1580,9 @@ const fetchEmployees = useCallback(async () => {
                     <button
                       onClick={handleDeleteDesignation}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                      disabled={submitting}
+                      disabled={submitting || deleteDesignationMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || deleteDesignationMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           Deleting...
@@ -1732,6 +1650,7 @@ const fetchEmployees = useCallback(async () => {
                 </div>
 
                 <form onSubmit={selectedEmployee ? handleEditEmployee : handleAddEmployee}>
+                  {/* All your form fields remain the same */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {/* Full Name */}
                     <div>
@@ -2103,7 +2022,7 @@ const fetchEmployees = useCallback(async () => {
                       )}
                     </div>
 
-                    {/* Role Type - Fetched from Database */}
+                    {/* Role Type */}
                     <div>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <Shield size={14} className="inline mr-1" /> Role Type
@@ -2268,9 +2187,9 @@ const fetchEmployees = useCallback(async () => {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting || !isDesignationsLoaded}
+                      disabled={submitting || !isDesignationsLoaded || createEmployeeMutation.isPending || updateEmployeeMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || createEmployeeMutation.isPending || updateEmployeeMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           {selectedEmployee ? 'Updating...' : 'Adding...'}
@@ -2571,9 +2490,9 @@ const fetchEmployees = useCallback(async () => {
                     <button
                       onClick={handleDelete}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                      disabled={submitting}
+                      disabled={submitting || deleteEmployeeMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || deleteEmployeeMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           Deleting...
