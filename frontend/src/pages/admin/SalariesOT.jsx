@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   DollarSign, Search, Plus, X, User, Calendar, Edit, Trash2, 
   CheckCircle, AlertCircle, Loader, RefreshCw, History,
   ChevronDown, ChevronUp, Save, Briefcase, Clock, Award,
-  TrendingUp, Users
+  TrendingUp, Users, ChevronLeft, ChevronRight, CalendarDays,
+  Filter
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/helpers';
 import axios from 'axios';
@@ -40,7 +41,6 @@ const getAuthHeaders = () => {
 const getOTRate = (designation, designations = []) => {
   if (!designation) return 500;
   
-  // First try to find in designations list
   if (designations && designations.length > 0) {
     const found = designations.find(d => 
       d.designation && designation.toLowerCase().includes(d.designation.toLowerCase())
@@ -50,12 +50,10 @@ const getOTRate = (designation, designations = []) => {
     }
   }
   
-  // Fallback: if designation object has ot_rate
   if (designation.ot_rate) {
     return parseFloat(designation.ot_rate);
   }
   
-  // Default fallback
   return 500;
 };
 
@@ -66,6 +64,18 @@ const calculateFinalSalary = (base, otHours, bonus, otRate) => {
   const bonusNum = parseFloat(bonus) || 0;
   const rate = parseFloat(otRate) || 500;
   return baseNum + (otNum * rate) + bonusNum;
+};
+
+// ========== GET DESIGNATION NAME ==========
+const getDesignationName = (employee) => {
+  if (!employee) return '';
+  if (employee.designation && typeof employee.designation === 'object') {
+    return employee.designation.designation || '';
+  }
+  if (employee.designation && typeof employee.designation === 'string') {
+    return employee.designation;
+  }
+  return '';
 };
 
 export default function SalariesOT() {
@@ -80,15 +90,34 @@ export default function SalariesOT() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // ========== PAGINATION STATE ==========
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   // ========== PREVIOUS MONTHS STATE ==========
   const [showPreviousSalaries, setShowPreviousSalaries] = useState(false);
   const [previousSalaryData, setPreviousSalaryData] = useState([]);
   const [loadingPrevious, setLoadingPrevious] = useState(false);
+  
+  // ========== PREVIOUS MONTHS FILTERS ==========
+  const [prevSearchQuery, setPrevSearchQuery] = useState('');
+  const [prevFilterEmployeeId, setPrevFilterEmployeeId] = useState('');
+  const [prevFilterMonth, setPrevFilterMonth] = useState('');
+  const [prevFilterYear, setPrevFilterYear] = useState('');
+  
+  // ========== PREVIOUS MONTHS PAGINATION ==========
+  const [prevCurrentPage, setPrevCurrentPage] = useState(1);
+  const [prevItemsPerPage, setPrevItemsPerPage] = useState(10);
 
   // ========== FORM STATES ==========
   const [showSalaryForm, setShowSalaryForm] = useState(false);
   const [isEditingSalary, setIsEditingSalary] = useState(false);
   const [editingSalaryId, setEditingSalaryId] = useState(null);
+
+  // ========== EMPLOYEE SEARCH STATE FOR FORM ==========
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const employeeSearchRef = useRef(null);
 
   // ========== DELETE CONFIRMATION ==========
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -104,8 +133,37 @@ export default function SalariesOT() {
     otHours: '',
     bonus: '',
     finalSalary: '',
-    otRate: 500
+    otRate: 500,
+    month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
   });
+
+  // ========== FILTER EMPLOYEES BY SEARCH ==========
+  const filteredEmployees = employees.filter(emp => 
+    emp.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase())
+  );
+
+  // ========== SELECT EMPLOYEE ==========
+  const selectEmployee = (employee) => {
+    let designation = '';
+    if (employee.designation && typeof employee.designation === 'object') {
+      designation = employee.designation.designation || '';
+    } else {
+      designation = employee.designation || '';
+    }
+    
+    const otRate = getOTRate(designation, designations);
+    setSalaryForm({
+      ...salaryForm,
+      employeeId: employee.id,
+      employeeName: employee.name,
+      designation: designation,
+      baseSalary: employee.base_salary || employee.baseSalary || '',
+      bonus: employee.bonus || '',
+      otRate: otRate
+    });
+    setEmployeeSearchQuery(employee.name);
+    setIsEmployeeDropdownOpen(false);
+  };
 
   // ========== FETCH FUNCTIONS ==========
   
@@ -130,7 +188,7 @@ export default function SalariesOT() {
       }
     } catch (err) {
       console.error('❌ Error fetching employees:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       }
     }
@@ -145,7 +203,7 @@ export default function SalariesOT() {
       }
     } catch (err) {
       console.error('❌ Error fetching salaries:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       }
     }
@@ -227,7 +285,6 @@ export default function SalariesOT() {
 
   // ========== AUTO-CALCULATE FUNCTIONS ==========
   
-  // Auto-calculate final salary with OT rate based on designation
   useEffect(() => {
     if (salaryForm.baseSalary || salaryForm.otHours || salaryForm.bonus) {
       const otRate = getOTRate(salaryForm.designation, designations);
@@ -245,7 +302,6 @@ export default function SalariesOT() {
     }
   }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus, salaryForm.designation, designations]);
 
-  // Update OT rate when designation changes
   useEffect(() => {
     if (salaryForm.designation) {
       const otRate = getOTRate(salaryForm.designation, designations);
@@ -267,7 +323,7 @@ export default function SalariesOT() {
         employeeId: parseInt(salaryForm.employeeId),
         employeeName: salaryForm.employeeName,
         designation: salaryForm.designation,
-        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
+        month: salaryForm.month,
         baseSalary: parseFloat(salaryForm.baseSalary) || 0,
         otHours: parseFloat(salaryForm.otHours) || 0,
         otRate: otRate,
@@ -295,7 +351,7 @@ export default function SalariesOT() {
       }
     } catch (err) {
       console.error('Error:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       } else if (err.response?.status === 409) {
         setError('Salary already recorded for this month.');
@@ -319,7 +375,7 @@ export default function SalariesOT() {
       showSuccessNotification('Salary record deleted successfully!');
     } catch (err) {
       console.error('Error deleting salary:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
       } else {
         setError('Failed to delete salary record.');
@@ -332,17 +388,16 @@ export default function SalariesOT() {
   const editSalary = (record) => {
     setIsEditingSalary(true);
     setEditingSalaryId(record.id);
-    // Get designation from record or from employee data
     let designation = record.designation || '';
     if (!designation) {
       const employee = employees.find(emp => emp.id === record.employee_id || emp.id === record.employeeId);
       if (employee) {
-        // Get designation name from employee.designation object or string
         designation = employee.designation?.designation || employee.designation || '';
       }
     }
     const otRate = record.ot_rate || getOTRate(designation, designations) || 500;
     
+    setEmployeeSearchQuery(record.employee_name || record.name || '');
     setSalaryForm({
       employeeId: record.employee_id || record.employeeId || '',
       employeeName: record.employee_name || record.name || '',
@@ -351,7 +406,8 @@ export default function SalariesOT() {
       otHours: record.ot_hours || record.otHours || '',
       bonus: record.bonus || '',
       finalSalary: record.total_salary || record.total || '',
-      otRate: otRate
+      otRate: otRate,
+      month: record.month || new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
     });
     setShowSalaryForm(true);
   };
@@ -367,10 +423,13 @@ export default function SalariesOT() {
       otHours: '',
       bonus: '',
       finalSalary: '',
-      otRate: 500
+      otRate: 500,
+      month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
     });
+    setEmployeeSearchQuery('');
     setIsEditingSalary(false);
     setEditingSalaryId(null);
+    setIsEmployeeDropdownOpen(false);
   };
 
   const showSuccessNotification = (message) => {
@@ -382,7 +441,6 @@ export default function SalariesOT() {
 
   const openSalaryForm = (employee = null) => {
     if (employee) {
-      // Get designation name from employee.designation object or string
       let designation = '';
       if (employee.designation && typeof employee.designation === 'object') {
         designation = employee.designation.designation || '';
@@ -391,6 +449,7 @@ export default function SalariesOT() {
       }
       
       const otRate = getOTRate(designation, designations);
+      setEmployeeSearchQuery(employee.name);
       setSalaryForm({
         employeeId: employee.id,
         employeeName: employee.name,
@@ -399,9 +458,11 @@ export default function SalariesOT() {
         otHours: '',
         bonus: employee.bonus || '',
         finalSalary: '',
-        otRate: otRate
+        otRate: otRate,
+        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
       });
     } else {
+      setEmployeeSearchQuery('');
       setSalaryForm({
         employeeId: '',
         employeeName: '',
@@ -410,7 +471,8 @@ export default function SalariesOT() {
         otHours: '',
         bonus: '',
         finalSalary: '',
-        otRate: 500
+        otRate: 500,
+        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
       });
     }
     setShowSalaryForm(true);
@@ -431,6 +493,8 @@ export default function SalariesOT() {
     setShowPreviousSalaries(newState);
     if (newState) {
       fetchPreviousSalaries();
+      // Reset pagination when opening
+      setPrevCurrentPage(1);
     }
   };
 
@@ -463,9 +527,156 @@ export default function SalariesOT() {
     (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredPreviousSalary = previousSalaryData.filter((rec) =>
-    (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // ========== FILTER PREVIOUS MONTHS DATA ==========
+  const applyPrevFilters = (data) => {
+    let filtered = [...data];
+
+    // Search by employee name
+    if (prevSearchQuery) {
+      filtered = filtered.filter(rec =>
+        (rec.employee_name || rec.name || '').toLowerCase().includes(prevSearchQuery.toLowerCase())
+      );
+    }
+
+    // Filter by Employee
+    if (prevFilterEmployeeId) {
+      filtered = filtered.filter(rec => 
+        (rec.employee_id || rec.employeeId) === parseInt(prevFilterEmployeeId)
+      );
+    }
+
+    // Filter by Month
+    if (prevFilterMonth) {
+      filtered = filtered.filter(rec => {
+        const monthYear = rec.month ? rec.month.split(' ') : [];
+        const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
+          .indexOf(monthYear[0]);
+        return monthIndex === parseInt(prevFilterMonth);
+      });
+    }
+
+    // Filter by Year
+    if (prevFilterYear) {
+      filtered = filtered.filter(rec => {
+        const monthYear = rec.month ? rec.month.split(' ') : [];
+        const year = parseInt(monthYear[1]);
+        return year === parseInt(prevFilterYear);
+      });
+    }
+
+    return filtered;
+  };
+
+  const filteredPreviousSalary = applyPrevFilters(previousSalaryData);
+
+  // ========== PREVIOUS MONTHS PAGINATION ==========
+  const prevTotalItems = filteredPreviousSalary.length;
+  const prevTotalPages = Math.ceil(prevTotalItems / prevItemsPerPage);
+  const prevStartIndex = (prevCurrentPage - 1) * prevItemsPerPage;
+  const prevEndIndex = prevStartIndex + prevItemsPerPage;
+  const paginatedPrevData = filteredPreviousSalary.slice(prevStartIndex, prevEndIndex);
+
+  // Reset previous page when filters change
+  useEffect(() => {
+    setPrevCurrentPage(1);
+  }, [prevSearchQuery, prevFilterEmployeeId, prevFilterMonth, prevFilterYear, prevItemsPerPage]);
+
+  // ========== PREVIOUS PAGINATION FUNCTIONS ==========
+  const getPrevPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (prevTotalPages <= maxPagesToShow) {
+      for (let i = 1; i <= prevTotalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, prevCurrentPage - 1);
+      let endPage = Math.min(prevTotalPages - 1, prevCurrentPage + 1);
+      
+      if (prevCurrentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (prevCurrentPage >= prevTotalPages - 2) {
+        startPage = prevTotalPages - 3;
+        endPage = prevTotalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < prevTotalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(prevTotalPages);
+    }
+    
+    return pages;
+  };
+
+  // ========== PAGINATION ==========
+  const totalItems = filteredSalary.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredSalary.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  // Get page numbers to display
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, currentPage - 1);
+      let endPage = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (currentPage >= totalPages - 2) {
+        startPage = totalPages - 3;
+        endPage = totalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < totalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(totalPages);
+    }
+    
+    return pages;
+  };
 
   // ========== SUMMARY STATISTICS ==========
 
@@ -657,7 +868,7 @@ export default function SalariesOT() {
         })}
       </motion.div>
 
-      {/* ========== SEARCH ========== */}
+      {/* ========== SEARCH & ITEMS PER PAGE ========== */}
       <motion.div
         variants={itemVariants}
         className="flex items-center gap-4 flex-wrap"
@@ -672,7 +883,23 @@ export default function SalariesOT() {
             className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
           />
         </div>
-        <div className="text-sm text-gray-400">
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400">Show:</span>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => {
+              setItemsPerPage(parseInt(e.target.value));
+              setCurrentPage(1);
+            }}
+            className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+        <div className="text-sm text-gray-400 ml-auto">
           {filteredSalary.length} records found
         </div>
       </motion.div>
@@ -701,110 +928,163 @@ export default function SalariesOT() {
             </div>
           </div>
           
-          {filteredSalary.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Base Salary</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Hours</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Rate</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Amount</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Bonus</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Total Salary</th>
-                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSalary.map((salary) => {
-                    // Get designation from salary record or from employee data
-                    let designation = salary.designation || 'N/A';
-                    let otRate = salary.ot_rate || 500;
-                    
-                    if (!salary.designation) {
-                      const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
-                      if (employee) {
-                        designation = employee.designation?.designation || employee.designation || 'N/A';
-                        otRate = getOTRate(designation, designations);
-                      }
-                    }
-                    
-                    const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
-                    const totalSalary = salary.total_salary || salary.total || 0;
-                    
-                    return (
-                      <tr key={salary.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                        <td className="py-3 px-6 font-medium text-gray-900">{salary.employee_name || salary.name}</td>
-                        <td className="py-3 px-6">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                            {designation}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otAmount)}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
-                        <td className="py-3 px-6 text-right font-semibold text-blue-700">{formatCurrency(totalSalary)}</td>
-                        <td className="py-3 px-6">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => editSalary(salary)}
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Edit"
-                            >
-                              <Edit size={15} />
-                            </button>
-                            <button
-                              onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
-                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200 bg-gray-50/50">
-                    <td className="py-3 px-6 font-semibold text-gray-900">Total</td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {formatCurrency(filteredSalary.reduce((s, r) => s + (r.base_salary || r.base || 0), 0))}
-                    </td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {filteredSalary.reduce((s, r) => s + (r.ot_hours || r.otHours || 0), 0)}h
-                    </td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {formatCurrency(filteredSalary.reduce((s, r) => {
-                        let designation = r.designation || '';
-                        if (!designation) {
-                          const employee = employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId);
-                          if (employee) {
-                            designation = employee.designation?.designation || employee.designation || '';
-                          }
+          {paginatedData.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Base Salary</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Hours</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Rate</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Amount</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Bonus</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Total Salary</th>
+                      <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedData.map((salary) => {
+                      let designation = salary.designation || 'N/A';
+                      let otRate = salary.ot_rate || 500;
+                      
+                      if (!salary.designation) {
+                        const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
+                        if (employee) {
+                          designation = employee.designation?.designation || employee.designation || 'N/A';
+                          otRate = getOTRate(designation, designations);
                         }
-                        const rate = r.ot_rate || getOTRate(designation, designations) || 500;
-                        return s + ((r.ot_hours || r.otHours || 0) * rate);
-                      }, 0))}
-                    </td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {formatCurrency(filteredSalary.reduce((s, r) => s + (r.bonus || 0), 0))}
-                    </td>
-                    <td className="py-3 px-6 text-right font-semibold text-blue-700">
-                      {formatCurrency(filteredSalary.reduce((s, r) => s + (r.total_salary || r.total || 0), 0))}
-                    </td>
-                    <td className="py-3 px-6"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                      }
+                      
+                      const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
+                      const totalSalary = salary.total_salary || salary.total || 0;
+                      
+                      return (
+                        <tr key={salary.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                          <td className="py-3 px-6 font-medium text-gray-900">{salary.employee_name || salary.name}</td>
+                          <td className="py-3 px-6">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                              {designation}
+                            </span>
+                          </td>
+                          <td className="py-3 px-6 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otAmount)}</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
+                          <td className="py-3 px-6 text-right font-semibold text-blue-700">{formatCurrency(totalSalary)}</td>
+                          <td className="py-3 px-6">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => editSalary(salary)}
+                                className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Edit"
+                              >
+                                <Edit size={15} />
+                              </button>
+                              <button
+                                onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
+                                className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-gray-200 bg-gray-50/50">
+                      <td className="py-3 px-6 font-semibold text-gray-900">Total</td>
+                      <td className="py-3 px-6"></td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {formatCurrency(paginatedData.reduce((s, r) => s + (r.base_salary || r.base || 0), 0))}
+                      </td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {paginatedData.reduce((s, r) => s + (r.ot_hours || r.otHours || 0), 0)}h
+                      </td>
+                      <td className="py-3 px-6"></td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {formatCurrency(paginatedData.reduce((s, r) => {
+                          let designation = r.designation || '';
+                          if (!designation) {
+                            const employee = employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId);
+                            if (employee) {
+                              designation = employee.designation?.designation || employee.designation || '';
+                            }
+                          }
+                          const rate = r.ot_rate || getOTRate(designation, designations) || 500;
+                          return s + ((r.ot_hours || r.otHours || 0) * rate);
+                        }, 0))}
+                      </td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {formatCurrency(paginatedData.reduce((s, r) => s + (r.bonus || 0), 0))}
+                      </td>
+                      <td className="py-3 px-6 text-right font-semibold text-blue-700">
+                        {formatCurrency(paginatedData.reduce((s, r) => s + (r.total_salary || r.total || 0), 0))}
+                      </td>
+                      <td className="py-3 px-6"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* ========== PAGINATION ========== */}
+              {totalPages > 1 && (
+                <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-sm text-gray-500">
+                    Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                    <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{' '}
+                    <span className="font-medium">{totalItems}</span> results
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className={`p-2 rounded-lg border transition-colors ${
+                        currentPage === 1
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                      }`}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    {getPageNumbers().map((page, index) => (
+                      typeof page === 'number' ? (
+                        <button
+                          key={index}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                            currentPage === page
+                              ? 'bg-blue-600 text-white shadow-sm'
+                              : 'border border-gray-200 text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ) : (
+                        <span key={index} className="px-1 text-gray-400">…</span>
+                      )
+                    ))}
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className={`p-2 rounded-lg border transition-colors ${
+                        currentPage === totalPages
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                      }`}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-12">
               <DollarSign size={48} className="mx-auto mb-4 text-gray-300" />
@@ -890,89 +1170,227 @@ export default function SalariesOT() {
                     </div>
                   </div>
                   
+                  {/* ========== PREVIOUS MONTHS FILTERS ========== */}
+                  <div className="p-4 border-b border-blue-50 bg-blue-50/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Filter size={14} className="text-blue-500" />
+                      <span className="text-xs font-medium text-gray-600">Filters</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {/* Search */}
+                      <div className="relative">
+                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search employee..."
+                          value={prevSearchQuery}
+                          onChange={(e) => setPrevSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        />
+                      </div>
+
+                      {/* Employee Filter */}
+                      <select
+                        value={prevFilterEmployeeId}
+                        onChange={(e) => setPrevFilterEmployeeId(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                      >
+                        <option value="">All Employees</option>
+                        {employees.map((emp) => {
+                          const desName = getDesignationName(emp);
+                          return (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name} {desName ? `- ${desName}` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+
+                      {/* Month Filter */}
+                      <select
+                        value={prevFilterMonth}
+                        onChange={(e) => setPrevFilterMonth(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                      >
+                        <option value="">All Months</option>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <option key={i} value={i}>
+                            {new Date(2000, i, 1).toLocaleString('default', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Year Filter */}
+                      <select
+                        value={prevFilterYear}
+                        onChange={(e) => setPrevFilterYear(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                      >
+                        <option value="">All Years</option>
+                        {Array.from({ length: 6 }, (_, i) => {
+                          const year = new Date().getFullYear() - i;
+                          return (
+                            <option key={year} value={year}>{year}</option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{filteredPreviousSalary.length} records found</span>
+                      {(prevSearchQuery || prevFilterEmployeeId || prevFilterMonth || prevFilterYear) && (
+                        <button
+                          onClick={() => {
+                            setPrevSearchQuery('');
+                            setPrevFilterEmployeeId('');
+                            setPrevFilterMonth('');
+                            setPrevFilterYear('');
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                        >
+                          <X size={12} />
+                          Clear Filters
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
                   {loadingPrevious ? (
                     <div className="text-center py-8">
                       <Loader size={24} className="animate-spin text-blue-600 mx-auto" />
                       <p className="text-xs text-gray-400 mt-2">Loading previous records...</p>
                     </div>
-                  ) : filteredPreviousSalary.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-blue-50">
-                          <tr>
-                            <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Employee</th>
-                            <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Designation</th>
-                            <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Month</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Base Salary</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Hours</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Rate</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Amount</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Bonus</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Total Salary</th>
-                            <th className="text-center py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredPreviousSalary.map((salary) => {
-                            let designation = salary.designation || 'N/A';
-                            let otRate = salary.ot_rate || 500;
-                            
-                            if (!salary.designation) {
-                              const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
-                              if (employee) {
-                                designation = employee.designation?.designation || employee.designation || 'N/A';
-                                otRate = getOTRate(designation, designations);
+                  ) : paginatedPrevData.length > 0 ? (
+                    <>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-blue-50">
+                            <tr>
+                              <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Employee</th>
+                              <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Designation</th>
+                              <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Month</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Base Salary</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Hours</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Rate</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Amount</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Bonus</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Total Salary</th>
+                              <th className="text-center py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginatedPrevData.map((salary) => {
+                              let designation = salary.designation || 'N/A';
+                              let otRate = salary.ot_rate || 500;
+                              
+                              if (!salary.designation) {
+                                const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
+                                if (employee) {
+                                  designation = employee.designation?.designation || employee.designation || 'N/A';
+                                  otRate = getOTRate(designation, designations);
+                                }
                               }
-                            }
-                            
-                            const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
-                            
-                            return (
-                              <tr key={salary.id} className="border-b border-blue-50 hover:bg-blue-50/30 transition-colors">
-                                <td className="py-2.5 px-4 font-medium text-gray-800">{salary.employee_name || salary.name}</td>
-                                <td className="py-2.5 px-4">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                                    {designation}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-4 text-gray-600">{salary.month || 'N/A'}</td>
-                                <td className="py-2.5 px-4 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otAmount)}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
-                                <td className="py-2.5 px-4 text-right font-semibold text-blue-700">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
-                                <td className="py-2.5 px-4">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <button
-                                      onClick={() => editSalary(salary)}
-                                      className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                                      title="Edit"
-                                    >
-                                      <Edit size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
-                                      className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                                      title="Delete"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot className="bg-blue-50/50">
-                          <tr>
-                            <td colSpan="10" className="py-2 px-4 text-xs text-blue-600 font-medium">
-                              Total: {filteredPreviousSalary.length} records
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                              
+                              const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
+                              
+                              return (
+                                <tr key={salary.id} className="border-b border-blue-50 hover:bg-blue-50/30 transition-colors">
+                                  <td className="py-2.5 px-4 font-medium text-gray-800">{salary.employee_name || salary.name}</td>
+                                  <td className="py-2.5 px-4">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                                      {designation}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-4 text-gray-600">{salary.month || 'N/A'}</td>
+                                  <td className="py-2.5 px-4 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otAmount)}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
+                                  <td className="py-2.5 px-4 text-right font-semibold text-blue-700">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
+                                  <td className="py-2.5 px-4">
+                                    <div className="flex items-center justify-center gap-2">
+                                      <button
+                                        onClick={() => editSalary(salary)}
+                                        className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Edit"
+                                      >
+                                        <Edit size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
+                                        className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot className="bg-blue-50/50">
+                            <tr>
+                              <td colSpan="10" className="py-2 px-4 text-xs text-blue-600 font-medium">
+                                Total: {paginatedPrevData.length} records
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      {/* ========== PREVIOUS MONTHS PAGINATION ========== */}
+                      {prevTotalPages > 1 && (
+                        <div className="px-4 py-3 border-t border-blue-100 flex items-center justify-between flex-wrap gap-2">
+                          <div className="text-xs text-gray-500">
+                            Showing <span className="font-medium">{prevStartIndex + 1}</span> to{' '}
+                            <span className="font-medium">{Math.min(prevEndIndex, prevTotalItems)}</span> of{' '}
+                            <span className="font-medium">{prevTotalItems}</span> results
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setPrevCurrentPage(prev => Math.max(1, prev - 1))}
+                              disabled={prevCurrentPage === 1}
+                              className={`p-1.5 rounded-lg border transition-colors ${
+                                prevCurrentPage === 1
+                                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                                  : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                              }`}
+                            >
+                              <ChevronLeft size={14} />
+                            </button>
+                            {getPrevPageNumbers().map((page, index) => (
+                              typeof page === 'number' ? (
+                                <button
+                                  key={index}
+                                  onClick={() => setPrevCurrentPage(page)}
+                                  className={`w-7 h-7 text-xs font-medium rounded-lg transition-colors ${
+                                    prevCurrentPage === page
+                                      ? 'bg-blue-600 text-white shadow-sm'
+                                      : 'border border-gray-200 text-gray-600 hover:bg-gray-100'
+                                  }`}
+                                >
+                                  {page}
+                                </button>
+                              ) : (
+                                <span key={index} className="px-1 text-gray-400 text-xs">…</span>
+                              )
+                            ))}
+                            <button
+                              onClick={() => setPrevCurrentPage(prev => Math.min(prevTotalPages, prev + 1))}
+                              disabled={prevCurrentPage === prevTotalPages}
+                              className={`p-1.5 rounded-lg border transition-colors ${
+                                prevCurrentPage === prevTotalPages
+                                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                                  : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                              }`}
+                            >
+                              <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="text-center py-8 text-gray-500">
                       <DollarSign size={28} className="mx-auto mb-2 text-gray-300" />
@@ -1034,62 +1452,65 @@ export default function SalariesOT() {
 
                 <form onSubmit={handleSalarySubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    {/* ========== EMPLOYEE SELECT WITH SEARCH ========== */}
+                    <div className="relative" ref={employeeSearchRef}>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <User size={14} className="inline mr-1" /> Employee *
                       </label>
-                      <select
-                        value={salaryForm.employeeId}
-                        onChange={(e) => {
-                          const emp = employees.find(emp => emp.id === parseInt(e.target.value));
-                          if (emp) {
-                            // Get designation name from employee.designation object or string
-                            let designation = '';
-                            if (emp.designation && typeof emp.designation === 'object') {
-                              designation = emp.designation.designation || '';
-                            } else {
-                              designation = emp.designation || '';
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search employee..."
+                          value={employeeSearchQuery}
+                          onChange={(e) => {
+                            setEmployeeSearchQuery(e.target.value);
+                            setIsEmployeeDropdownOpen(true);
+                            if (e.target.value === '') {
+                              setSalaryForm({ ...salaryForm, employeeId: '', employeeName: '' });
                             }
-                            
-                            const otRate = getOTRate(designation, designations);
-                            setSalaryForm({
-                              ...salaryForm,
-                              employeeId: e.target.value,
-                              employeeName: emp.name,
-                              designation: designation,
-                              baseSalary: emp.base_salary || emp.baseSalary || '',
-                              bonus: emp.bonus || '',
-                              otRate: otRate
-                            });
-                          } else {
-                            setSalaryForm({
-                              ...salaryForm,
-                              employeeId: e.target.value,
-                              employeeName: '',
-                              designation: '',
-                              baseSalary: '',
-                              bonus: '',
-                              otRate: 500
-                            });
-                          }
-                        }}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        required
-                        disabled={submitting || isEditingSalary}
-                      >
-                        <option value="">Select Employee</option>
-                        {employees.map((emp) => {
-                          const des = emp.designation?.designation || emp.designation || '';
-                          return (
-                            <option key={emp.id} value={emp.id}>
-                              {emp.name} {des ? `- ${des}` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                          }}
+                          onFocus={() => setIsEmployeeDropdownOpen(true)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white pr-8"
+                          disabled={submitting || isEditingSalary}
+                        />
+                        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      </div>
+                      
                       {isEditingSalary && (
                         <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
                       )}
+
+                      {/* ========== DROPDOWN ========== */}
+                      {isEmployeeDropdownOpen && !isEditingSalary && (
+                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {filteredEmployees.length > 0 ? (
+                            filteredEmployees.map((emp) => {
+                              const desName = getDesignationName(emp);
+                              return (
+                                <button
+                                  key={emp.id}
+                                  type="button"
+                                  className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                  onClick={() => selectEmployee(emp)}
+                                >
+                                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-600 flex-shrink-0">
+                                    {emp.name?.charAt(0).toUpperCase() || 'U'}
+                                  </div>
+                                  <span className="text-gray-700">{emp.name}</span>
+                                  {desName && (
+                                    <span className="text-xs text-gray-400 ml-auto">{desName}</span>
+                                  )}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {employeeSearchQuery ? 'No employees found' : 'Type to search employees'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {employees.length === 0 && (
                         <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
                       )}
@@ -1163,6 +1584,32 @@ export default function SalariesOT() {
                         disabled
                       />
                       <p className="text-xs text-purple-600 mt-1">✓ Auto-set from designation OT rate</p>
+                    </div>
+
+                    {/* ========== MONTH SELECTION ========== */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <CalendarDays size={14} className="inline mr-1" /> Month *
+                      </label>
+                      <select
+                        value={salaryForm.month}
+                        onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        required
+                        disabled={submitting}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => {
+                          const month = new Date(2000, i, 1).toLocaleString('default', { month: 'long' });
+                          const year = new Date().getFullYear();
+                          const value = `${month} ${year}`;
+                          return (
+                            <option key={i} value={value}>
+                              {month} {year}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Select the month for this salary record</p>
                     </div>
 
                     <div className="md:col-span-2">
@@ -1296,5 +1743,3 @@ export default function SalariesOT() {
     </motion.div>
   );
 }
-
-

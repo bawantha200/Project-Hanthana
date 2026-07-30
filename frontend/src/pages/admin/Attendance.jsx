@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Clock, Search, Plus, X, User, Calendar, Edit, Trash2, 
   CheckCircle, AlertCircle, Loader, RefreshCw, History,
-  ChevronDown, ChevronUp, Save, Filter, ChevronLeft, ChevronRight
+  ChevronDown, ChevronUp, Save, Filter, ChevronLeft, ChevronRight,
+  CalendarDays, Users as UsersIcon
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
@@ -108,6 +109,7 @@ export default function Attendance() {
 
   // ========== FILTER STATE ==========
   const [filterEmployeeId, setFilterEmployeeId] = useState('');
+  const [filterDay, setFilterDay] = useState('');
   const [filterMonth, setFilterMonth] = useState('');
   const [filterYear, setFilterYear] = useState('');
 
@@ -124,6 +126,11 @@ export default function Attendance() {
   const [showAttendanceForm, setShowAttendanceForm] = useState(false);
   const [isEditingAttendance, setIsEditingAttendance] = useState(false);
   const [editingAttendanceId, setEditingAttendanceId] = useState(null);
+
+  // ========== EMPLOYEE SEARCH STATE FOR FORM ==========
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const employeeSearchRef = useRef(null);
 
   // ========== DELETE CONFIRMATION ==========
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -243,6 +250,22 @@ export default function Attendance() {
     }
   }, [attendanceForm.checkIn, attendanceForm.checkOut]);
 
+  // ========== FILTER EMPLOYEES BY SEARCH ==========
+  const filteredEmployees = employees.filter(emp => 
+    emp.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase())
+  );
+
+  // ========== SELECT EMPLOYEE ==========
+  const selectEmployee = (employee) => {
+    setAttendanceForm({
+      ...attendanceForm,
+      employeeId: employee.id,
+      employeeName: employee.name
+    });
+    setEmployeeSearchQuery(employee.name);
+    setIsEmployeeDropdownOpen(false);
+  };
+
   // ========== ATTENDANCE CRUD OPERATIONS ==========
 
   const handleAttendanceSubmit = async (e) => {
@@ -319,6 +342,7 @@ export default function Attendance() {
   const editAttendance = (record) => {
     setIsEditingAttendance(true);
     setEditingAttendanceId(record.id);
+    setEmployeeSearchQuery(record.employee_name || record.name || '');
     setAttendanceForm({
       employeeId: record.employee_id || record.employeeId || '',
       employeeName: record.employee_name || record.name || '',
@@ -341,8 +365,10 @@ export default function Attendance() {
       checkOut: '',
       status: 'present'
     });
+    setEmployeeSearchQuery('');
     setIsEditingAttendance(false);
     setEditingAttendanceId(null);
+    setIsEmployeeDropdownOpen(false);
   };
 
   const showSuccessNotification = (message) => {
@@ -354,6 +380,7 @@ export default function Attendance() {
 
   const openAttendanceForm = (employee = null) => {
     if (employee) {
+      setEmployeeSearchQuery(employee.name);
       setAttendanceForm({
         employeeId: employee.id,
         employeeName: employee.name,
@@ -363,6 +390,7 @@ export default function Attendance() {
         status: 'present'
       });
     } else {
+      setEmployeeSearchQuery('');
       setAttendanceForm({
         employeeId: '',
         employeeName: '',
@@ -420,6 +448,14 @@ export default function Attendance() {
       );
     }
 
+    // Filter by Day
+    if (filterDay) {
+      filtered = filtered.filter(rec => {
+        const date = new Date(rec.date);
+        return date.getDate() === parseInt(filterDay);
+      });
+    }
+
     // Filter by Month
     if (filterMonth) {
       filtered = filtered.filter(rec => {
@@ -460,7 +496,7 @@ export default function Attendance() {
   // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterEmployeeId, filterMonth, filterYear, searchQuery]);
+  }, [filterEmployeeId, filterDay, filterMonth, filterYear, searchQuery]);
 
   // ========== SUMMARY STATISTICS ==========
   const totalAttendance = filteredAttendance.length;
@@ -631,13 +667,13 @@ export default function Attendance() {
           <Filter size={16} className="text-gray-500" />
           <span className="text-sm font-medium text-gray-700">Filters</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           {/* Search */}
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by employee..."
+              placeholder="Search employee..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
@@ -659,6 +695,20 @@ export default function Attendance() {
                 </option>
               );
             })}
+          </select>
+
+          {/* Day Filter */}
+          <select
+            value={filterDay}
+            onChange={(e) => setFilterDay(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+          >
+            <option value="">All Days</option>
+            {Array.from({ length: 31 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>
+                Day {i + 1}
+              </option>
+            ))}
           </select>
 
           {/* Month Filter */}
@@ -690,19 +740,21 @@ export default function Attendance() {
             })}
           </select>
         </div>
-        <div className="mt-3 text-xs text-gray-400">
-          {filteredAttendance.length} records found
-          {(filterEmployeeId || filterMonth || filterYear || searchQuery) && (
+        <div className="mt-3 text-xs text-gray-400 flex items-center justify-between flex-wrap gap-2">
+          <span>{filteredAttendance.length} records found</span>
+          {(filterEmployeeId || filterDay || filterMonth || filterYear || searchQuery) && (
             <button
               onClick={() => {
                 setFilterEmployeeId('');
+                setFilterDay('');
                 setFilterMonth('');
                 setFilterYear('');
                 setSearchQuery('');
               }}
-              className="ml-3 text-blue-600 hover:text-blue-800 font-medium"
+              className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
             >
-              Clear Filters
+              <X size={14} />
+              Clear All Filters
             </button>
           )}
         </div>
@@ -722,7 +774,7 @@ export default function Attendance() {
                 <h2 className="text-base font-semibold text-gray-900">
                   Attendance Records
                   <span className="ml-2 text-xs font-normal text-gray-400">
-                    {filterEmployeeId ? 'Filtered' : 'All Records'}
+                    {filterEmployeeId || filterDay || filterMonth || filterYear ? 'Filtered' : 'All Records'}
                   </span>
                 </h2>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -864,7 +916,7 @@ export default function Attendance() {
               <Clock size={48} className="mx-auto mb-4 text-gray-300" />
               <p className="text-gray-500 font-medium">No attendance records found</p>
               <p className="text-sm text-gray-400 mt-1">
-                {filterEmployeeId || filterMonth || filterYear || searchQuery
+                {filterEmployeeId || filterDay || filterMonth || filterYear || searchQuery
                   ? 'Try adjusting your filters'
                   : 'Add attendance records to get started'}
               </p>
@@ -1067,37 +1119,65 @@ export default function Attendance() {
 
                 <form onSubmit={handleAttendanceSubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    {/* ========== EMPLOYEE SELECT WITH SEARCH ========== */}
+                    <div className="relative" ref={employeeSearchRef}>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <User size={14} className="inline mr-1" /> Employee *
                       </label>
-                      <select
-                        value={attendanceForm.employeeId}
-                        onChange={(e) => {
-                          const emp = employees.find(emp => emp.id === parseInt(e.target.value));
-                          setAttendanceForm({
-                            ...attendanceForm,
-                            employeeId: e.target.value,
-                            employeeName: emp ? emp.name : ''
-                          });
-                        }}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        required
-                        disabled={submitting || isEditingAttendance}
-                      >
-                        <option value="">Select Employee</option>
-                        {employees.map((emp) => {
-                          const desName = getDesignationName(emp);
-                          return (
-                            <option key={emp.id} value={emp.id}>
-                              {emp.name} {desName ? `- ${desName}` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search employee..."
+                          value={employeeSearchQuery}
+                          onChange={(e) => {
+                            setEmployeeSearchQuery(e.target.value);
+                            setIsEmployeeDropdownOpen(true);
+                            if (e.target.value === '') {
+                              setAttendanceForm({ ...attendanceForm, employeeId: '', employeeName: '' });
+                            }
+                          }}
+                          onFocus={() => setIsEmployeeDropdownOpen(true)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white pr-8"
+                          disabled={submitting || isEditingAttendance}
+                        />
+                        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      </div>
+                      
                       {isEditingAttendance && (
                         <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
                       )}
+
+                      {/* ========== DROPDOWN ========== */}
+                      {isEmployeeDropdownOpen && !isEditingAttendance && (
+                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {filteredEmployees.length > 0 ? (
+                            filteredEmployees.map((emp) => {
+                              const desName = getDesignationName(emp);
+                              return (
+                                <button
+                                  key={emp.id}
+                                  type="button"
+                                  className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                  onClick={() => selectEmployee(emp)}
+                                >
+                                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-600 flex-shrink-0">
+                                    {emp.name?.charAt(0).toUpperCase() || 'U'}
+                                  </div>
+                                  <span className="text-gray-700">{emp.name}</span>
+                                  {desName && (
+                                    <span className="text-xs text-gray-400 ml-auto">{desName}</span>
+                                  )}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {employeeSearchQuery ? 'No employees found' : 'Type to search employees'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {employees.length === 0 && (
                         <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
                       )}
