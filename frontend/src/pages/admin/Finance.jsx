@@ -1,16 +1,17 @@
 // frontend/src/pages/Finance.jsx
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   DollarSign, TrendingUp, TrendingDown, ArrowUpRight, ArrowDownRight,
-  CreditCard, Truck, Package, Users, Receipt
+  CreditCard, Truck, Package, Users, Receipt, RefreshCw
 } from 'lucide-react';
 import RevenueChart from '../../components/RevenueChart';
 import ExpenseChart from '../../components/ExpenseChart';
 import StatCard from '../../components/StatCard';
 import { formatCurrency } from '../../utils/helpers';
 import { getExpenseSummary, getPeriodRange, getMonthlyTrend } from '../../services/reportService';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -43,91 +44,102 @@ function growthPct(current, previous) {
   return ((current - previous) / previous) * 100;
 }
 
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchIncomeData = async () => {
+  const thisRange = getPeriodRange('this-month');
+  const lastRange = getPeriodRange('last-month');
+  const [thisReport, lastReport, pendingData, monthlyData] = await Promise.all([
+    fetch(`${API_BASE}/invoices/report?dateFrom=${thisRange.dateFrom}&dateTo=${thisRange.dateTo}`).then(res => res.json()),
+    fetch(`${API_BASE}/invoices/report?dateFrom=${lastRange.dateFrom}&dateTo=${lastRange.dateTo}`).then(res => res.json()),
+    fetch(`${API_BASE}/invoices/pending-payments`).then(res => res.json()),
+    fetch(`${API_BASE}/invoices/monthly-revenue`).then(res => res.json()),
+  ]);
+  return {
+    thisMonthRevenue: thisReport.revenue || 0,
+    lastMonthRevenue: lastReport.revenue || 0,
+    pendingPayments: pendingData.pendingPayments || 0,
+    monthlyRevenue: monthlyData || [],
+  };
+};
+
+const fetchExpenseData = async () => {
+  const thisRange = getPeriodRange('this-month');
+  const lastRange = getPeriodRange('last-month');
+  const [thisData, lastData] = await Promise.all([
+    getExpenseSummary(thisRange.dateFrom, thisRange.dateTo),
+    getExpenseSummary(lastRange.dateFrom, lastRange.dateTo),
+  ]);
+  return { thisMonthSummary: thisData, lastMonthSummary: lastData };
+};
+
+const fetchTrendData = async () => {
+  const data = await getMonthlyTrend(TREND_MONTHS, 'all');
+  return data.trend || [];
+};
+
 export default function Finance() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  // --- Real income data, from the invoices report endpoint ---
-  const [thisMonthRevenue, setThisMonthRevenue] = useState(0);
-  const [lastMonthRevenue, setLastMonthRevenue] = useState(0);
-  const [loadingIncome, setLoadingIncome] = useState(true);
-  const [pendingPayments, setPendingPayments] = useState(0);
-  const [monthlyRevenue, setMonthlyRevenue] = useState([]);
+  // ===== REACT QUERY HOOKS =====
 
-  // --- Real expense data ---
-  const [thisMonthSummary, setThisMonthSummary] = useState(null);
-  const [lastMonthSummary, setLastMonthSummary] = useState(null);
-  const [loadingExpenses, setLoadingExpenses] = useState(true);
+  // 1. Income Data Query (cached 5 minutes, refetch on window focus)
+  const {
+    data: incomeData,
+    isLoading: incomeLoading,
+    error: incomeError,
+    refetch: refetchIncome,
+  } = useQuery({
+    queryKey: ['finance-income'],
+    queryFn: fetchIncomeData,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  // --- Real combined monthly trend (income + expenses together) ---
-  const [expenseTrend, setExpenseTrend] = useState([]);
-  const [loadingTrend, setLoadingTrend] = useState(true);
+  // 2. Expense Data Query (cached 5 minutes)
+  const {
+    data: expenseData,
+    isLoading: expenseLoading,
+    error: expenseError,
+    refetch: refetchExpense,
+  } = useQuery({
+    queryKey: ['finance-expenses'],
+    queryFn: fetchExpenseData,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  const loadIncomeData = useCallback(async () => {
-    setLoadingIncome(true);
-    try {
-      const thisRange = getPeriodRange('this-month');
-      const lastRange = getPeriodRange('last-month');
-      const [thisReport, lastReport, pendingData, monthlyData] = await Promise.all([
-        fetch(
-          `${API_BASE}/invoices/report?dateFrom=${thisRange.dateFrom}&dateTo=${thisRange.dateTo}`
-        ).then((res) => res.json()),
-        fetch(
-          `${API_BASE}/invoices/report?dateFrom=${lastRange.dateFrom}&dateTo=${lastRange.dateTo}`
-        ).then((res) => res.json()),
-        fetch(`${API_BASE}/invoices/pending-payments`).then((res) => res.json()),
-        fetch(`${API_BASE}/invoices/monthly-revenue`).then((res) => res.json()),
-      ]);
-      setThisMonthRevenue(thisReport.revenue || 0);
-      setLastMonthRevenue(lastReport.revenue || 0);
-      setPendingPayments(pendingData.pendingPayments || 0);
-      setMonthlyRevenue(monthlyData || []);
-    } catch (error) {
-      console.error('Failed to load invoice revenue for dashboard:', error);
-    } finally {
-      setLoadingIncome(false);
-    }
-  }, []);
+  // 3. Trend Data Query (cached 10 minutes)
+  const {
+    data: expenseTrend = [],
+    isLoading: trendLoading,
+    error: trendError,
+    refetch: refetchTrend,
+  } = useQuery({
+    queryKey: ['finance-trend', TREND_MONTHS],
+    queryFn: fetchTrendData,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // ===== DERIVED DATA =====
+  const thisMonthRevenue = incomeData?.thisMonthRevenue || 0;
+  const lastMonthRevenue = incomeData?.lastMonthRevenue || 0;
+  const pendingPayments = incomeData?.pendingPayments || 0;
+  const monthlyRevenue = incomeData?.monthlyRevenue || [];
+
+  const thisMonthSummary = expenseData?.thisMonthSummary || null;
+  const lastMonthSummary = expenseData?.lastMonthSummary || null;
 
   const totalIncome = thisMonthRevenue;
   const incomeGrowth = growthPct(thisMonthRevenue, lastMonthRevenue).toFixed(1);
 
-  const loadExpenseData = useCallback(async () => {
-    setLoadingExpenses(true);
-    try {
-      const thisRange = getPeriodRange('this-month');
-      const lastRange = getPeriodRange('last-month');
-      const [thisData, lastData] = await Promise.all([
-        getExpenseSummary(thisRange.dateFrom, thisRange.dateTo),
-        getExpenseSummary(lastRange.dateFrom, lastRange.dateTo),
-      ]);
-      setThisMonthSummary(thisData);
-      setLastMonthSummary(lastData);
-    } catch (error) {
-      console.error('Failed to load expense summary for dashboard:', error);
-    } finally {
-      setLoadingExpenses(false);
-    }
-  }, []);
-
-  const loadTrendData = useCallback(async () => {
-    setLoadingTrend(true);
-    try {
-      const data = await getMonthlyTrend(TREND_MONTHS, 'all');
-      setExpenseTrend(data.trend || []);
-    } catch (error) {
-      console.error('Failed to load monthly trend for dashboard:', error);
-    } finally {
-      setLoadingTrend(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadIncomeData();
-    loadExpenseData();
-    loadTrendData();
-  }, [loadIncomeData, loadExpenseData, loadTrendData]);
-
-  // --- Derive real expense figures (default to 0 while loading) ---
   const s = thisMonthSummary;
   const p = lastMonthSummary;
 
@@ -151,7 +163,8 @@ export default function Finance() {
   const netProfit = totalIncome - realTotalExpenses;
   const prevNetProfit = lastMonthRevenue - prevTotalExpenses;
 
-  const loading = loadingIncome || loadingExpenses;
+  const loading = incomeLoading || expenseLoading || trendLoading;
+  const error = incomeError || expenseError || trendError;
 
   const expenseGrowth = growthPct(realTotalExpenses, prevTotalExpenses).toFixed(1);
   const profitGrowth = growthPct(netProfit, prevNetProfit).toFixed(1);
@@ -171,10 +184,6 @@ export default function Finance() {
   const pct = (part, whole) => (whole > 0 ? ((part / whole) * 100).toFixed(1) : '0.0');
 
   // --- Combine real income history with real expense trend into one dataset ---
-  // expenseTrend is oldest-first, exactly TREND_MONTHS entries, from /reports/monthly-trend.
-  // monthlyRevenue's exact ordering/length depends on invoiceService.getMonthlyRevenueHistory —
-  // aligned here by position-from-the-end (most recent month matches most recent month),
-  // so it stays correct even if the two histories start at different points.
   const combinedMonthly = expenseTrend.map((expEntry, idx) => {
     const distanceFromEnd = expenseTrend.length - idx;
     const incomeEntry = monthlyRevenue[monthlyRevenue.length - distanceFromEnd];
@@ -187,9 +196,55 @@ export default function Finance() {
     };
   });
 
-  const loadingChart = loading || loadingTrend;
+  const loadingChart = loading;
 
+  // ===== REFRESH HANDLER =====
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['finance-income'] });
+    queryClient.invalidateQueries({ queryKey: ['finance-expenses'] });
+    queryClient.invalidateQueries({ queryKey: ['finance-trend'] });
+  };
+
+  // ===== NAVIGATION HELPERS =====
   const goTo = (path) => () => navigate(path);
+
+  // ===== ERROR STATE =====
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto mb-4">
+            <DollarSign size={28} className="text-rose-500" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">Failed to load finance data</h2>
+          <p className="text-sm text-gray-500 mt-1">{error.message || 'Please try again'}</p>
+          <button
+            onClick={handleRefresh}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== LOADING STATE (initial load only) =====
+  if (loading && !incomeData && !expenseData) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-4">
+        <p className="text-sm font-medium text-gray-600">Loading finance data...</p>
+        <div className="w-full max-w-xs h-2 rounded-full bg-gray-100 overflow-hidden">
+          <motion.div
+            className="h-full bg-blue-600 rounded-full"
+            animate={{ width: '100%' }}
+            transition={{ duration: 1.5, ease: 'easeOut' }}
+          />
+        </div>
+        <p className="text-xs text-gray-400">Fetching latest figures...</p>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -206,21 +261,36 @@ export default function Finance() {
             Financial overview — Income, expenses, and profit analysis
           </p>
         </div>
-        <button
-          onClick={() => navigate('/app/finance/expenses')}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
-        >
-          <Receipt size={16} />
-          Manage Expenses
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400 flex items-center gap-2">
+            <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+            {loading ? 'Updating...' : 'Live'}
+          </span>
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleRefresh}
+            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </motion.button>
+          <button
+            onClick={() => navigate('/app/finance/expenses')}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition"
+          >
+            <Receipt size={16} />
+            Manage Expenses
+          </button>
+        </div>
       </motion.div>
 
-      {/* Summary Cards — each links to the page that explains it */}
+      {/* Summary Cards */}
       <motion.div variants={itemVariants} className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div onClick={goTo('/app/finance/invoicing-reports')} className="cursor-pointer" title="View invoicing & revenue reports">
           <StatCard
             title="Total Income"
-            value={loadingIncome ? '...' : formatCurrency(totalIncome)}
+            value={incomeLoading ? '...' : formatCurrency(totalIncome)}
             subtitle="vs last month"
             icon={DollarSign}
             trend={incomeGrowth >= 0 ? 'up' : 'down'}
@@ -232,7 +302,7 @@ export default function Finance() {
         <div onClick={goTo('/app/finance/expenses')} className="cursor-pointer" title="Manage expenses">
           <StatCard
             title="Total Expenses"
-            value={loadingExpenses ? '...' : formatCurrency(realTotalExpenses)}
+            value={expenseLoading ? '...' : formatCurrency(realTotalExpenses)}
             subtitle="vs last month"
             icon={CreditCard}
             trend={expenseGrowth >= 0 ? 'up' : 'down'}
@@ -256,7 +326,7 @@ export default function Finance() {
         <div onClick={goTo('/app/finance/invoicing-reports')} className="cursor-pointer" title="View pending invoices">
           <StatCard
             title="Pending Payments"
-            value={loadingIncome ? '...' : formatCurrency(pendingPayments)}
+            value={incomeLoading ? '...' : formatCurrency(pendingPayments)}
             subtitle="outstanding dues"
             icon={CreditCard}
             color="rose"
@@ -278,7 +348,7 @@ export default function Finance() {
             subtitle={`Income vs Expenses trend — last ${TREND_MONTHS} months, real data`}
           />
         )}
-        {loadingExpenses ? (
+        {expenseLoading ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex items-center justify-center">
             <div className="inline-block animate-spin rounded-full h-6 w-6 border-2 border-blue-600 border-t-transparent"></div>
           </div>
@@ -291,7 +361,7 @@ export default function Finance() {
         )}
       </motion.div>
 
-      {/* Expense Breakdown Cards — real data, each links to its comparison view */}
+      {/* Expense Breakdown Cards */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <motion.div
           variants={itemVariants}
@@ -303,7 +373,7 @@ export default function Finance() {
             <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center"><Truck size={18} className="text-blue-600" /></div>
             <div><h3 className="text-sm font-semibold text-gray-900">Vehicle Costs</h3><p className="text-xs text-gray-400">Fuel, maintenance & repairs</p></div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{loadingExpenses ? '...' : formatCurrency(vehicleCosts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{expenseLoading ? '...' : formatCurrency(vehicleCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
             {vehicleGrowth >= 0 ? <ArrowUpRight size={14} className="text-rose-500" /> : <ArrowDownRight size={14} className="text-emerald-500" />}
             <span className={`text-xs font-medium ${vehicleGrowth >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{vehicleGrowth >= 0 ? '+' : ''}{vehicleGrowth}%</span>
@@ -325,7 +395,7 @@ export default function Finance() {
             <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center"><Users size={18} className="text-indigo-600" /></div>
             <div><h3 className="text-sm font-semibold text-gray-900">Salary Costs</h3><p className="text-xs text-gray-400">Base + OT + bonuses</p></div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{loadingExpenses ? '...' : formatCurrency(salaryCosts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{expenseLoading ? '...' : formatCurrency(salaryCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
             {salaryGrowth >= 0 ? <ArrowUpRight size={14} className="text-rose-500" /> : <ArrowDownRight size={14} className="text-emerald-500" />}
             <span className={`text-xs font-medium ${salaryGrowth >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{salaryGrowth >= 0 ? '+' : ''}{salaryGrowth}%</span>
@@ -347,7 +417,7 @@ export default function Finance() {
             <div className="w-10 h-10 rounded-xl bg-cyan-50 flex items-center justify-center"><Package size={18} className="text-cyan-600" /></div>
             <div><h3 className="text-sm font-semibold text-gray-900">Bottle Purchase Costs</h3><p className="text-xs text-gray-400">Vendor orders & empty bottles</p></div>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{loadingExpenses ? '...' : formatCurrency(bottlePurchaseCosts)}</p>
+          <p className="text-2xl font-bold text-gray-900">{expenseLoading ? '...' : formatCurrency(bottlePurchaseCosts)}</p>
           <div className="flex items-center gap-1 mt-2">
             {bottleGrowth >= 0 ? <ArrowUpRight size={14} className="text-rose-500" /> : <ArrowDownRight size={14} className="text-emerald-500" />}
             <span className={`text-xs font-medium ${bottleGrowth >= 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{bottleGrowth >= 0 ? '+' : ''}{bottleGrowth}%</span>
@@ -360,7 +430,7 @@ export default function Finance() {
         </motion.div>
       </motion.div>
 
-      {/* Revenue Growth & P&L Summary — now real, from combined income + expense trend */}
+      {/* Revenue Growth & P&L Summary */}
       <motion.div variants={itemVariants} className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <motion.div variants={itemVariants} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between mb-5">

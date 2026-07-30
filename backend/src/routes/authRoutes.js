@@ -28,9 +28,17 @@ const {
   createGoogleUserProfile,
   updateGoogleUserProfile,
   checkPasswordStatus,
+  uploadProfileImage,
+  removeProfileImage,
 } = require('../controllers/authController');
 
 const { protect } = require('../middlewares/authMiddleware');
+
+const multer = require('multer');
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
 
 // Phase 1: Email, Password, Full Name
 router.post('/register/phase1', registerPhase1);
@@ -68,10 +76,13 @@ router.put('/address', protect, updateAddress);
 router.put('/update-password', protect, updatePassword);
 router.post('/set-password', protect, setPasswordForGoogleUser); // Add this
 router.delete('/account', protect, deleteAccount);
+router.post('/profile-image', protect, upload.single('profileImage'), uploadProfileImage);
+router.delete('/profile-image', protect, removeProfileImage);
 router.get('/permissions', protect, getUserPermissions);
 router.get('/roles', protect, getAllRoles);
 router.get('/permissions/:roleName', protect, getPermissionsByRoleName);
 router.get('/profile', protect, getProfile);
+
 // Add the route
 router.get('/check-password', checkPasswordStatus);
 module.exports = router;
