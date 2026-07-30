@@ -1,6 +1,6 @@
-const  supabase  = require('../config/db');
+const productService = require('../services/productsService');
+const supabase = require('../config/db');
 const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
 
 // Helper to upload image to Supabase Storage
 async function uploadImage(file) {
@@ -12,6 +12,7 @@ async function uploadImage(file) {
   const { error } = await supabase.storage
     .from(bucket)
     .upload(fileName, file.buffer, { contentType: file.mimetype });
+
   if (error) throw new Error(`Image upload failed: ${error.message}`);
 
   const { data: urlData } = supabase.storage.from(bucket).getPublicUrl(fileName);
@@ -24,26 +25,13 @@ async function uploadImage(file) {
  */
 exports.getAllProducts = async (req, res) => {
   try {
-    console.log('[Products] Fetching all products...');
-    
-    // ✅ Get all products - no is_active filter
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
+    // Check if requester wants active-only (e.g., POS or mobile client)
+    const includeInactive = req.query.includeInactive !== 'false';
+    const data = await productService.getAllProducts(includeInactive);
 
-    if (error) {
-      console.error('[Products] Supabase error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + error.message
-      });
-    }
-
-    console.log(`[Products] Found ${data?.length || 0} products`);
     return res.status(200).json({
       success: true,
-      data: data || []
+      data
     });
   } catch (error) {
     console.error('[Products] Error fetching products:', error);
@@ -61,20 +49,7 @@ exports.getAllProducts = async (req, res) => {
 exports.getProductById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-
-    if (error) {
-      console.error('[Products] Supabase error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + error.message
-      });
-    }
+    const data = await productService.getProductById(id);
 
     if (!data) {
       return res.status(404).json({
@@ -102,10 +77,8 @@ exports.getProductById = async (req, res) => {
  */
 exports.createProduct = async (req, res) => {
   try {
-    console.log('[Products] Creating product...');
-    const { name, type, unit_price} = req.body;
+    const { name, type, unit_price, is_active } = req.body;
 
-    // Validation
     if (!name || !type || unit_price === undefined) {
       return res.status(400).json({
         success: false,
@@ -113,36 +86,22 @@ exports.createProduct = async (req, res) => {
       });
     }
 
-    // Upload image if exists
     let image_url = null;
     if (req.file) {
       image_url = await uploadImage(req.file);
     }
 
-    const { data, error } = await supabase
-      .from('products')
-      .insert({
-        name,
-        type: type.toUpperCase(),
-        unit_price: parseFloat(unit_price),
-       
-        image_url: image_url || null
-      })
-      .select()
-      .single();
+    const newProduct = await productService.createProduct({
+      name,
+      type: type.toUpperCase(),
+      unit_price: parseFloat(unit_price),
+      is_active: is_active !== undefined ? String(is_active) === 'true' : true,
+      image_url: image_url || null
+    });
 
-    if (error) {
-      console.error('[Products] Supabase error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + error.message
-      });
-    }
-
-    console.log('[Products] Created:', data.id);
     return res.status(201).json({
       success: true,
-      data
+      data: newProduct
     });
   } catch (error) {
     console.error('[Products] Error creating product:', error);
@@ -160,10 +119,8 @@ exports.createProduct = async (req, res) => {
 exports.updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`[Products] Updating product: ${id}`);
-    const { name, type, unit_price } = req.body;
+    const { name, type, unit_price, is_active } = req.body;
 
-    // Validation
     if (!name || !type || unit_price === undefined) {
       return res.status(400).json({
         success: false,
@@ -171,48 +128,28 @@ exports.updateProduct = async (req, res) => {
       });
     }
 
-    // Upload new image if exists
     let image_url = null;
     if (req.file) {
       image_url = await uploadImage(req.file);
     }
 
-    // Build update object - only include fields that exist in table
     const updateData = {
       name,
       type: type.toUpperCase(),
       unit_price: parseFloat(unit_price)
     };
 
+    if (is_active !== undefined) {
+      updateData.is_active = String(is_active) === 'true';
+    }
 
     if (image_url) updateData.image_url = image_url;
 
-    const { data, error } = await supabase
-      .from('products')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+    const updatedProduct = await productService.updateProduct(id, updateData);
 
-    if (error) {
-      console.error('[Products] Supabase error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + error.message
-      });
-    }
-
-    if (!data) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
-    }
-
-    console.log('[Products] Updated:', id);
     return res.status(200).json({
       success: true,
-      data
+      data: updatedProduct
     });
   } catch (error) {
     console.error('[Products] Error updating product:', error);
@@ -224,31 +161,17 @@ exports.updateProduct = async (req, res) => {
 };
 
 /**
- * @desc    Delete product
+ * @desc    Deactivate / Delete product
  * @route   DELETE /api/products/:id
  */
 exports.deleteProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    console.log(`[Products] Deleting product: ${id}`);
+    await productService.deleteProduct(id);
 
-    const { error } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      console.error('[Products] Supabase error:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Database error: ' + error.message
-      });
-    }
-
-    console.log('[Products] Deleted:', id);
     return res.status(200).json({
       success: true,
-      message: 'Product deleted successfully'
+      message: 'Product deactivated successfully'
     });
   } catch (error) {
     console.error('[Products] Error deleting product:', error);

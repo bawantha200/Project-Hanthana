@@ -364,7 +364,8 @@ const stockService = {
           unit_price: p.unit_price || 0,
           is_refill: isRefill,
           is_19l: is19L,
-          is_sealed: isSealed
+          is_sealed: isSealed,
+          is_active: p.is_active ?? true
         };
         
         console.log(`📊 Product ${index + 1}: ${p.name}`);
@@ -1173,7 +1174,43 @@ const stockService = {
       console.error('❌ Error in convertStock:', error);
       throw error;
     }
+  },
+
+  // backend/src/services/stockService.js - Fix updateStockStatus
+
+async updateStockStatus(id, isActive) {
+  try {
+    console.log(`📊 Updating stock status for product ${id} to ${isActive}`);
+    
+    // Update the product's is_active status in Supabase
+    const { data, error } = await supabase
+      .from('products')
+      .update({ is_active: isActive })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('❌ Error updating product status:', error);
+      throw new Error(`Failed to update product status: ${error.message}`);
+    }
+
+    if (!data) {
+      throw new Error(`Product with ID ${id} not found`);
+    }
+
+    console.log(`✅ Product ${id} status updated to ${isActive}`);
+    
+    return {
+      success: true,
+      message: `Stock status updated to ${isActive ? 'Active' : 'Disabled'}`,
+      data: data
+    };
+  } catch (error) {
+    console.error('❌ Error in updateStockStatus:', error);
+    throw error;
   }
+}
 };
 
 module.exports = stockService;

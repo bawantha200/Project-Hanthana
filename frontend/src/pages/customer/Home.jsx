@@ -73,7 +73,6 @@ const refillServices = [
   },
 ];
 
-// ✅ Component එක ඇතුළේ Hooks භාවිතා කරන්න
 export default function Home() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -94,7 +93,11 @@ export default function Home() {
         const response = await fetch('http://localhost:5000/api/products');
         const data = await response.json();
         if (data.success) {
-          setProducts(data.data || []);
+          // ✅ Filter only active products (handles boolean true, 1, or 'active' string)
+          const activeOnly = (data.data || []).filter(
+            (p) => p.is_active === true || p.is_active === 1 || p.status === 'active'
+          );
+          setProducts(activeOnly);
         }
       } catch (error) {
         console.error('Fetch products error:', error);
@@ -110,8 +113,6 @@ export default function Home() {
       try {
         const response = await fetch('http://localhost:5000/api/settings/public');
         const data = await response.json();
-
-        console.log('HOME SETTINGS:', data);
 
         if (data.success) {
           setSettings(data.data);
@@ -251,7 +252,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Product Cards Section - ✅ Database Products Display */}
+      {/* Product Cards Section */}
       <section className="py-16 sm:py-20 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
@@ -274,14 +275,14 @@ export default function Home() {
             </p>
           </motion.div>
 
-          {/* ✅ Loading State */}
+          {/* Loading State */}
           {loading ? (
             <div className="flex justify-center items-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
             </div>
           ) : products.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              No products available
+              No active products available at the moment.
             </div>
           ) : (
             <motion.div
@@ -325,28 +326,26 @@ export default function Home() {
                       </p>
                     )}
 
-                  {/* Price - Full Width */}
-                  <div className="mt-3">
-                    <span className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-600 whitespace-nowrap">
-                      Rs. {Number(product.unit_price).toLocaleString('en-US', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      })}
-                    </span>
-                  </div>
+                    <div className="mt-3">
+                      <span className="text-lg sm:text-xl lg:text-2xl font-bold text-blue-600 whitespace-nowrap">
+                        Rs. {Number(product.unit_price).toLocaleString('en-US', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
 
-                  {/* Button - Full Width */}
-                  <button
-                    onClick={() =>
-                      window.dispatchEvent(
-                        new CustomEvent("open-order-modal", { detail: { productId: product.id } })
-                      )
-                    }
-                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-95"
-                  >
-                    Add to Order
-                  <Plus className="w-4 h-4" />
-                  </button>
+                    <button
+                      onClick={() =>
+                        window.dispatchEvent(
+                          new CustomEvent("open-order-modal", { detail: { productId: product.id } })
+                        )
+                      }
+                      className="mt-3 w-full inline-flex items-center justify-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-all duration-200 hover:scale-[1.02] active:scale-95"
+                    >
+                      Add to Order
+                      <Plus className="w-4 h-4" />
+                    </button>
                   </div>
                 </motion.div>
               ))}

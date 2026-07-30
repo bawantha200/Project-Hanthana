@@ -115,7 +115,7 @@ const FloatingOrderButton = ({ onLoginRequired, hasMaintenanceBanner }) => {
   const addressDebounceTimer = useRef(null);
   const geolocationTimeoutRef = useRef(null);
 
-  // ─── React Query: Fetch Products ───
+  // ─── React Query: Fetch Products (Active Only) ───
   const {
     data: products = [],
     isLoading: productsLoading,
@@ -125,10 +125,16 @@ const FloatingOrderButton = ({ onLoginRequired, hasMaintenanceBanner }) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("products")
-        .select("id, name, type, unit_price, image_url")
+        .select("id, name, type, unit_price, image_url, is_active")
         .order("name");
       if (error) throw error;
-      return data || [];
+      
+      // ✅ Filter only active products (handles boolean true, 1, or 'active' string)
+      const activeProducts = (data || []).filter(
+        (p) => p.is_active === true || p.is_active === 1 || p.status === 'active'
+      );
+      
+      return activeProducts || [];
     },
     staleTime: 120000,
     gcTime: 300000,
@@ -1017,6 +1023,12 @@ const FloatingOrderButton = ({ onLoginRequired, hasMaintenanceBanner }) => {
                         {productsLoading ? (
                           <div className="flex items-center justify-center py-8">
                             <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+                          </div>
+                        ) : products.length === 0 ? (
+                          <div className="text-center py-8 text-gray-500">
+                            <Droplet className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                            <p>No active products available</p>
+                            <p className="text-xs text-gray-400 mt-1">Please check back later</p>
                           </div>
                         ) : (
                           <div className="space-y-3 max-h-72 overflow-y-auto order-scroll pr-2">
