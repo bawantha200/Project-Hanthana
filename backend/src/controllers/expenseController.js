@@ -1,7 +1,7 @@
 // controllers/expenseController.js
 const { expenseService } = require('../services/expenseService');
 
-const VALID_CATEGORIES = ['EMPTY_BOTTLE', 'VEHICLE', 'DELIVERY_COST', 'OTHER'];
+const VALID_CATEGORIES = [ 'VEHICLE', 'DELIVERY_COST', 'UTILITY', 'MAINTENANCE', 'OFFICE_SUPPLIES', 'ADVERTISING', 'OTHER'];
 
 const expenseController = {
   async getExpenses(req, res) {

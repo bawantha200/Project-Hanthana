@@ -108,10 +108,10 @@ export default function InvoicingReports() {
     return filteredInvoices.slice(start, start + PAGE_SIZE);
   }, [filteredInvoices, currentPage]);
 
-  function handleStatusFilterChange(value) {
-    setStatusFilter(value);
-    setCurrentPage(1);
-  }
+  // function handleStatusFilterChange(value) {
+  //   setStatusFilter(value);
+  //   setCurrentPage(1);
+  // }
 
   function handleSearchChange(value) {
     setSearch(value);
@@ -356,7 +356,7 @@ export default function InvoicingReports() {
                 className="pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            {!loading && (
+            {/* {!loading && (
               <button
                 onClick={fetchInvoices}
                 className="text-xs text-blue-600 hover:text-blue-700 font-medium"
@@ -364,7 +364,7 @@ export default function InvoicingReports() {
                 Refresh
               </button>
             )}
-            <select
+            {/* <select
               value={statusFilter}
               onChange={(e) => handleStatusFilterChange(e.target.value)}
               className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -372,7 +372,7 @@ export default function InvoicingReports() {
               <option value="All">All statuses</option>
               <option value="paid">Paid</option>
               <option value="unpaid">Unpaid</option>
-            </select>
+            </select> */} 
           </div>
         </div>
 
@@ -395,7 +395,7 @@ export default function InvoicingReports() {
                 <th className="px-5 py-3 font-medium">Customer</th>
                 <th className="px-5 py-3 font-medium">Date</th>
                 <th className="px-5 py-3 font-medium text-right">Amount</th>
-                <th className="px-5 py-3 font-medium text-center">Status</th>
+                {/* <th className="px-5 py-3 font-medium text-center">Status</th> */}
                 <th className="px-5 py-3 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -415,7 +415,7 @@ export default function InvoicingReports() {
                   <td className="px-5 py-3 text-right font-medium text-gray-900">
                     {formatLKR(inv.amount)}
                   </td>
-                  <td className="px-5 py-3 text-center">
+                  {/* <td className="px-5 py-3 text-center">
                     <span
                       className={`text-xs px-2 py-1 rounded-full ${
                         isPaid(inv.paymentStatus)
@@ -425,7 +425,7 @@ export default function InvoicingReports() {
                     >
                       {isPaid(inv.paymentStatus) ? "Paid" : "Unpaid"}
                     </span>
-                  </td>
+                  </td> */}
                   <td className="px-5 py-3 text-right">
                     <button
                       onClick={() => openInvoice(inv.id)}

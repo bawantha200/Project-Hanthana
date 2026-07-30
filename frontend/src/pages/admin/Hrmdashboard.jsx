@@ -1,5 +1,5 @@
-// HRMDashboard.jsx - Complete Professional HRM Dashboard
-import { useState, useEffect } from 'react';
+// HRMDashboard.jsx - Complete Professional HRM Dashboard with React Query
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Clock, DollarSign, Search, TrendingUp, Award, Loader,
@@ -16,6 +16,7 @@ import {
 import StatusBadge from '../../components/StatusBadge';
 import { formatCurrency } from '../../utils/helpers';
 import axios from 'axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
@@ -55,14 +56,103 @@ const statsCards = [
   { key: 'monthlyPayout', label: 'Monthly Payout', icon: Wallet, color: 'purple' },
 ];
 
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchEmployees = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(EMPLOYEES_API, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch employees');
+  return response.data.data || [];
+};
+
+const fetchAttendance = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(ATTENDANCE_API, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch attendance');
+  return response.data.data || [];
+};
+
+const fetchSalaries = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(SALARIES_API, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch salaries');
+  return response.data.data || [];
+};
+
+const fetchLeaves = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get(LEAVE_API, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch leaves');
+  return response.data.data || [];
+};
+
+const fetchRoles = async () => {
+  const token = localStorage.getItem('token');
+  const response = await axios.get('http://localhost:5000/api/roles', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch roles');
+  return response.data.data || [];
+};
+
+// ===== MUTATION FUNCTIONS =====
+const addAttendance = async (attendanceData) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.post(ATTENDANCE_API, attendanceData, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to add attendance');
+  return response.data.data;
+};
+
+const addSalary = async (salaryData) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.post(SALARIES_API, salaryData, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to add salary');
+  return response.data.data;
+};
+
+const createEmployee = async (employeeData) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.post(EMPLOYEES_API, employeeData, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to create employee');
+  return response.data.data;
+};
+
+const updateEmployee = async ({ id, data }) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.put(`${EMPLOYEES_API}/${id}`, data, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to update employee');
+  return response.data.data;
+};
+
+const deleteEmployee = async (id) => {
+  const token = localStorage.getItem('token');
+  const response = await axios.delete(`${EMPLOYEES_API}/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to delete employee');
+  return response.data;
+};
+
 export default function HRMDashboard() {
+  const queryClient = useQueryClient();
+
   const [activeTab, setActiveTab] = useState('overview');
   const [searchQuery, setSearchQuery] = useState('');
-  const [employees, setEmployees] = useState([]);
-  const [attendanceData, setAttendanceData] = useState([]);
-  const [salaryData, setSalaryData] = useState([]);
-  const [leaveData, setLeaveData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -77,8 +167,6 @@ export default function HRMDashboard() {
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState('All');
   const [editingEmployee, setEditingEmployee] = useState(null);
-  const [roles, setRoles] = useState([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
   const [todayDate, setTodayDate] = useState('');
 
   const [attendanceForm, setAttendanceForm] = useState({
@@ -127,50 +215,143 @@ export default function HRMDashboard() {
     { key: 'CEO', label: 'CEO', icon: Crown },
   ];
 
-  // ========== FETCH FUNCTIONS ==========
+  // ===== REACT QUERY HOOKS =====
 
-  const fetchAllData = async () => {
-    setLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const [employeesRes, attendanceRes, salariesRes, leavesRes] = await Promise.all([
-        axios.get(EMPLOYEES_API, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(ATTENDANCE_API, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(SALARIES_API, { headers: { Authorization: `Bearer ${token}` } }),
-        axios.get(LEAVE_API, { headers: { Authorization: `Bearer ${token}` } })
-      ]);
+  // 1. Employees Query (poll every 10 seconds)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+  } = useQuery({
+    queryKey: ['hrm-employees'],
+    queryFn: fetchEmployees,
+    staleTime: 10 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-      if (employeesRes.data.success) setEmployees(employeesRes.data.data);
-      if (attendanceRes.data.success) setAttendanceData(attendanceRes.data.data);
-      if (salariesRes.data.success) setSalaryData(salariesRes.data.data);
-      if (leavesRes.data.success) setLeaveData(leavesRes.data.data);
-      setError(null);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-      setError('Failed to load data. Please refresh the page.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 2. Attendance Query (poll every 5 seconds)
+  const {
+    data: attendanceData = [],
+    isLoading: attendanceLoading,
+    error: attendanceError,
+    refetch: refetchAttendance,
+  } = useQuery({
+    queryKey: ['hrm-attendance'],
+    queryFn: fetchAttendance,
+    staleTime: 5 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  const fetchRoles = async () => {
-    setRolesLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/roles', {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await response.json();
-      if (data.success) {
-        const filteredRoles = data.data.filter(role => role.id !== 1 && role.id !== 4);
-        setRoles(filteredRoles);
+  // 3. Salaries Query (poll every 30 seconds)
+  const {
+    data: salaryData = [],
+    isLoading: salariesLoading,
+    error: salariesError,
+    refetch: refetchSalaries,
+  } = useQuery({
+    queryKey: ['hrm-salaries'],
+    queryFn: fetchSalaries,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 4. Leaves Query (poll every 20 seconds)
+  const {
+    data: leaveData = [],
+    isLoading: leavesLoading,
+    error: leavesError,
+    refetch: refetchLeaves,
+  } = useQuery({
+    queryKey: ['hrm-leaves'],
+    queryFn: fetchLeaves,
+    staleTime: 20 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 20000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 5. Roles Query (cached 5 minutes)
+  const {
+    data: roles = [],
+    isLoading: rolesLoading,
+    error: rolesError,
+  } = useQuery({
+    queryKey: ['hrm-roles'],
+    queryFn: fetchRoles,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  const loading = employeesLoading || attendanceLoading || salariesLoading || leavesLoading || rolesLoading;
+  const anyError = employeesError || attendanceError || salariesError || leavesError || rolesError;
+
+  // ===== MUTATIONS =====
+
+  // Add Attendance
+  const addAttendanceMutation = useMutation({
+    mutationFn: addAttendance,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
+      showSuccessNotification('Attendance added successfully!');
+      setShowAttendanceForm(false);
+      resetAttendanceForm();
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to add attendance.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Add Salary
+  const addSalaryMutation = useMutation({
+    mutationFn: addSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
+      showSuccessNotification('Salary added successfully!');
+      setShowSalaryForm(false);
+      resetSalaryForm();
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to add salary.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Create Employee
+  const createEmployeeMutation = useMutation({
+    mutationFn: createEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+      showSuccessNotification('Employee added successfully!');
+      setShowEmployeeForm(false);
+      resetEmployeeForm();
+    },
+    onError: (err) => {
+      if (err.response?.status === 409) {
+        setError('An employee with this email already exists.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to save employee.');
       }
-    } catch (error) {
-      console.error('Fetch roles error:', error);
-    } finally {
-      setRolesLoading(false);
-    }
-  };
+    },
+    onSettled: () => setSubmitting(false),
+  });
 
   useEffect(() => {
     const today = new Date();
@@ -184,14 +365,24 @@ export default function HRMDashboard() {
     fetchRoles();
   }, []);
 
-  useEffect(() => {
-    if (showSuccess) {
-      const timer = setTimeout(() => setShowSuccess(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [showSuccess]);
+  // Delete Employee
+  const deleteEmployeeMutation = useMutation({
+    mutationFn: deleteEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+      showSuccessNotification('Employee deleted successfully!');
+      setShowDeleteConfirm(false);
+      setEmployeeToDelete(null);
+      setShowDetailModal(false);
+      setSelectedEmployee(null);
+    },
+    onError: (err) => {
+      setError('Failed to delete employee. Please try again.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
 
-  // ========== STATUS CALCULATION ==========
+  // ===== HELPER FUNCTIONS =====
 
   const calculateAttendanceStatus = (checkIn, checkOut) => {
     if (!checkIn && !checkOut) return 'absent';
@@ -218,165 +409,6 @@ export default function HRMDashboard() {
     const bonusNum = parseFloat(bonus) || 0;
     const otRate = 500;
     return baseNum + (otNum * otRate) + bonusNum;
-  };
-
-  // ========== CRUD OPERATIONS ==========
-
-  const handleAttendanceSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const status = calculateAttendanceStatus(attendanceForm.checkIn, attendanceForm.checkOut);
-      const data = {
-        employeeId: parseInt(attendanceForm.employeeId),
-        employeeName: attendanceForm.employeeName,
-        date: attendanceForm.date,
-        checkIn: attendanceForm.checkIn || null,
-        checkOut: attendanceForm.checkOut || null,
-        status: status
-      };
-
-      const token = localStorage.getItem('token');
-      const response = await axios.post(ATTENDANCE_API, data, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (response.data.success) {
-        await fetchAllData();
-        setShowAttendanceForm(false);
-        resetAttendanceForm();
-        showSuccessNotification(`Attendance added! Status: ${status}`);
-      }
-    } catch (err) {
-      console.error('Error:', err);
-      setError(err.response?.data?.message || 'Failed to add attendance.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleSalarySubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const data = {
-        employeeId: parseInt(salaryForm.employeeId),
-        employeeName: salaryForm.employeeName,
-        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
-        baseSalary: parseFloat(salaryForm.baseSalary) || 0,
-        otHours: parseFloat(salaryForm.otHours) || 0,
-        bonus: parseFloat(salaryForm.bonus) || 0
-      };
-
-      const token = localStorage.getItem('token');
-      const response = await axios.post(SALARIES_API, data, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      if (response.data.success) {
-        await fetchAllData();
-        setShowSalaryForm(false);
-        resetSalaryForm();
-        showSuccessNotification('Salary added successfully!');
-      }
-    } catch (err) {
-      console.error('Error:', err);
-      setError(err.response?.data?.message || 'Failed to add salary.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleEmployeeSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-
-    const requiredFields = ['fullName', 'email', 'phoneNo', 'role', 'address', 'hiredDate'];
-    for (let field of requiredFields) {
-      if (!employeeForm[field]) {
-        alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
-        setSubmitting(false);
-        return;
-      }
-    }
-
-    try {
-      const employeeData = {
-        name: employeeForm.fullName,
-        position: employeeForm.role,
-        phone: employeeForm.phoneNo,
-        email: employeeForm.email,
-        hireDate: employeeForm.hiredDate,
-        birthday: employeeForm.birthday || null,
-        gender: employeeForm.gender || null,
-        nic: employeeForm.nic || null,
-        address: employeeForm.address,
-        marriageStatus: employeeForm.marriageStatus || null,
-        jobType: employeeForm.jobType || null,
-        profileImage: employeeForm.profileImage || null
-      };
-
-      const token = localStorage.getItem('token');
-      let response;
-
-      if (editingEmployee) {
-        response = await axios.put(`${EMPLOYEES_API}/${editingEmployee.id}`, employeeData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (response.data.success) {
-          showSuccessNotification('Employee updated successfully!');
-        }
-      } else {
-        response = await axios.post(EMPLOYEES_API, employeeData, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (response.data.success) {
-          showSuccessNotification('Employee added successfully!');
-        }
-      }
-
-      await fetchAllData();
-      setShowEmployeeForm(false);
-      resetEmployeeForm();
-    } catch (err) {
-      console.error('Error:', err);
-      if (err.response?.status === 409) {
-        setError('An employee with this email already exists.');
-      } else {
-        setError(err.response?.data?.message || 'Failed to save employee.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDeleteEmployee = async () => {
-    if (!employeeToDelete) return;
-
-    try {
-      setSubmitting(true);
-      const token = localStorage.getItem('token');
-      await axios.delete(`${EMPLOYEES_API}/${employeeToDelete.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      await fetchAllData();
-      setShowDeleteConfirm(false);
-      setEmployeeToDelete(null);
-      setShowDetailModal(false);
-      setSelectedEmployee(null);
-      showSuccessNotification('Employee deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting employee:', err);
-      setError('Failed to delete employee. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
   };
 
   const resetAttendanceForm = () => {
@@ -423,6 +455,86 @@ export default function HRMDashboard() {
   const showSuccessNotification = (message) => {
     setSuccessMessage(message);
     setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 3000);
+  };
+
+  // ===== HANDLERS =====
+
+  const handleAttendanceSubmit = (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const status = calculateAttendanceStatus(attendanceForm.checkIn, attendanceForm.checkOut);
+    const data = {
+      employeeId: parseInt(attendanceForm.employeeId),
+      employeeName: attendanceForm.employeeName,
+      date: attendanceForm.date,
+      checkIn: attendanceForm.checkIn || null,
+      checkOut: attendanceForm.checkOut || null,
+      status: status
+    };
+
+    addAttendanceMutation.mutate(data);
+  };
+
+  const handleSalarySubmit = (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const data = {
+      employeeId: parseInt(salaryForm.employeeId),
+      employeeName: salaryForm.employeeName,
+      month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
+      baseSalary: parseFloat(salaryForm.baseSalary) || 0,
+      otHours: parseFloat(salaryForm.otHours) || 0,
+      bonus: parseFloat(salaryForm.bonus) || 0
+    };
+
+    addSalaryMutation.mutate(data);
+  };
+
+  const handleEmployeeSubmit = (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
+    const requiredFields = ['fullName', 'email', 'phoneNo', 'role', 'address', 'hiredDate'];
+    for (let field of requiredFields) {
+      if (!employeeForm[field]) {
+        alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field`);
+        setSubmitting(false);
+        return;
+      }
+    }
+
+    const employeeData = {
+      name: employeeForm.fullName,
+      position: employeeForm.role,
+      phone: employeeForm.phoneNo,
+      email: employeeForm.email,
+      hireDate: employeeForm.hiredDate,
+      birthday: employeeForm.birthday || null,
+      gender: employeeForm.gender || null,
+      nic: employeeForm.nic || null,
+      address: employeeForm.address,
+      marriageStatus: employeeForm.marriageStatus || null,
+      jobType: employeeForm.jobType || null,
+      profileImage: employeeForm.profileImage || null
+    };
+
+    if (editingEmployee) {
+      updateEmployeeMutation.mutate({ id: editingEmployee.id, data: employeeData });
+    } else {
+      createEmployeeMutation.mutate(employeeData);
+    }
+  };
+
+  const handleDeleteEmployee = () => {
+    if (!employeeToDelete) return;
+    setSubmitting(true);
+    deleteEmployeeMutation.mutate(employeeToDelete.id);
   };
 
   const openAttendanceForm = (employee) => {
@@ -488,7 +600,7 @@ export default function HRMDashboard() {
     }
   };
 
-  // ========== SUMMARY CALCULATIONS ==========
+  // ===== DERIVED DATA =====
 
   const totalStaff = employees.length;
 
@@ -523,7 +635,6 @@ export default function HRMDashboard() {
   todayAttendanceRate,
 });
 
-  // Leave summary
   const pendingLeaves = leaveData.filter(l => l.status === 'pending').length;
   const approvedLeaves = leaveData.filter(l => l.status === 'approved').length;
   const rejectedLeaves = leaveData.filter(l => l.status === 'rejected').length;
@@ -545,14 +656,7 @@ export default function HRMDashboard() {
     return matchesPosition && matchesSearch;
   });
 
-  const filteredAttendance = attendanceData.filter((rec) =>
-    (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const filteredSalary = salaryData.filter((rec) =>
-    (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
+  // Auto-update attendance status when check-in/out change
   useEffect(() => {
     if (attendanceForm.checkIn || attendanceForm.checkOut) {
       const status = calculateAttendanceStatus(attendanceForm.checkIn, attendanceForm.checkOut);
@@ -560,6 +664,7 @@ export default function HRMDashboard() {
     }
   }, [attendanceForm.checkIn, attendanceForm.checkOut]);
 
+  // Auto-calculate final salary
   useEffect(() => {
     if (salaryForm.baseSalary || salaryForm.otHours || salaryForm.bonus) {
       const final = calculateFinalSalary(
@@ -571,9 +676,40 @@ export default function HRMDashboard() {
     }
   }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus]);
 
-  // ========== LOADING ==========
+  // Set today's date
+  useEffect(() => {
+    const today = new Date();
+    setTodayDate(today.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }));
+  }, []);
 
-  if (loading) {
+  // ===== LOADING & ERROR STATES =====
+
+  if (anyError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96">
+        <AlertCircle size={48} className="text-red-500 mb-4" />
+        <p className="text-gray-600">Failed to load data: {anyError.message}</p>
+        <button
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+            queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
+            queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
+            queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
+          }}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (loading && !employees.length && !attendanceData.length) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
@@ -584,7 +720,7 @@ export default function HRMDashboard() {
     );
   }
 
-  // ========== RENDER ==========
+  // ===== RENDER =====
 
   return (
     <motion.div
@@ -627,13 +763,22 @@ export default function HRMDashboard() {
             <p className="text-sm text-gray-500 mt-1">
               Comprehensive human resource management — Employees, attendance, and salaries
             </p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+              <span className="text-xs text-gray-400">{loading ? 'Updating...' : 'Live'}</span>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => fetchAllData()}
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+                queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
+                queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
+                queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
+              }}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               Refresh
             </button>
           </div>
@@ -785,9 +930,7 @@ export default function HRMDashboard() {
             </div>
           </div>
 
-          {/* ============================================ */}
-          {/* RECENT ATTENDANCE & RECENT LEAVES CARDS */}
-          {/* ============================================ */}
+          {/* Recent Attendance & Recent Leaves Cards */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Recent Attendance Card */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
@@ -814,9 +957,7 @@ export default function HRMDashboard() {
               </div>
             </div>
 
-            {/* ============================================ */}
-            {/* RECENT LEAVES CARD - NEW */}
-            {/* ============================================ */}
+            {/* Recent Leaves Card */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
@@ -890,9 +1031,7 @@ export default function HRMDashboard() {
             </div>
           </div>
 
-          {/* ============================================ */}
-          {/* ATTENDANCE SUMMARY CARD - Below the two cards */}
-          {/* ============================================ */}
+          {/* Attendance Summary Card */}
           <div className="grid grid-cols-1 gap-6">
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <div className="flex items-center justify-between mb-4">
@@ -968,7 +1107,6 @@ export default function HRMDashboard() {
                 </div>
               </div>
 
-              {/* Quick Stats Footer */}
               <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-400">
                 <span>Total Staff: {totalStaff}</span>
                 <span>Today: {todayDate.split(',')[0]}</span>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState,useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -19,8 +19,7 @@ import {
   getPendingPayments,
 } from '../../services/reportService';
 import { formatCurrency } from '../../utils/helpers';
-
-
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -53,8 +52,6 @@ const ORDER_STATUS_FILTERS = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
-// Threshold below which sealed-bottle stock triggers a low-stock warning banner.
-// Adjust to match real operational thresholds once available from the backend.
 const LOW_STOCK_THRESHOLD = 50;
 const FORECAST_MONTHS = 2;
 
@@ -82,8 +79,6 @@ const getDashboardRange = (period, customFrom, customTo) => {
   return { dateFrom: toISODate(from), dateTo };
 };
 
-// Simple least-squares linear regression used to project the next few
-// months of order volume from the historical monthly order counts.
 const buildOrderForecast = (growthData, months = FORECAST_MONTHS) => {
   if (!Array.isArray(growthData) || growthData.length < 2) {
     return (growthData || []).map((d) => ({ ...d, predicted: null }));
@@ -149,138 +144,189 @@ const CustomTooltip = ({ active, payload, label, formatter }) => {
 
 const EXPENSE_COLORS = ['#2563eb', '#f59e0b'];
 
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchDashboardMetrics = async ({ dateFrom, dateTo }) => {
+  const [reportRes, pendingRes] = await Promise.all([
+    getInvoiceReport(dateFrom, dateTo),
+    getPendingPayments(),
+  ]);
+  return {
+    revenue: reportRes.revenue || 0,
+    expenses: reportRes.expenses || 0,
+    netProfit: reportRes.netProfit || 0,
+    invoiceCount: reportRes.invoiceCount || 0,
+    pendingPayments: pendingRes.pendingPayments || 0,
+  };
+};
+
+const fetchStockSummary = async () => {
+  const response = await inventoryAPI.getStockSummary();
+  return response.data?.summary || { sealed_bottles: 0, empty_bottles: 0, total: 0 };
+};
+
+const fetchActiveDeliveries = async () => {
+  const response = await api.get('/deliveries', { params: {} });
+  const deliveries = response?.data?.deliveries || [];
+  return deliveries.filter(
+    (delivery) => !['DELIVERED', 'CANCELLED'].includes(String(delivery.status || '').toUpperCase())
+  ).length;
+};
+
+const fetchRecentOrders = async () => {
+  const orders = await fetchOrders();
+  const rawOrders = Array.isArray(orders) ? orders : [];
+  return rawOrders.map((order) => ({
+    id: order.id,
+    customer:
+      order.customer_name ||
+      order.customer ||
+      order.users?.name ||
+      order.customerName ||
+      '',
+    amount: Number(order.total_amount || order.amount || 0),
+    status: order.order_status || order.status || '',
+    created_at: order.created_at || order.createdAt || order.date || '',
+  }));
+};
+
+const fetchMonthlyRevenue = async () => {
+  const data = await getMonthlyRevenueHistory();
+  return Array.isArray(data) ? data : data?.data || [];
+};
+
 export default function Dashboard() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const [selectedRange, setSelectedRange] = useState('month');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [metrics, setMetrics] = useState({ revenue: 0, expenses: 0, netProfit: 0, invoiceCount: 0 });
-  const [pendingPayments, setPendingPayments] = useState(0);
-  const [stockSummary, setStockSummary] = useState({ sealed_bottles: 0, empty_bottles: 0, total: 0 });
-  const [activeDeliveries, setActiveDeliveries] = useState(0);
-  const [recentOrders, setRecentOrders] = useState([]);
-  const [monthlyRevenue, setMonthlyRevenue] = useState([]);
-  const [orderGrowth, setOrderGrowth] = useState([]);
-  const TOTAL_FETCHES = 6; // matches the 6 promises in Promise.all below
-  const [loadProgress, setLoadProgress] = useState(0);
-  const loadRunIdRef = useRef(0);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const navigate = useNavigate();
 
-  useEffect(() => {
-  const loadDashboardData = async () => {
-    // Custom range needs both dates before we fetch anything.
-    if (selectedRange === 'custom' && (!customFrom || !customTo)) {
-      return;
-    }
+  const range = getDashboardRange(selectedRange, customFrom, customTo);
+  const rangeKey = `${range.dateFrom}-${range.dateTo}`;
 
-    // Mark this as a new run — any trackProgress() calls from a previous,
-    // still-in-flight run will check this and bail out instead of
-    // incrementing/overwriting state for THIS run.
-    const runId = ++loadRunIdRef.current;
+  // ===== REACT QUERY HOOKS =====
 
-    setLoading(true);
-    setLoadProgress(0);
-    const range = getDashboardRange(selectedRange, customFrom, customTo);
+  // 1. Metrics Query (Revenue, Expenses, Pending Payments)
+  const {
+    data: metricsData,
+    isLoading: metricsLoading,
+    error: metricsError,
+    refetch: refetchMetrics,
+  } = useQuery({
+    queryKey: ['dashboard-metrics', rangeKey],
+    queryFn: () => fetchDashboardMetrics(range),
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-    // Wraps a promise so we bump the progress counter the moment IT
-    // resolves — not when the whole Promise.all resolves. This gives a
-    // real (not fake/simulated) progress bar.
-    const trackProgress = (promise) =>
-      promise.then((result) => {
-        if (loadRunIdRef.current === runId) {
-          setLoadProgress((p) => p + 1);
-        }
-        return result;
-      });
+  // 2. Stock Summary Query (poll every 30 seconds)
+  const {
+    data: stockSummary = { sealed_bottles: 0, empty_bottles: 0, total: 0 },
+    isLoading: stockLoading,
+    error: stockError,
+    refetch: refetchStock,
+  } = useQuery({
+    queryKey: ['dashboard-stock'],
+    queryFn: fetchStockSummary,
+    staleTime: 10 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-    try {
-      const [reportRes, pendingRes, stockRes, orders, deliveriesRes, monthlyRevenueRes] = await Promise.all([
-        trackProgress(getInvoiceReport(range.dateFrom, range.dateTo)),
-        trackProgress(getPendingPayments()),
-        trackProgress(inventoryAPI.getStockSummary()),
-        trackProgress(fetchOrders()),
-        trackProgress(api.get('/deliveries', { params: {} })),
-        trackProgress(getMonthlyRevenueHistory()),
-      ]);
+  // 3. Active Deliveries Query (poll every 10 seconds)
+  const {
+    data: activeDeliveries = 0,
+    isLoading: deliveriesLoading,
+    error: deliveriesError,
+    refetch: refetchDeliveries,
+  } = useQuery({
+    queryKey: ['dashboard-deliveries'],
+    queryFn: fetchActiveDeliveries,
+    staleTime: 5 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-      // A newer run already started while this one was still in flight —
-      // discard these stale results entirely, don't let them overwrite
-      // newer state.
-      if (loadRunIdRef.current !== runId) {
-        return;
-      }
+  // 4. Recent Orders Query (no polling, cached 30 seconds)
+  const {
+    data: recentOrders = [],
+    isLoading: ordersLoading,
+    error: ordersError,
+    refetch: refetchOrders,
+  } = useQuery({
+    queryKey: ['dashboard-orders', statusFilter],
+    queryFn: fetchRecentOrders,
+    staleTime: 30 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-      const deliveries = deliveriesRes?.data?.deliveries || [];
-      const activeDeliveryCount = deliveries.filter(
-        (delivery) => !['DELIVERED', 'CANCELLED'].includes(String(delivery.status || '').toUpperCase())
-      ).length;
+  // 5. Monthly Revenue Query (no polling, cached 5 minutes)
+  const {
+    data: monthlyRevenue = [],
+    isLoading: revenueLoading,
+    error: revenueError,
+    refetch: refetchRevenue,
+  } = useQuery({
+    queryKey: ['dashboard-monthly-revenue'],
+    queryFn: fetchMonthlyRevenue,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-      const rawOrders = Array.isArray(orders) ? orders : [];
-      const normalizedOrders = rawOrders.map((order) => ({
-        id: order.id,
-        customer:
-          order.customer_name ||
-          order.customer ||
-          order.users?.name ||
-          order.customerName ||
-          '',
-        amount: Number(order.total_amount || order.amount || 0),
-        status: order.order_status || order.status || '',
-        created_at: order.created_at || order.createdAt || order.date || '',
-      }));
+  // ===== COMBINE LOADING & ERROR STATES =====
+  const loading = metricsLoading || stockLoading || deliveriesLoading || ordersLoading || revenueLoading;
+  const error = metricsError || stockError || deliveriesError || ordersError || revenueError;
 
-      const growthMap = {};
-      normalizedOrders.forEach((order) => {
-        const createdAt = order.created_at;
-        if (!createdAt) return;
-        const date = new Date(createdAt);
-        if (Number.isNaN(date.getTime())) return;
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        const month = date.toLocaleString('en-US', { month: 'short' });
-        if (!growthMap[monthKey]) {
-          growthMap[monthKey] = {
-            month,
-            orders: 0,
-            delivered: 0,
-            dateObj: new Date(date.getFullYear(), date.getMonth(), 1),
-          };
-        }
-        growthMap[monthKey].orders += 1;
-        const orderStatus = String(order.status || '').toUpperCase();
-        if (orderStatus === 'DELIVERED' || orderStatus === 'COMPLETED') {
-          growthMap[monthKey].delivered += 1;
-        }
-      });
-
-      setMetrics({
-        revenue: reportRes.revenue || 0,
-        expenses: reportRes.expenses || 0,
-        netProfit: reportRes.netProfit || 0,
-        invoiceCount: reportRes.invoiceCount || 0,
-      });
-      setPendingPayments(pendingRes.pendingPayments || 0);
-      setStockSummary(stockRes.data?.summary || { sealed_bottles: 0, empty_bottles: 0, total: 0 });
-      setActiveDeliveries(activeDeliveryCount);
-      setRecentOrders(normalizedOrders.slice(0, 10));
-      setMonthlyRevenue(Array.isArray(monthlyRevenueRes) ? monthlyRevenueRes : monthlyRevenueRes?.data || []);
-      setOrderGrowth(
-        Object.values(growthMap).sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime())
-      );
-    } catch (error) {
-      console.error('Failed to load dashboard data:', error);
-    } finally {
-      if (loadRunIdRef.current === runId) {
-        setLoading(false);
-        setHasLoadedOnce(true);
-      }
-    }
+  // ===== DERIVED DATA =====
+  const metrics = {
+    revenue: metricsData?.revenue || 0,
+    expenses: metricsData?.expenses || 0,
+    netProfit: metricsData?.netProfit || 0,
+    invoiceCount: metricsData?.invoiceCount || 0,
   };
+  const pendingPayments = metricsData?.pendingPayments || 0;
 
-  loadDashboardData();
-}, [selectedRange, customFrom, customTo, refreshKey]);
+  // Order growth calculation from recent orders
+  const orderGrowth = useMemo(() => {
+    const growthMap = {};
+    recentOrders.forEach((order) => {
+      const createdAt = order.created_at;
+      if (!createdAt) return;
+      const date = new Date(createdAt);
+      if (Number.isNaN(date.getTime())) return;
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const month = date.toLocaleString('en-US', { month: 'short' });
+      if (!growthMap[monthKey]) {
+        growthMap[monthKey] = {
+          month,
+          orders: 0,
+          delivered: 0,
+          dateObj: new Date(date.getFullYear(), date.getMonth(), 1),
+        };
+      }
+      growthMap[monthKey].orders += 1;
+      const orderStatus = String(order.status || '').toUpperCase();
+      if (orderStatus === 'DELIVERED' || orderStatus === 'COMPLETED') {
+        growthMap[monthKey].delivered += 1;
+      }
+    });
+    return Object.values(growthMap).sort((a, b) => a.dateObj.getTime() - b.dateObj.getTime());
+  }, [recentOrders]);
 
   const activeRangeLabel = PERIOD_OPTIONS.find((option) => option.value === selectedRange)?.label || 'This Month';
   const displayRevenue = loading ? '...' : formatCurrency(metrics.revenue);
@@ -311,30 +357,67 @@ export default function Dashboard() {
   );
 
   const filteredOrders = useMemo(() => {
-    if (statusFilter === 'all') return recentOrders;
-    return recentOrders.filter(
+  let result = recentOrders;
+
+  if (statusFilter !== 'all') {
+    result = result.filter(
       (order) => String(order.status || '').toLowerCase() === statusFilter
     );
-  }, [recentOrders, statusFilter]);
+  }
 
+  // Sort by most recent first, then take only the latest 10
+  return [...result]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 10);
+}, [recentOrders, statusFilter]);
 
-  if (loading && !hasLoadedOnce) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-4">
-      <p className="text-sm font-medium text-gray-600">Loading dashboard...</p>
-      <div className="w-full max-w-xs h-2 rounded-full bg-gray-100 overflow-hidden">
-        <motion.div
-          className="h-full bg-blue-600 rounded-full"
-          animate={{ width: `${(loadProgress / TOTAL_FETCHES) * 100}%` }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-        />
+  // ===== HANDLE REFRESH =====
+  const handleRefresh = () => {
+    setRefreshKey((k) => k + 1);
+    refetchMetrics();
+    refetchStock();
+    refetchDeliveries();
+    refetchOrders();
+    refetchRevenue();
+  };
+
+  // ===== ERROR STATE =====
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle size={28} className="text-rose-500" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">Failed to load dashboard</h2>
+          <p className="text-sm text-gray-500 mt-1">{error.message || 'Please try again'}</p>
+          <button
+            onClick={handleRefresh}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
       </div>
-      <p className="text-xs text-gray-400">
-        {Math.round((loadProgress / TOTAL_FETCHES) * 100)}%
-      </p>
-    </div>
-  );
-}
+    );
+  }
+
+  // ===== LOADING STATE (initial load only) =====
+  if (loading && !recentOrders.length) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-4">
+        <p className="text-sm font-medium text-gray-600">Loading dashboard...</p>
+        <div className="w-full max-w-xs h-2 rounded-full bg-gray-100 overflow-hidden">
+          <motion.div
+            className="h-full bg-blue-600 rounded-full"
+            animate={{ width: '100%' }}
+            transition={{ duration: 1.5, ease: 'easeOut' }}
+          />
+        </div>
+        <p className="text-xs text-gray-400">Loading data...</p>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -351,43 +434,22 @@ export default function Dashboard() {
             CEO view — live business metrics from the database
           </p>
         </div>
-        <motion.button
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.97 }}
-          onClick={() => setRefreshKey((k) => k + 1)}
-          className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </motion.button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400 flex items-center gap-2">
+            <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+            {loading ? 'Updating...' : 'Live'}
+          </span>
+          <motion.button
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleRefresh}
+            className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            Refresh
+          </motion.button>
+        </div>
       </motion.div>
-
-
-
-{/* Loading progress bar — shown during initial load and every refresh */}
-{loading && hasLoadedOnce && (
-  <motion.div
-    variants={itemVariants}
-    className="flex items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50/60 px-5 py-3"
-  >
-    <RefreshCw size={16} className="text-blue-600 animate-spin shrink-0" />
-    <div className="flex-1">
-      <div className="flex items-center justify-between mb-1.5">
-        <p className="text-xs font-medium text-blue-700">Loading dashboard data...</p>
-        <p className="text-xs text-blue-600 font-semibold">
-          {Math.round((loadProgress / TOTAL_FETCHES) * 100)}%
-        </p>
-      </div>
-      <div className="w-full h-1.5 rounded-full bg-blue-100 overflow-hidden">
-        <motion.div
-          className="h-full bg-blue-600 rounded-full"
-          animate={{ width: `${(loadProgress / TOTAL_FETCHES) * 100}%` }}
-          transition={{ duration: 0.3, ease: 'easeOut' }}
-        />
-      </div>
-    </div>
-  </motion.div>
-)}
 
       {/* Low stock warning */}
       {isLowStock && (
@@ -710,13 +772,13 @@ export default function Dashboard() {
             </p>
           </div>
           <motion.button
-  whileHover={{ scale: 1.04 }}
-  whileTap={{ scale: 0.97 }}
-  onClick={() => navigate('/app/orders')}
-  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
->
-  View all <ArrowUpRight size={14} />
-</motion.button>
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={() => navigate('/app/orders')}
+            className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
+          >
+            View all <ArrowUpRight size={14} />
+          </motion.button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">

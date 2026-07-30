@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+    Search,
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5000/api';
@@ -191,6 +192,9 @@ function ManagePermissions() {
   // ✅ Delete confirmation modal
   const [roleToDelete, setRoleToDelete] = useState(null); // the role object pending deletion
 
+
+  const [permissionSearch, setPermissionSearch] = useState('');
+
   const showToast = useCallback((message, type = 'success') => {
     const id = ++toastIdCounter;
     setToasts((prev) => [...prev, { id, message, type }]);
@@ -356,6 +360,7 @@ function ManagePermissions() {
   // ✅ Toggle the inline Permission panel open/closed for a given role
   const togglePermissionsPanel = async (role) => {
     setPermissionsError('');
+    setPermissionSearch('');
 
     // Clicking the same role again collapses the panel
     if (permissionsRoleId === role.id) {
@@ -441,6 +446,10 @@ function ManagePermissions() {
   const hasUnsavedPermissionChanges =
     draftPermissionIds.length !== originalPermissionIds.length ||
     draftPermissionIds.some((id) => !originalPermissionIds.includes(id));
+
+  const filteredPermissions = permissions.filter((perm) =>
+  perm.permission_name.toLowerCase().includes(permissionSearch.toLowerCase())
+);
 
   const Toggle = ({ enabled, onToggle }) => (
     <button
@@ -660,25 +669,45 @@ function ManagePermissions() {
                             </div>
                           ) : (
                             <>
-                              <div className="space-y-1">
-                                {permissions.map((perm, index) => (
-                                  <div
-                                    key={perm.id}
-                                    className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50/70 transition-colors"
-                                  >
-                                    <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 break-words">
-                                      <span className="text-gray-400 mr-2">{index + 1}.</span>
-                                      {perm.permission_name}
-                                    </p>
-                                    <div className="flex-shrink-0">
-                                      <Toggle
-                                        enabled={draftPermissionIds.includes(perm.id)}
-                                        onToggle={() => toggleDraftPermission(perm.id)}
-                                      />
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
+  <div className="relative mb-3">
+    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+    <input
+      type="text"
+      placeholder="Search permissions..."
+      value={permissionSearch}
+      onChange={(e) => setPermissionSearch(e.target.value)}
+      className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+    />
+  </div>
+
+  <div className="space-y-1">
+    {filteredPermissions.length === 0 ? (
+      <p className="text-sm text-gray-400 text-center py-4">No permissions found</p>
+    ) : (
+      filteredPermissions.map((perm, index) => (
+        <div
+          key={perm.id}
+          className="flex items-center justify-between gap-3 py-2.5 px-3 rounded-lg border border-gray-200 bg-white hover:bg-gray-50/70 transition-colors"
+        >
+          <p className="text-sm font-medium text-gray-800 flex-1 min-w-0 break-words">
+            <span className="text-gray-400 mr-2">{index + 1}.</span>
+            {perm.permission_name}
+          </p>
+          <div className="flex-shrink-0">
+            <Toggle
+              enabled={draftPermissionIds.includes(perm.id)}
+              onToggle={() => toggleDraftPermission(perm.id)}
+            />
+          </div>
+        </div>
+      ))
+    )}
+  </div>
+
+  {permissionsError && (
+    <p className="text-xs text-rose-600 mt-3">{permissionsError}</p>
+  )}
+  ...
 
                               {permissionsError && (
                                 <p className="text-xs text-rose-600 mt-3">{permissionsError}</p>

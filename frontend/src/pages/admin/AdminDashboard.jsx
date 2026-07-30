@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -10,6 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import toast from 'react-hot-toast';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import StatCard from '../../components/StatCard';
 import RoleBadge from '../../components/RoleBadge';
 
@@ -34,78 +35,86 @@ const cardClass =
 
 const ROLE_COLORS = ['#2563eb', '#8b5cf6', '#06b6d4', '#f59e0b', '#10b981'];
 
-// How many audit log rows to show in the dashboard preview card
 const ACTIVITY_PREVIEW_LIMIT = 5;
+
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchUsers = async () => {
+  const { data } = await axios.get(`${API_BASE}/users`, {
+    headers: getAuthHeaders(),
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to fetch users');
+  return data.data || [];
+};
+
+const fetchEmployees = async () => {
+  const { data } = await axios.get(`${API_BASE}/employees`, {
+    headers: getAuthHeaders(),
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to fetch employees');
+  return data.data || [];
+};
+
+const fetchRecentActivity = async () => {
+  const { data } = await axios.get(`${API_BASE}/audit-logs`, {
+    headers: getAuthHeaders(),
+    params: { page: 1, limit: ACTIVITY_PREVIEW_LIMIT },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to fetch recent activity');
+  return data.data || [];
+};
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  // ===== STATE (copied from UserManagement.jsx data-fetching logic) =====
-  const [users, setUsers] = useState([]);
-  const [usersLoading, setUsersLoading] = useState(true);
-  const [employees, setEmployees] = useState([]);
-  const [employeesLoading, setEmployeesLoading] = useState(false);
+  // ===== REACT QUERY HOOKS =====
 
-  // ===== Audit log preview (same source as SystemActivity.jsx) =====
-  const [activityLogs, setActivityLogs] = useState([]);
-  const [activityLoading, setActivityLoading] = useState(true);
+  // 1. Users Query (no polling, cached 1 minute)
+  const {
+    data: users = [],
+    isLoading: usersLoading,
+    error: usersError,
+  } = useQuery({
+    queryKey: ['users'],
+    queryFn: fetchUsers,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  // ===== FETCH USERS =====
-  const fetchUsers = useCallback(async () => {
-    setUsersLoading(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/users`, {
-        headers: getAuthHeaders(),
-      });
-      if (data.success) setUsers(data.data || []);
-    } catch (err) {
-      console.error('Fetch Users Error:', err);
-      toast.error(err.response?.data?.message || 'Failed to load users');
-    } finally {
-      setUsersLoading(false);
-    }
-  }, []);
+  // 2. Employees Query with polling (every 3 seconds)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+  } = useQuery({
+    queryKey: ['employees'],
+    queryFn: fetchEmployees,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  // ===== FETCH EMPLOYEES =====
-  const fetchEmployees = useCallback(async () => {
-    setEmployeesLoading(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/employees`, {
-        headers: getAuthHeaders(),
-      });
-      if (data.success) setEmployees(data.data || []);
-    } catch (err) {
-      console.error('Fetch Employees Error:', err);
-      toast.error(err.response?.data?.message || 'Failed to load employees');
-    } finally {
-      setEmployeesLoading(false);
-    }
-  }, []);
+  // 3. Recent Activity Query (no polling, cached 30 seconds)
+  const {
+    data: activityLogs = [],
+    isLoading: activityLoading,
+    error: activityError,
+  } = useQuery({
+    queryKey: ['activity-logs', { limit: ACTIVITY_PREVIEW_LIMIT }],
+    queryFn: fetchRecentActivity,
+    staleTime: 30 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  // ===== FETCH RECENT AUDIT LOGS (preview — same backend as SystemActivity.jsx) =====
-  const fetchRecentActivity = useCallback(async () => {
-    setActivityLoading(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/audit-logs`, {
-        headers: getAuthHeaders(),
-        params: { page: 1, limit: ACTIVITY_PREVIEW_LIMIT },
-      });
-      if (data.success) setActivityLogs(data.data || []);
-    } catch (err) {
-      console.error('Fetch Recent Audit Logs Error:', err);
-      toast.error(err.response?.data?.message || 'Failed to load recent activity');
-    } finally {
-      setActivityLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUsers();
-    fetchEmployees();
-    fetchRecentActivity();
-  }, [fetchUsers, fetchEmployees, fetchRecentActivity]);
-
-  const loading = usersLoading || employeesLoading;
+  const loading = usersLoading || employeesLoading || activityLoading;
+  const error = usersError || employeesError || activityError;
 
   // ===== COUNTS =====
   const userCounts = {
@@ -145,6 +154,31 @@ export default function AdminDashboard() {
   const activeUserCount = users.filter((u) => u.status === 'active').length;
   const inactiveUserCount = users.filter((u) => u.status === 'inactive').length;
 
+  // ===== ERROR STATE =====
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96">
+        <div className="text-center">
+          <div className="w-16 h-16 rounded-2xl bg-rose-50 flex items-center justify-center mx-auto mb-4">
+            <Shield size={28} className="text-rose-500" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">Failed to load dashboard</h2>
+          <p className="text-sm text-gray-500 mt-1">{error.message}</p>
+          <button
+            onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ['users'] });
+              queryClient.invalidateQueries({ queryKey: ['employees'] });
+              queryClient.invalidateQueries({ queryKey: ['activity-logs'] });
+            }}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-6">
       {/* Header */}
@@ -154,6 +188,10 @@ export default function AdminDashboard() {
           <p className="text-sm text-gray-500 mt-1">
             System overview — users, roles &amp; account activity
           </p>
+        </div>
+        <div className="text-xs text-gray-400 flex items-center gap-2">
+          <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+          {loading ? 'Updating...' : 'Live'}
         </div>
       </motion.div>
 
@@ -229,8 +267,7 @@ export default function AdminDashboard() {
           )}
         </div>
 
-        {/* System activity feed — now sourced from the real audit_logs table,
-            same backend endpoint that the SystemActivity.jsx page uses */}
+        {/* System activity feed */}
         <div className={cardClass}>
           <div className="flex items-center justify-between mb-5">
             <div>
@@ -238,15 +275,15 @@ export default function AdminDashboard() {
               <p className="text-xs text-gray-400 mt-0.5">Recent audit log events</p>
             </div>
             <button
-  type="button"
-  onClick={(e) => {
-    e.preventDefault();
-    navigate('/app/system-activity');
-  }}
-  className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors cursor-pointer"
->
-  View all <ArrowUpRight size={14} />
-</button>
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                navigate('/app/system-activity');
+              }}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              View all <ArrowUpRight size={14} />
+            </button>
           </div>
           {activityLoading ? (
             <div className="flex justify-center items-center py-12">

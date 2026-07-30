@@ -81,12 +81,19 @@ const createUser = async (req, res) => {
 // ===== CREATE USER FROM EMPLOYEE =====
 const createUserFromEmployee = async (req, res) => {
   try {
-    const { employeeId, password } = req.body;
+    const { employeeId, password, roleId } = req.body;   // ✅ roleId added
 
     if (!employeeId || !password) {
       return res.status(400).json({
         success: false,
         message: 'Employee ID and password are required.'
+      });
+    }
+
+    if (!roleId) {                                        // ✅ NEW check
+      return res.status(400).json({
+        success: false,
+        message: 'A role must be selected.'
       });
     }
 
@@ -97,7 +104,7 @@ const createUserFromEmployee = async (req, res) => {
       });
     }
 
-    const user = await userService.createUserFromEmployee(employeeId, password);
+    const user = await userService.createUserFromEmployee(employeeId, password, roleId);   // ✅ roleId passed through
 
     return res.status(201).json({
       success: true,

@@ -1,5 +1,5 @@
 import { ArrowUpDown, Pencil, Ban } from 'lucide-react';
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, formatAmount } from '../utils/helpers';
 import { EXPENSE_CATEGORIES, getCategoryLabel } from '../services/expenseService';
 import PeriodSelector from './PeriodSelector';
 
@@ -86,7 +86,7 @@ export default function ExpenseTable({
                 </th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Description</th>
                 <th className="text-right py-3 px-4 font-semibold text-gray-600 cursor-pointer select-none whitespace-nowrap" onClick={() => handleSort('amount')}>
-                  <span className="inline-flex items-center gap-1 justify-end">Amount <ArrowUpDown size={12} /></span>
+                  <span className="inline-flex items-center gap-1 justify-end">Amount (LKR) <ArrowUpDown size={12} /></span>
                 </th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
                 <th className="text-right py-3 px-4 font-semibold text-gray-600">Actions</th>
@@ -109,7 +109,7 @@ export default function ExpenseTable({
                         <p className="text-xs text-rose-500 mt-0.5">Voided: {exp.voidReason}</p>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right font-medium text-gray-900 whitespace-nowrap">{formatCurrency(exp.amount)}</td>
+                    <td className="py-3 px-4 text-right font-medium text-gray-900 whitespace-nowrap">{formatAmount(exp.amount)}</td>
                     <td className="py-3 px-4">
                       {isVoided ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">Voided</span>

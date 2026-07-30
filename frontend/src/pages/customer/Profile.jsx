@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react'; 
 import { motion } from 'framer-motion';
 import { 
   User, MapPin, Settings, Edit2, Save, X, Lock, Eye, EyeOff,
   Trash2, Phone, Mail, Globe, Key, CheckCircle,
-  RefreshCw, AlertCircle
+  RefreshCw, AlertCircle,Camera 
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
@@ -78,7 +78,7 @@ const validateAddress = (address) => {
 };
 
 const Profile = () => {
-  const { user: authUser, logout } = useAuth();
+  const { user: authUser, logout, refreshUser } = useAuth();
   const token = localStorage.getItem('token');
 
   // Determine auth provider
@@ -94,6 +94,12 @@ const Profile = () => {
   const [address, setAddress] = useState('');
   const [memberSince, setMemberSince] = useState('');
   const [avatar, setAvatar] = useState('U');
+
+
+  const [profileImage, setProfileImage] = useState(authUser?.profileImage || null);
+const [uploadingImage, setUploadingImage] = useState(false);
+const [imageMessage, setImageMessage] = useState({ type: '', text: '' });
+const fileInputRef = useRef(null);
 
   // Modal states
   const [editProfileModal, setEditProfileModal] = useState(false);
@@ -136,6 +142,90 @@ const Profile = () => {
     address: false,
   });
 
+  // ✅ NEW — keep profileImage synced with AuthContext
+useEffect(() => {
+  if (authUser?.profileImage) {
+    setProfileImage(authUser.profileImage);
+  }
+}, [authUser?.profileImage]);
+
+// ✅ NEW — Upload profile image
+const handleImageUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith('image/')) {
+    setImageMessage({ type: 'error', text: 'Please select a valid image file.' });
+    setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    setImageMessage({ type: 'error', text: 'Image must be smaller than 5MB.' });
+    setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+    return;
+  }
+
+  setUploadingImage(true);
+  setImageMessage({ type: '', text: '' });
+
+  try {
+    const formData = new FormData();
+    formData.append('profileImage', file);
+
+    const response = await fetch('http://localhost:5000/api/auth/profile-image', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to upload profile photo');
+
+    setProfileImage(data.profileImage);
+    await refreshUser();
+
+    setImageMessage({ type: 'success', text: 'Profile photo updated!' });
+    toast.success('Profile photo updated!');
+    setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+  } catch (error) {
+    setImageMessage({ type: 'error', text: error.message });
+    toast.error(error.message);
+    setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+  } finally {
+    setUploadingImage(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+};
+
+
+
+// ✅ NEW — Remove profile image
+const handleRemoveImage = async () => {
+  setUploadingImage(true);
+  setImageMessage({ type: '', text: '' });
+  try {
+    const response = await fetch('http://localhost:5000/api/auth/profile-image', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.message || 'Failed to remove profile photo');
+
+    setProfileImage(null);
+    await refreshUser();
+    setImageMessage({ type: 'success', text: 'Profile photo removed.' });
+    toast.success('Profile photo removed.');
+    setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+  } catch (error) {
+    setImageMessage({ type: 'error', text: error.message });
+    toast.error(error.message);
+    setTimeout(() => setImageMessage({ type: '', text: '' }), 4000);
+  } finally {
+    setUploadingImage(false);
+  }
+};
   // Fetch profile
   useEffect(() => {
     const fetchProfile = async () => {
@@ -154,6 +244,7 @@ const Profile = () => {
           setAddress(p.address || '');
           setMemberSince(formatDate(p.created_at));
           setAvatar((p.full_name?.[0] || authUser?.email?.[0] || 'U').toUpperCase());
+          if (p.profile_image) setProfileImage(p.profile_image);
           
           // ✅ Check password status from backend
           await checkUserHasPassword();
@@ -574,9 +665,53 @@ const checkUserHasPassword = async () => {
               </div>
 
               <div className="flex flex-col sm:flex-row items-start gap-6">
-                <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-200">
-                  <span className="text-3xl font-bold text-white">{avatar}</span>
-                </div>
+                <div className="relative group flex-shrink-0">
+  <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-200 overflow-hidden">
+    {profileImage ? (
+      <img src={profileImage} alt="Profile" className="w-full h-full object-cover" />
+    ) : (
+      <span className="text-3xl font-bold text-white">{avatar}</span>
+    )}
+  </div>
+  <button
+    type="button"
+    onClick={() => fileInputRef.current?.click()}
+    disabled={uploadingImage}
+    className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center disabled:cursor-wait"
+    title="Change profile photo"
+  >
+    {uploadingImage ? (
+      <div className="h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+    ) : (
+      <Camera size={20} className="text-white" />
+    )}
+  </button>
+  <input
+    ref={fileInputRef}
+    type="file"
+    accept="image/*"
+    onChange={handleImageUpload}
+    className="hidden"
+  />
+  {profileImage && (
+    <button
+      type="button"
+      onClick={handleRemoveImage}
+      disabled={uploadingImage}
+      className="absolute -bottom-2 -right-2 p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-md disabled:opacity-50"
+      title="Remove photo"
+    >
+      <Trash2 size={12} />
+    </button>
+  )}
+  {imageMessage.type && (
+    <div className={`absolute -bottom-8 left-1/2 -translate-x-1/2 whitespace-nowrap px-2 py-1 rounded-md text-xs ${
+      imageMessage.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
+    }`}>
+      {imageMessage.text}
+    </div>
+  )}
+</div>
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
                   <div className="bg-gray-50 rounded-xl p-3">
                     <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Full Name</p>

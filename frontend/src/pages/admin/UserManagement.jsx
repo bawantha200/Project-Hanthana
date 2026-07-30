@@ -11,6 +11,7 @@ import StatusBadge from '../../components/StatusBadge';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const API_BASE = 'http://localhost:5000/api';
 
@@ -27,29 +28,127 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.4 } },
 };
 
-// ✅ single source of truth for employee status filters (was duplicated before)
 const employeeStatusFilters = ['ALL', 'PENDING', 'ACTIVE', 'REJECTED'];
 
-export default function UserManagement() {
-  const { user } = useAuth();
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchUsers = async () => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.get(`${API_BASE}/users`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to fetch users');
+  return data.data || [];
+};
 
-  // ===== STATE =====
-  const [users, setUsers] = useState([]);               // from profiles
-  const [usersLoading, setUsersLoading] = useState(true);
+const fetchEmployees = async () => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.get(`${API_BASE}/employees`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to fetch employees');
+  return data.data || [];
+};
+
+const fetchRoles = async () => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.get(`${API_BASE}/roles`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to fetch roles');
+  return data.data || [];
+};
+
+const createUser = async (userData) => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.post(`${API_BASE}/users`, userData, {
+    headers: { 
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to create user');
+  return data.data;
+};
+
+const updateUser = async ({ id, userData }) => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.put(`${API_BASE}/users/${id}`, userData, {
+    headers: { 
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to update user');
+  return data.data;
+};
+
+const deleteUser = async (id) => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.delete(`${API_BASE}/users/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!data.success) throw new Error(data.message || 'Failed to delete user');
+  return data;
+};
+
+const toggleUserStatus = async ({ userId, status }) => {
+  const token = localStorage.getItem('token');
+  const newStatus = status === 'active' ? 'inactive' : 'active';
+  const { data } = await axios.patch(
+    `${API_BASE}/users/${userId}/status`,
+    { status: newStatus },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!data.success) throw new Error(data.message || 'Failed to update status');
+  return data;
+};
+
+const rejectEmployee = async ({ employeeId, reason }) => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.patch(
+    `${API_BASE}/employees/${employeeId}/reject`,
+    { reason },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!data.success) throw new Error(data.message || 'Failed to reject employee');
+  return data;
+};
+
+const createAccountFromEmployee = async ({ employeeId, password, roleId }) => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.post(
+    `${API_BASE}/users/from-employee`,
+    { employeeId, password, roleId },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!data.success) throw new Error(data.message || 'Failed to create account');
+  return data;
+};
+
+const updateUserRole = async ({ userId, roleId, employeeId }) => {
+  const token = localStorage.getItem('token');
+  const { data } = await axios.patch(
+    `${API_BASE}/users/${userId}/role`,
+    { roleId, employeeId },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!data.success) throw new Error(data.message || 'Failed to update role');
+  return data;
+};
+
+export default function UserManagement() {
+  const { user, refreshUser } = useAuth();
+  const queryClient = useQueryClient();
+
+  // ===== STATE (non-data) =====
   const [userSearch, setUserSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("ALL");
-
-  const [employees, setEmployees] = useState([]);       // from employees
-  const [employeesLoading, setEmployeesLoading] = useState(false);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [userStatusFilter, setUserStatusFilter] = useState("ALL");
   const [rejectConfirm, setRejectConfirm] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
   const [rejecting, setRejecting] = useState(false);
-
-  const [roles, setRoles] = useState([]);
-  const [rolesLoading, setRolesLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const usersPerPage = 10;
   const [employeeCurrentPage, setEmployeeCurrentPage] = useState(1);
@@ -68,25 +167,10 @@ export default function UserManagement() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [creating, setCreating] = useState(false);
-
-  // ===== TOGGLE CONFIRMATION =====
   const [toggleConfirm, setToggleConfirm] = useState(null);
+  const [manualRoleId, setManualRoleId] = useState('');
 
-  const existingAccountForEmployee = selectedEmployee
-    ? users.find(
-        (u) => u.email?.toLowerCase() === selectedEmployee.email?.toLowerCase()
-      )
-    : null;
-
-  const resolvedRoleName = selectedEmployee?.role_id
-  ? roles.find((r) => r.id === selectedEmployee.role_id)?.role_name
-  : selectedEmployee?.designation?.designation
-  ? roles.find(
-      (r) => r.role_name?.toUpperCase() === selectedEmployee.designation.designation.trim().toUpperCase()
-    )?.role_name
-  : null;
-
-  // ===== FORM STATE FOR CREATE/EDIT USER (maps to `profiles` table columns only) =====
+  // ===== FORM STATE =====
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -105,6 +189,194 @@ export default function UserManagement() {
   const hasAccess = ['ADMIN', 'CEO'].includes(user?.role?.toUpperCase());
   const canManageUsers = user?.role?.toUpperCase() === 'ADMIN';
 
+  // ===== REACT QUERY HOOKS =====
+
+  // 1. Users Query (no polling, but cached)
+  const {
+    data: users = [],
+    isLoading: usersLoading,
+    error: usersError,
+    refetch: refetchUsers,
+  } = useQuery({
+    queryKey: ['users'],
+    queryFn: fetchUsers,
+    staleTime: 60 * 1000, // 1 minute
+    gcTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 2. Employees Query with polling (3 seconds)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+  } = useQuery({
+    queryKey: ['employees'],
+    queryFn: fetchEmployees,
+    staleTime: 30 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 3. Roles Query
+  const {
+    data: roles = [],
+    isLoading: rolesLoading,
+    error: rolesError,
+  } = useQuery({
+    queryKey: ['roles'],
+    queryFn: fetchRoles,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // ===== MUTATIONS =====
+
+  // Create User
+  const createUserMutation = useMutation({
+    mutationFn: createUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User created successfully');
+      closeModal();
+    },
+    onError: (error) => {
+      const message = error.response?.data?.message || error.message;
+      if (message.toLowerCase().includes('email already exists')) {
+        setErrors(prev => ({ ...prev, email: 'This email is already registered.' }));
+        toast.error('Please use a different email.');
+      } else {
+        toast.error(message);
+      }
+    },
+  });
+
+  // Update User
+  const updateUserMutation = useMutation({
+    mutationFn: updateUser,
+    onSuccess: (data, variables) => {   // ✅ destructure variables (2nd param)
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User updated successfully');
+      closeModal();
+
+      if (variables.id === user?.id) {
+        refreshUser();
+      }
+    },
+    onError: (error) => {
+      const message = error.response?.data?.message || error.message;
+      if (message.toLowerCase().includes('email already exists')) {
+        setErrors(prev => ({ ...prev, email: 'This email is already registered.' }));
+        toast.error('Please use a different email.');
+      } else {
+        toast.error(message);
+      }
+    },
+});
+
+  // Delete User
+  const deleteUserMutation = useMutation({
+    mutationFn: deleteUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User deleted successfully');
+      setDeleteConfirm(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to delete user');
+    },
+  });
+
+  // Toggle User Status
+  const toggleStatusMutation = useMutation({
+    mutationFn: toggleUserStatus,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      toast.success('User status updated');
+      setToggleConfirm(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to update status');
+    },
+  });
+
+  // Reject Employee
+  const rejectEmployeeMutation = useMutation({
+    mutationFn: rejectEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success(`${rejectConfirm?.name} marked as rejected`);
+      setRejectConfirm(null);
+      setRejectNote('');
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to reject employee');
+    },
+    onSettled: () => setRejecting(false),
+  });
+
+  // Create Account from Employee
+  const createAccountMutation = useMutation({
+    mutationFn: createAccountFromEmployee,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success(`Account created for ${selectedEmployee?.name}`);
+      setShowCreateModal(false);
+      setSelectedEmployee(null);
+      setPassword('');
+      setConfirmPassword('');
+      setManualRoleId('');
+    },
+    onError: (error) => {
+      const message = error.response?.data?.message || error.message;
+      if (message.toLowerCase().includes('email already exists')) {
+        toast.error('This employee email is already registered as a user.');
+      } else {
+        toast.error(message);
+      }
+    },
+    onSettled: () => setCreating(false),
+  });
+
+  // Update User Role (for existing account)
+  const updateRoleMutation = useMutation({
+    mutationFn: updateUserRole,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['users'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
+      toast.success(`${selectedEmployee?.name}'s role updated`);
+      setShowCreateModal(false);
+      setSelectedEmployee(null);
+      setManualRoleId('');
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.message || 'Failed to update role');
+    },
+    onSettled: () => setCreating(false),
+  });
+
+  // ===== EFFECTS =====
+  useEffect(() => {
+    setEmployeeCurrentPage(1);
+  }, [employeeSearch, statusFilter]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [userSearch, roleFilter, userStatusFilter]);
+
+  // ===== HELPERS =====
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+  });
+
   const dynamicRoleFilters = [
     'ALL',
     ...roles
@@ -112,129 +384,37 @@ export default function UserManagement() {
       .map((r) => r.role_name),
   ];
 
-  const getAuthHeaders = () => ({
-    Authorization: `Bearer ${localStorage.getItem('token')}`,
-  });
-
-  // ===== FETCH USERS (profiles) =====
-  const fetchUsers = async () => {
-    setUsersLoading(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/users`, {
-        headers: getAuthHeaders(),
-      });
-      if (data.success) {
-        setUsers(data.data || []);
-        console.log(`[UI] ✅ Users loaded: ${data.data?.length || 0}`);
-      }
-    } catch (err) {
-      console.error("Fetch Users Error:", err);
-      toast.error(err.response?.data?.message || "Failed to load users");
-    } finally {
-      setUsersLoading(false);
-    }
-  };
-
-  // ===== FETCH EMPLOYEES (all) =====
-  const fetchEmployees = async () => {
-    setEmployeesLoading(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/employees`, {
-        headers: getAuthHeaders(),
-      });
-      if (data.success) {
-        setEmployees(data.data || []);
-        console.log(`[UI] ✅ Employees loaded: ${data.data?.length || 0}`);
-      }
-    } catch (err) {
-      console.error("Fetch Employees Error:", err);
-      toast.error(err.response?.data?.message || "Failed to load employees");
-    } finally {
-      setEmployeesLoading(false);
-    }
-  };
-
-  // ===== FETCH ROLES =====
-  const fetchRoles = async () => {
-    setRolesLoading(true);
-    try {
-      const { data } = await axios.get(`${API_BASE}/roles`, {
-        headers: getAuthHeaders(),
-      });
-      if (data.success) {
-        const filtered = data.data.filter(role => role.id !== 4);
-        setRoles(filtered);
-      }
-    } catch (err) {
-      console.error('Fetch roles error:', err);
-    } finally {
-      setRolesLoading(false);
-    }
-  };
-
-  useEffect(() => {
-  (async () => {
-    await fetchUsers();
-    await fetchEmployees();
-    await fetchRoles();
-  })();
-}, []);
-
+  // ===== HANDLERS =====
   const handleRejectEmployee = async () => {
     if (!rejectNote.trim()) {
       toast.error("Please add a reason for rejection.");
       return;
     }
     setRejecting(true);
-    try {
-      await axios.patch(
-        `${API_BASE}/employees/${rejectConfirm.id}/reject`,
-        { reason: rejectNote },
-        { headers: getAuthHeaders() }
-      );
-      toast.success(`${rejectConfirm.name} marked as rejected`);
-      setRejectConfirm(null);
-      setRejectNote('');
-      await fetchEmployees();
-    } catch (err) {
-      console.error("Reject error:", err);
-      toast.error(err.response?.data?.message || "Failed to reject employee");
-    } finally {
-      setRejecting(false);
-    }
+    rejectEmployeeMutation.mutate({ employeeId: rejectConfirm.id, reason: rejectNote });
   };
 
-  // ===== CREATE ACCOUNT FROM PENDING EMPLOYEE =====
   const handleCreateAccount = async () => {
-    if (!resolvedRoleName) {
-      toast.error("This employee's position has no matching role. Please fix the position/role mapping first.");
+    if (!manualRoleId) {
+      toast.error("Please select a role for this employee.");
       return;
     }
+
+    const existingAccountForEmployee = users.find(
+      (u) => u.email?.toLowerCase() === selectedEmployee?.email?.toLowerCase()
+    );
 
     if (existingAccountForEmployee) {
       setCreating(true);
-      try {
-        const newRoleId = roles.find((r) => r.role_name === resolvedRoleName)?.id;
-        await axios.patch(
-          `${API_BASE}/users/${existingAccountForEmployee.id}/role`,
-          { roleId: newRoleId, employeeId: selectedEmployee.id },
-          { headers: getAuthHeaders() }
-        );
-        toast.success(`${selectedEmployee.name}'s role updated to ${resolvedRoleName}`);
-        setShowCreateModal(false);
-        setSelectedEmployee(null);
-        await fetchUsers();
-        await fetchEmployees();
-      } catch (err) {
-        console.error("Update role error:", err);
-        toast.error(err.response?.data?.message || "Failed to update role");
-      } finally {
-        setCreating(false);
-      }
+      updateRoleMutation.mutate({
+        userId: existingAccountForEmployee.id,
+        roleId: manualRoleId,
+        employeeId: selectedEmployee.id,
+      });
       return;
     }
 
-    // ===== new employee, needs a password =====
+    // new employee, needs a password
     if (!password || password.length < 6) {
       toast.error("Password must be at least 6 characters.");
       return;
@@ -245,50 +425,55 @@ export default function UserManagement() {
     }
 
     setCreating(true);
-    try {
-      await axios.post(
-        `${API_BASE}/users/from-employee`,
-        { employeeId: selectedEmployee.id, password },
-        { headers: getAuthHeaders() }
-      );
-      toast.success(`Account created for ${selectedEmployee.name}`);
-      setShowCreateModal(false);
-      setSelectedEmployee(null);
-      setPassword('');
-      setConfirmPassword('');
-      await fetchUsers();
-      await fetchEmployees();
-    } catch (err) {
-      console.error("Create account error:", err);
-      const message = err.response?.data?.message || "Failed to create account";
-      if (message.toLowerCase().includes('email already exists')) {
-        toast.error('This employee email is already registered as a user.');
-      } else {
-        toast.error(message);
-      }
-    } finally {
-      setCreating(false);
-    }
+    createAccountMutation.mutate({
+      employeeId: selectedEmployee.id,
+      password,
+      roleId: manualRoleId,
+    });
   };
 
-  // ===== TOGGLE USER STATUS =====
   const handleToggleClick = async (userId, currentStatus) => {
-    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-    try {
-      await axios.patch(
-        `${API_BASE}/users/${userId}/status`,
-        { status: newStatus },
-        { headers: getAuthHeaders() }
-      );
-      toast.success(`User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully`);
-      await fetchUsers();
-    } catch (err) {
-      console.error('Toggle error:', err);
-      toast.error(err.response?.data?.message || 'Failed to update status');
+    setToggleConfirm(null);
+    toggleStatusMutation.mutate({ userId, status: currentStatus });
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
+    deleteUserMutation.mutate(deleteConfirm.id);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) {
+      toast.error("Please fix the highlighted fields");
+      return;
+    }
+
+    const payload = new FormData();
+    payload.append("fullName", formData.fullName);
+    payload.append("email", formData.email);
+    payload.append("phone", formData.phoneNumber);
+    payload.append("address", formData.address);
+    payload.append("role", Number(formData.roleId));
+    payload.append("status", formData.status || "active");
+
+    if (!editingUser) {
+      payload.append("password", formData.password);
+    } else if (formData.password) {
+      payload.append("password", formData.password);
+    }
+
+    if (formData.profileImage instanceof File) {
+      payload.append("profileImage", formData.profileImage);
+    }
+
+    if (editingUser) {
+      updateUserMutation.mutate({ id: editingUser.id, userData: payload });
+    } else {
+      createUserMutation.mutate(payload);
     }
   };
 
-  // ===== MODAL FUNCTIONS (for profiles) =====
   const openModal = (user = null, e) => {
     e?.stopPropagation();
     setErrors({});
@@ -339,7 +524,6 @@ export default function UserManagement() {
     });
   };
 
-  // ===== BACKDROP HANDLERS =====
   const handleBackdropClick = (e) => {
     if (e.target === e.currentTarget) {
       const isFormDirty =
@@ -417,7 +601,6 @@ export default function UserManagement() {
       newErrors.roleId = "Please select a role";
     }
 
-    // Password rules
     if (!editingUser) {
       if (!formData.password.trim()) {
         newErrors.password = "Password is required";
@@ -428,7 +611,6 @@ export default function UserManagement() {
         newErrors.confirmPassword = "Passwords do not match";
       }
     } else if (formData.password) {
-      // editing user, typed a new password
       if (formData.password.length < 6) {
         newErrors.password = "Password must be at least 6 characters";
       } else if (formData.password !== formData.confirmPassword) {
@@ -440,85 +622,7 @@ export default function UserManagement() {
     return Object.keys(newErrors).length === 0;
   };
 
-  // ===== CREATE / UPDATE USER (for profiles) =====
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!validateForm()) {
-      toast.error("Please fix the highlighted fields");
-      return;
-    }
-
-    const token = localStorage.getItem("token");
-    if (!token) {
-      toast.error("Please login again");
-      return;
-    }
-
-    // Build FormData so the profile image file can travel as multipart
-    const payload = new FormData();
-    payload.append("fullName", formData.fullName);
-    payload.append("email", formData.email);
-    payload.append("phone", formData.phoneNumber);
-    payload.append("address", formData.address);
-    payload.append("role", Number(formData.roleId));
-    payload.append("status", formData.status || "active");
-
-    if (!editingUser) {
-      payload.append("password", formData.password);
-    } else if (formData.password) {
-      payload.append("password", formData.password);
-    }
-
-    // Only attach the file if the user picked a NEW one (a File object,
-    // not the existing string URL preloaded for preview)
-    if (formData.profileImage instanceof File) {
-      payload.append("profileImage", formData.profileImage);
-    }
-
-    try {
-      if (editingUser) {
-        await axios.put(`${API_BASE}/users/${editingUser.id}`, payload, {
-          headers: { ...getAuthHeaders() },
-        });
-        toast.success("User updated successfully");
-      } else {
-        await axios.post(`${API_BASE}/users`, payload, {
-          headers: { ...getAuthHeaders() },
-        });
-        toast.success("User created successfully");
-      }
-      closeModal();
-      await fetchUsers();
-    } catch (err) {
-      console.error("Save user error:", err);
-      const message = err.response?.data?.message || "Failed to save user";
-      if (message.toLowerCase().includes('email already exists')) {
-        setErrors(prev => ({ ...prev, email: 'This email is already registered.' }));
-        toast.error('Please use a different email.');
-      } else {
-        toast.error(message);
-      }
-    }
-  };
-
-  // ===== DELETE USER =====
-  const handleDelete = async () => {
-    if (!deleteConfirm) return;
-    try {
-      await axios.delete(`${API_BASE}/users/${deleteConfirm.id}`, {
-        headers: getAuthHeaders(),
-      });
-      toast.success("User deleted successfully");
-      setDeleteConfirm(null);
-      await fetchUsers();
-    } catch (err) {
-      console.error("Delete error:", err);
-      toast.error(err.response?.data?.message || "Failed to delete user");
-    }
-  };
-
-  // ===== FILTERS =====
+  // ===== FILTERS & PAGINATION =====
   const filteredUsers = users.filter((user) => {
     const matchesSearch =
       user.full_name?.toLowerCase().includes(userSearch.toLowerCase()) ||
@@ -547,25 +651,17 @@ export default function UserManagement() {
     return matchesSearch && matchesStatus;
   });
 
-  const totalEmployeePages = Math.ceil(filteredEmployees.length / employeesPerPage);
-  const paginatedEmployees = filteredEmployees.slice(
-    (employeeCurrentPage - 1) * employeesPerPage,
-    employeeCurrentPage * employeesPerPage
-  );
-
-  useEffect(() => {
-    setEmployeeCurrentPage(1);
-  }, [employeeSearch, statusFilter]);
-
   const totalPages = Math.ceil(filteredUsers.length / usersPerPage);
   const paginatedUsers = filteredUsers.slice(
     (currentPage - 1) * usersPerPage,
     currentPage * usersPerPage
   );
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [userSearch, roleFilter, userStatusFilter]);
+  const totalEmployeePages = Math.ceil(filteredEmployees.length / employeesPerPage);
+  const paginatedEmployees = filteredEmployees.slice(
+    (employeeCurrentPage - 1) * employeesPerPage,
+    employeeCurrentPage * employeesPerPage
+  );
 
   // ===== COUNTS =====
   const userCounts = {
@@ -581,6 +677,10 @@ export default function UserManagement() {
     pending: employees.filter((e) => e.status === "pending").length,
     active: employees.filter((e) => e.status === "active").length,
   };
+
+  // ===== LOADING & ERROR STATES =====
+  const isLoading = usersLoading || employeesLoading || rolesLoading;
+  const error = usersError || employeesError || rolesError;
 
   if (!hasAccess) {
     return (
@@ -598,6 +698,37 @@ export default function UserManagement() {
     );
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96">
+        <AlertTriangle size={48} className="text-red-500 mb-4" />
+        <p className="text-gray-600">Failed to load data: {error.message}</p>
+        <button
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['users'] });
+            queryClient.invalidateQueries({ queryKey: ['employees'] });
+            queryClient.invalidateQueries({ queryKey: ['roles'] });
+          }}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
+          <p className="mt-4 text-gray-500">Loading data...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ===== RENDER =====
   return (
     <motion.div
       variants={containerVariants}
@@ -613,17 +744,6 @@ export default function UserManagement() {
             Manage user accounts and employee records
           </p>
         </div>
-        {/* {user?.role?.toUpperCase() === 'ADMIN' && (
-          <motion.button
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => openModal()}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            <UserPlus size={16} />
-            Create User
-          </motion.button>
-        )} */}
       </motion.div>
 
       {/* ===== SUMMARY CARDS ===== */}
@@ -752,11 +872,7 @@ export default function UserManagement() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200">
           <div className="overflow-x-auto">
-            {usersLoading ? (
-              <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-              </div>
-            ) : filteredUsers.length === 0 ? (
+            {filteredUsers.length === 0 ? (
               <div className="text-center py-12 text-gray-500 text-sm">No users found</div>
             ) : (
               <table className="w-full text-sm">
@@ -851,7 +967,7 @@ export default function UserManagement() {
               </table>
             )}
           </div>
-          {!usersLoading && filteredUsers.length > 0 && (
+          {filteredUsers.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
               <span className="text-xs text-gray-500">
                 Showing {(currentPage - 1) * usersPerPage + 1}–
@@ -933,11 +1049,7 @@ export default function UserManagement() {
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow duration-200">
           <div className="overflow-x-auto">
-            {employeesLoading ? (
-              <div className="flex justify-center items-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-              </div>
-            ) : filteredEmployees.length === 0 ? (
+            {filteredEmployees.length === 0 ? (
               <div className="text-center py-12 text-gray-500 text-sm">No employees found</div>
             ) : (
               <table className="w-full text-sm">
@@ -977,6 +1089,7 @@ export default function UserManagement() {
                                 <button
                                   onClick={() => {
                                     setSelectedEmployee(emp);
+                                    setManualRoleId(emp.role_id ? emp.role_id.toString() : '');
                                     setShowCreateModal(true);
                                   }}
                                   className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors shadow-sm"
@@ -1010,7 +1123,7 @@ export default function UserManagement() {
             )}
           </div>
 
-          {!employeesLoading && filteredEmployees.length > 0 && (
+          {filteredEmployees.length > 0 && (
             <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50/30">
               <span className="text-xs text-gray-500">
                 Showing {(employeeCurrentPage - 1) * employeesPerPage + 1}–
@@ -1040,7 +1153,7 @@ export default function UserManagement() {
         </div>
       </motion.div>
 
-      {/* ===== ACCOUNT CREATION MODAL (Register style) ===== */}
+      {/* ===== ACCOUNT CREATION MODAL ===== */}
       <AnimatePresence>
         {showCreateModal && selectedEmployee && (
           <motion.div
@@ -1083,31 +1196,35 @@ export default function UserManagement() {
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Briefcase size={16} className="text-gray-400" />
-                    <span className="text-gray-600">{selectedEmployee.position}</span>
+                    <span className="text-gray-600">{selectedEmployee.designation?.designation || 'N/A'}</span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                  <input
-                    type="text"
-                    value={resolvedRoleName || 'No matching role found for this position'}
-                    disabled
-                    className={`w-full px-3 py-2.5 text-sm border rounded-xl bg-gray-100 cursor-not-allowed ${
-                      resolvedRoleName ? 'text-gray-600 border-gray-200' : 'text-rose-500 border-rose-200'
-                    }`}
-                  />
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                  <select
+                    value={manualRoleId}
+                    onChange={(e) => setManualRoleId(e.target.value)}
+                    className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  >
+                    <option value="">Select a role</option>
+                    {roles.map((r) => (
+                      <option key={r.id} value={r.id}>{r.role_name}</option>
+                    ))}
+                  </select>
                   <p className="text-xs text-gray-400 mt-1">
-                    Role is automatically assigned based on the employee's position and cannot be changed here.
+                    Designation: <span className="font-medium">{selectedEmployee?.designation?.designation || 'N/A'}</span> (for reference only — pick any role)
                   </p>
                 </div>
 
-                {existingAccountForEmployee ? (
+                {users.find(
+                  (u) => u.email?.toLowerCase() === selectedEmployee?.email?.toLowerCase()
+                ) ? (
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700 flex items-start gap-2">
                     <Lock size={14} className="mt-0.5 flex-shrink-0" />
                     <span>
                       This employee already has an account (created previously).
-                      Their role will be updated to <strong>{resolvedRoleName}</strong> — existing password stays unchanged.
+                      Selecting a role above will update it — existing password stays unchanged.
                     </span>
                   </div>
                 ) : (
@@ -1145,7 +1262,10 @@ export default function UserManagement() {
 
                 <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                   <button
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={() => {
+                      setShowCreateModal(false);
+                      setManualRoleId('');
+                    }}
                     className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                   >
                     Cancel
@@ -1159,7 +1279,9 @@ export default function UserManagement() {
                   >
                     {creating
                       ? 'Saving...'
-                      : existingAccountForEmployee
+                      : users.find(
+                          (u) => u.email?.toLowerCase() === selectedEmployee?.email?.toLowerCase()
+                        )
                       ? 'Update Role'
                       : 'Create Account'}
                   </button>
@@ -1269,72 +1391,72 @@ export default function UserManagement() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-  <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
-  <input
-    type="text"
-    name="fullName"
-    value={formData.fullName}
-    onChange={handleChange}
-    disabled={!!editingUser}
-    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
-      errors.fullName ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-    }`}
-  />
-  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
-  {errors.fullName && <p className="text-xs text-rose-500 mt-1">{errors.fullName}</p>}
-</div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Full Name *</label>
+                  <input
+                    type="text"
+                    name="fullName"
+                    value={formData.fullName}
+                    onChange={handleChange}
+                    disabled={!!editingUser}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
+                      errors.fullName ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                    }`}
+                  />
+                  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+                  {errors.fullName && <p className="text-xs text-rose-500 mt-1">{errors.fullName}</p>}
+                </div>
                 <div>
-  <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-  <input
-    type="email"
-    name="email"
-    value={formData.email}
-    onChange={handleChange}
-    disabled={!!editingUser}
-    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
-      errors.email ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-    }`}
-  />
-  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
-  {errors.email && <p className="text-xs text-rose-500 mt-1">{errors.email}</p>}
-</div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    disabled={!!editingUser}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
+                      errors.email ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                    }`}
+                  />
+                  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+                  {errors.email && <p className="text-xs text-rose-500 mt-1">{errors.email}</p>}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-  <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
-  <input
-    type="tel"
-    name="phoneNumber"
-    placeholder="Enter phone number"
-    value={formData.phoneNumber}
-    onChange={handleChange}
-    disabled={!!editingUser}
-    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
-      errors.phoneNumber ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-    }`}
-  />
-  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
-  {errors.phoneNumber && <p className="text-xs text-rose-500 mt-1">{errors.phoneNumber}</p>}
-</div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Phone Number</label>
+                  <input
+                    type="tel"
+                    name="phoneNumber"
+                    placeholder="Enter phone number"
+                    value={formData.phoneNumber}
+                    onChange={handleChange}
+                    disabled={!!editingUser}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200" :
+                      errors.phoneNumber ? "border-rose-400 focus:ring-rose-500/20 focus:border-rose-500" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                    }`}
+                  />
+                  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+                  {errors.phoneNumber && <p className="text-xs text-rose-500 mt-1">{errors.phoneNumber}</p>}
+                </div>
                 <div>
-  <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
-  <input
-    type="text"
-    name="address"
-    placeholder="Enter address"
-    value={formData.address}
-    onChange={handleChange}
-    disabled={!!editingUser}
-    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
-      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
-    }`}
-  />
-  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
-</div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
+                  <input
+                    type="text"
+                    name="address"
+                    placeholder="Enter address"
+                    value={formData.address}
+                    onChange={handleChange}
+                    disabled={!!editingUser}
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                      editingUser ? "bg-gray-100 text-gray-500 cursor-not-allowed" : "border-gray-200 focus:ring-blue-500/20 focus:border-blue-400"
+                    }`}
+                  />
+                  {editingUser && <p className="text-xs text-gray-400 mt-1">Managed from the Employees page.</p>}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1442,7 +1564,6 @@ export default function UserManagement() {
                 </div>
               </div>
 
-              {/* ✅ Submit / Cancel buttons — this block was missing before */}
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
                 <button
                   type="button"
@@ -1452,13 +1573,19 @@ export default function UserManagement() {
                   Cancel
                 </button>
                 <motion.button
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.97 }}
-                  type="submit"
-                  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  {editingUser ? 'Save Changes' : 'Create User'}
-                </motion.button>
+  whileHover={{ scale: 1.04 }}
+  whileTap={{ scale: 0.97 }}
+  type="submit"
+  disabled={createUserMutation.isPending || updateUserMutation.isPending}
+  className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+>
+  {(createUserMutation.isPending || updateUserMutation.isPending) && (
+    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+  )}
+  {editingUser
+    ? (updateUserMutation.isPending ? 'Saving...' : 'Save Changes')
+    : (createUserMutation.isPending ? 'Creating...' : 'Create User')}
+</motion.button>
               </div>
             </form>
           </motion.div>
@@ -1486,7 +1613,6 @@ export default function UserManagement() {
               <button
                 onClick={() => {
                   handleToggleClick(toggleConfirm.id, toggleConfirm.status);
-                  setToggleConfirm(null);
                 }}
                 className={`px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors ${
                   toggleConfirm.status === 'active'
