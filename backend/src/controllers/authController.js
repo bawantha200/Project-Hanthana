@@ -1110,11 +1110,10 @@ const getMe = async (req, res) => {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('full_name, phone_number, address, role_id ( role_name )')
+      .select('full_name, phone_number, address, profile_image, role_id ( role_name )') // ✅ profile_image add kala
       .eq('id', user.id)
       .maybeSingle();
 
-    // ✅ NEW: Fetch permissions using the same logic as /api/auth/permissions
     const permissions = await getPermissionsForUserId(user.id);
 
     return res.status(200).json({
@@ -1127,9 +1126,10 @@ const getMe = async (req, res) => {
         address: profile?.address || '',
         role: profile?.role_id?.role_name || 'CUSTOMER',
         hasPassword: hasPassword,
-        provider: isGoogleUser ? 'google' : 'email'
+        provider: isGoogleUser ? 'google' : 'email',
+        profileImage: profile?.profile_image || null   // ✅ methanath add kala
       },
-      permissions: permissions   // ✅ NEW: now included in response
+      permissions: permissions
     });
   } catch (error) {
     console.error('Get me error:', error);
@@ -1420,7 +1420,7 @@ const getProfile = async (req, res) => {
 
     const { data: profile, error } = await supabase
       .from('profiles')
-      .select('full_name, email, phone_number, address, created_at')
+      .select('full_name, email, phone_number, address, created_at, profile_image')  // ✅ add kala
       .eq('id', userId)
       .maybeSingle();
 
@@ -1433,7 +1433,8 @@ const getProfile = async (req, res) => {
         email: profile?.email || req.user.email,
         phone_number: profile?.phone_number || '',
         address: profile?.address || '',
-        created_at: profile?.created_at || null
+        created_at: profile?.created_at || null,
+        profile_image: profile?.profile_image || null   // ✅ add kala
       }
     });
   } catch (error) {
@@ -2538,6 +2539,154 @@ const decodeToken = async (req, res) => {
 };
 
 
+/**
+ * @desc    Upload/Update profile image
+ * @route   POST /api/auth/profile-image
+ */
+const uploadProfileImage = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No image file provided.' 
+      });
+    }
+
+    const client = supabaseAdmin || supabase;
+    const fileExt = req.file.originalname.split('.').pop();
+    const fileName = `${userId}-${Date.now()}.${fileExt}`;
+
+    // Upload to Supabase Storage bucket "profile-images"
+    const { error: uploadError } = await client.storage
+      .from('profile-images')
+      .upload(fileName, req.file.buffer, {
+        contentType: req.file.mimetype,
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('[UPLOAD IMAGE ERROR]', uploadError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to upload image.' 
+      });
+    }
+
+    // Get public URL
+    const { data: publicUrlData } = client.storage
+      .from('profile-images')
+      .getPublicUrl(fileName);
+
+    const publicUrl = publicUrlData.publicUrl;
+
+    // Get old image to delete it (optional cleanup)
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('profile_image')
+      .eq('id', userId)
+      .maybeSingle();
+
+    // Update profiles table
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ profile_image: publicUrl })
+      .eq('id', userId);
+
+    if (updateError) {
+      console.error('[UPDATE PROFILE IMAGE ERROR]', updateError);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to save image reference.' 
+      });
+    }
+
+    // Optional: delete old image file from storage
+    if (existingProfile?.profile_image) {
+      try {
+        const oldFileName = existingProfile.profile_image.split('/profile-images/')[1];
+        if (oldFileName) {
+          await client.storage.from('profile-images').remove([oldFileName]);
+        }
+      } catch (cleanupErr) {
+        console.warn('[OLD IMAGE CLEANUP WARNING]', cleanupErr.message);
+      }
+    }
+
+    await logAction(userId, 'PROFILE_IMAGE_UPDATED', {}, req);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile image updated successfully.',
+      profileImage: publicUrl
+    });
+
+  } catch (error) {
+    console.error('[UPLOAD PROFILE IMAGE ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
+/**
+ * @desc    Remove profile image
+ * @route   DELETE /api/auth/profile-image
+ */
+const removeProfileImage = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const client = supabaseAdmin || supabase;
+
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('profile_image')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (existingProfile?.profile_image) {
+      try {
+        const oldFileName = existingProfile.profile_image.split('/profile-images/')[1];
+        if (oldFileName) {
+          await client.storage.from('profile-images').remove([oldFileName]);
+        }
+      } catch (cleanupErr) {
+        console.warn('[IMAGE REMOVE WARNING]', cleanupErr.message);
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from('profiles')
+      .update({ profile_image: null })
+      .eq('id', userId);
+
+    if (updateError) {
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to remove profile image.' 
+      });
+    }
+
+    await logAction(userId, 'PROFILE_IMAGE_REMOVED', {}, req);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile image removed successfully.'
+    });
+
+  } catch (error) {
+    console.error('[REMOVE PROFILE IMAGE ERROR]', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Internal Server Error.' 
+    });
+  }
+};
+
+
+
 module.exports = {
   // Auth Routes
   registerUser,
@@ -2556,6 +2705,7 @@ module.exports = {
   updateProfile,
   updateAddress,
   getProfile,
+
   
   // Password Routes
   updatePassword,
@@ -2570,6 +2720,8 @@ module.exports = {
 
   // Account Routes
   deleteAccount,
+  uploadProfileImage,
+  removeProfileImage,
   
   // Permission Routes
   getUserPermissions,

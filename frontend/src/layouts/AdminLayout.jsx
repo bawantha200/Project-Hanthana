@@ -429,9 +429,13 @@ function ProfileDropdown({ isOpen, onClose, user }) {
         >
           <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 to-slate-50/80">
             <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md">
-                {getInitials(user.fullName, user.email)}
-              </div>
+              <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-xs font-bold text-white shadow-md overflow-hidden">
+  {user.profileImage ? (
+    <img src={user.profileImage} alt="Profile" className="w-full h-full object-cover" />
+  ) : (
+    getInitials(user.fullName, user.email)
+  )}
+</div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-slate-800 truncate">{user.fullName || user.email}</p>
                 <p className="text-xs text-slate-500 truncate">{user.email}</p>
@@ -830,9 +834,13 @@ export default function AdminLayout() {
                 {/* Profile */}
                 <div className="relative">
                   <button onClick={() => setProfileOpen(!profileOpen)} className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-xl hover:bg-slate-50">
-                    <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-xs font-bold text-white shadow-md">
-                      {getInitials(user.fullName, user.email)}
-                    </div>
+                    <div className="h-10 w-10 rounded-xl bg-blue-600 flex items-center justify-center text-sm font-bold text-white shadow-md overflow-hidden">
+  {user.profileImage ? (
+    <img src={user.profileImage} alt="Profile" className="w-full h-full object-cover" />
+  ) : (
+    getInitials(user.fullName, user.email)
+  )}
+</div>
                     <div className="hidden sm:block text-left">
                       <p className="text-sm font-semibold text-slate-700">{user.fullName || user.email}</p>
                     </div>

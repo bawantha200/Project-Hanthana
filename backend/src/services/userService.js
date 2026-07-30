@@ -158,81 +158,75 @@ class UserService {
   // ============================================================
   // CREATE USER FROM EMPLOYEE (Pending → Active)
   // ============================================================
-  async createUserFromEmployee(employeeId, password) {
-    try {
-      console.log(`[UserService] 👤 Creating user from employee ID: ${employeeId}`);
+async createUserFromEmployee(employeeId, password, roleId) {
+  try {
+    console.log(`[UserService] 👤 Creating user from employee ID: ${employeeId}`);
 
-      // 1️⃣ Get employee data from employees table
-      const { data: employee, error: empError } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('id', employeeId)
-        .single();
+    // 1️⃣ Get employee data from employees table
+    const { data: employee, error: empError } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('id', employeeId)
+      .single();
 
-      if (empError || !employee) {
-        console.error('[UserService] ❌ Employee not found:', empError);
-        throw new Error('Employee not found');
-      }
+    if (empError || !employee) {
+      console.error('[UserService] ❌ Employee not found:', empError);
+      throw new Error('Employee not found');
+    }
 
-      console.log(`[UserService] 📋 Employee Data:`, {
-        id: employee.id,
-        name: employee.name,
-        email: employee.email,
-        position: employee.position,
-        phone: employee.phone,
-        address: employee.address,
-        
-      });
+    console.log(`[UserService] 📋 Employee Data:`, {
+      id: employee.id,
+      name: employee.name,
+      email: employee.email,
+      phone: employee.phone,
+      address: employee.address,
+    });
 
-      // 2️⃣ Check if user already exists in profiles
-      const { data: existingProfile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('email', employee.email)
-        .maybeSingle();
+    // 2️⃣ Check if user already exists in profiles
+    const { data: existingProfile } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('email', employee.email)
+      .maybeSingle();
 
-      if (existingProfile) {
-        throw new Error('User with this email already exists');
-      }
+    if (existingProfile) {
+      throw new Error('User with this email already exists');
+    }
 
-      // 2.5️⃣ ✅ NEW: Resolve role_id directly from roles table.
-      //    employee.position already stores the role_name value (e.g. "SALES_MANAGER"),
-      //    it's not a positions.position_name — so match roles directly, no join needed.
-      if (!employee.position) {
-        throw new Error('Employee has no position assigned — cannot determine role');
-      }
+    // 2.5️⃣ ✅ Role is chosen manually by the admin — no designation/position matching.
+    if (!roleId) {
+      throw new Error('A role must be selected to create this account');
+    }
 
-      const { data: roleRow, error: roleError } = await supabase
-        .from('roles')
-        .select('id, role_name')
-        .eq('role_name', employee.position.trim().toUpperCase())
-        .maybeSingle();
+    const { data: roleRow, error: roleError } = await supabase
+      .from('roles')
+      .select('id, role_name')
+      .eq('id', roleId)
+      .maybeSingle();
 
-      if (roleError) {
-        console.error('[UserService] ❌ Role lookup error:', roleError);
-        throw new Error(`Failed to look up role for position "${employee.position}": ${roleError.message}`);
-      }
+    if (roleError) {
+      console.error('[UserService] ❌ Role lookup error:', roleError);
+      throw new Error(`Failed to look up role: ${roleError.message}`);
+    }
 
-      if (!roleRow) {
-        throw new Error(`No matching role found for position "${employee.position}"`);
-      }
+    if (!roleRow) {
+      throw new Error('Selected role does not exist');
+    }
 
-      const resolvedRoleId = roleRow.id;
-      console.log(`[UserService] 🔗 Position "${employee.position}" → role_id ${resolvedRoleId} (${roleRow.role_name})`);
+    const resolvedRoleId = roleRow.id;
+    console.log(`[UserService] 🔗 Manually selected role → role_id ${resolvedRoleId} (${roleRow.role_name})`);
 
       // 3️⃣ Create auth user using SUPABASE ADMIN client
       const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: employee.email,
-        password: password,
-        email_confirm: true,
-        user_metadata: {
-          full_name: employee.name,
-          phone_number: employee.phone,
-          role_id: resolvedRoleId,   // ✅ dynamic, no more hardcoded 3
-          profile_image: employee.profile_image || null
-        }
-      });
-
+  email: employee.email,
+  password: password,
+  email_confirm: true,
+  user_metadata: {
+    full_name: employee.name,
+    phone_number: employee.phone,
+    role_id: resolvedRoleId
+  }
+});
       if (authError) {
         console.error('[UserService] ❌ Auth error:', authError);
         throw authError;

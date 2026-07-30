@@ -61,8 +61,9 @@ export default function Settings() {
   const [address, setAddress] = useState(user?.address || '');
   const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
 
+  
   // Profile image state
-  const [profileImage, setProfileImage] = useState(user?.profileImage || null);
+const [profileImage, setProfileImage] = useState(user?.profileImage || null);   
   const [uploadingImage, setUploadingImage] = useState(false);
   const [imageMessage, setImageMessage] = useState({ type: '', text: '' });
   const fileInputRef = useRef(null);
@@ -115,29 +116,31 @@ export default function Settings() {
   const [showResetPasswordForm, setShowResetPasswordForm] = useState(false);
  const [sendingResetLink, setSendingResetLink] = useState(false);
   // Check user type on mount
-  useEffect(() => {
-    const checkUserType = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:5000/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        const data = await response.json();
-        if (data.success) {
-          setHasPassword(data.user.hasPassword || false);
-          setIsGoogleUser(data.user.provider === 'google');
-          setEmail(data.user.email || '');
-          setFullName(data.user.fullName || '');
-          setPhone(data.user.phone || '');
-          setAddress(data.user.address || '');
-          setProfileImage(data.user.profileImage || null);
-        }
-      } catch (error) {
-        console.error('Error fetching user data:', error);
+  
+useEffect(() => {
+  const checkUserType = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:5000/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store'
+      });
+      const data = await response.json();
+      if (data.success) {
+        setHasPassword(data.user.hasPassword || false);
+        setIsGoogleUser(data.user.provider === 'google');
+        setEmail(data.user.email || '');
+        setFullName(data.user.fullName || '');
+        setPhone(data.user.phone || '');
+        setAddress(data.user.address || '');
+        setProfileImage(data.user.profileImage || null);   // ✅ fixed casing
       }
-    };
-    checkUserType();
-  }, []);
+    } catch (error) {
+      console.error('Error fetching user data:', error);
+    }
+  };
+  checkUserType();
+}, []);
 
   // Check email confirmation status periodically
   useEffect(() => {
@@ -148,7 +151,8 @@ export default function Settings() {
           
           const token = localStorage.getItem('token');
           const response = await fetch('http://localhost:5000/api/auth/me', {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${token}` },
+            cache: 'no-store'
           });
           const data = await response.json();
           
@@ -190,6 +194,13 @@ export default function Settings() {
     }
   }, [location]);
 
+
+// NEW — keep local profileImage in sync whenever AuthContext's user updates
+useEffect(() => {
+  if (user?.profileImage) {
+    setProfileImage(user.profileImage);
+  }
+}, [user?.profileImage]);
   // Email validation
   const validateEmailField = (value) => {
     if (!value) {

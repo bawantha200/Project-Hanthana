@@ -24,7 +24,9 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchOrders, fetchUsers, fetchProducts, createOrder } from '../../services/ordersService';
 import { formatCurrency } from '../../utils/helpers';
+import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
+
 
 // ─── Query Keys ───
 const QUERY_KEYS = {
@@ -66,6 +68,9 @@ const PAGE_SIZE = 10;
 export default function Orders() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const isCEO = user?.role?.toUpperCase() === 'CEO';
+  
 
   // ─── State ───
   const [activeStatusFilter, setActiveStatusFilter] = useState('All');
@@ -388,24 +393,26 @@ export default function Orders() {
           <p className="text-sm text-gray-500 mt-1">Track and manage all customer orders</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Refresh Button */}
-          <button
-            onClick={() => refetchOrders()}
-            disabled={ordersFetching}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw size={16} className={ordersFetching ? 'animate-spin' : ''} />
-            Refresh
-          </button>
-          {/* Create Order Button */}
-          <button
-            onClick={() => setShowCreateForm(true)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-          >
-            <Plus size={16} />
-            New Order
-          </button>
-        </div>
+  {/* Refresh Button */}
+  <button
+    onClick={() => refetchOrders()}
+    disabled={ordersFetching}
+    className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+  >
+    <RefreshCw size={16} className={ordersFetching ? 'animate-spin' : ''} />
+    Refresh
+  </button>
+  {/* Create Order Button */}
+  {!isCEO && (
+    <button
+      onClick={() => setShowCreateForm(true)}
+      className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+    >
+      <Plus size={16} />
+      New Order
+    </button>
+  )}
+</div>
       </motion.div>
 
       {/* ─── Overview Summary Cards ─── */}
@@ -564,7 +571,8 @@ export default function Orders() {
                 <th className="px-6 py-3">Total</th>
                 <th className="px-6 py-3">Items</th>
                 <th className="px-6 py-3">Date</th>
-                <th className="px-6 py-3">Actions</th>
+                {!isCEO && <th className="px-6 py-3">Actions</th>}
+
               </tr>
             </thead>
             <tbody>
@@ -618,15 +626,17 @@ export default function Orders() {
                   <td className="px-6 py-3 text-xs text-gray-500">
                     {new Date(order.created_at).toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-3">
-                    <button
-                      onClick={() => navigate(`/app/orders/${order.id}`)}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                    >
-                      <Eye size={14} />
-                      View Details
-                    </button>
-                  </td>
+                  {!isCEO && (
+  <td className="px-6 py-3">
+    <button
+      onClick={() => navigate(`/app/orders/${order.id}`)}
+      className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+    >
+      <Eye size={14} />
+      View Details
+    </button>
+  </td>
+)}
                 </tr>
               ))}
             </tbody>
