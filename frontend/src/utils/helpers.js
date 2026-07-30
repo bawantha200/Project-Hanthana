@@ -10,6 +10,13 @@ export const formatCurrency = (amount) => {
     .format(amount)
 };
 
+export function formatAmount(value) {
+  return Number(value || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 export const getStatusColor = (status) => {
   switch (status?.toLowerCase()) {
     case "completed":

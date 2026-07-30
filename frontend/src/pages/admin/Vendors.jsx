@@ -1,16 +1,83 @@
 // pages/Vendors.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Truck, Search, Plus, UserPlus, Phone, Mail, Package, 
   Edit, Trash2, Loader2, AlertTriangle, X, ChevronLeft, 
-  ChevronRight, Building2, Calendar, MapPin, Info
+  ChevronRight, Building2, Calendar, MapPin, Info, Filter, RotateCcw
 } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import VendorTable from '../../components/VendorTable';
 import StatusBadge from '../../components/StatusBadge';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
+const vendorCompanyOptions = [
+  'BottleTech Packaging Ltd.',
+  'PurePack Industries',
+  'EcoBottle Solutions',
+  'AquaSeal Packaging Co.',
+  'Prime Polymer Supplies',
+  'ClearCap Industries',
+];
+
+// Supply type options — shared between the create/edit form and the table filter
+const supplyTypeOptions = [
+  'Raw Materials',
+  'Packaging Materials',
+  'Production Supplies',
+  'Maintenance Supplies',
+  'Safety Supplies',
+  'Office Supplies',
+  'Distribution Supplies',
+];
+
+// Sri Lankan phone validation — client-side format check only, NOT a
+// security control. The real validation/sanitization must also happen
+// on your backend, since anyone can bypass frontend checks by calling
+// the API directly.
+// Accepts:
+//   Local:         0771234567        (0 + 9 digits = 10 digits total)
+//   International: +94771234567      (+94 + 9 digits)
+// Returns an error message string, or null if the phone number is valid.
+const validatePhone = (phone) => {
+  const trimmed = (phone || '').trim();
+
+  if (!trimmed) {
+    return 'Phone number is required.';
+  }
+
+  if (!/^\+?[0-9]+$/.test(trimmed)) {
+    return 'Phone number must contain only numbers.';
+  }
+
+  const isInternational = trimmed.startsWith('+');
+
+  if (isInternational) {
+    if (!trimmed.startsWith('+94')) {
+      return 'Phone number must start with a valid Sri Lankan mobile or area code.';
+    }
+    const digitsAfterCode = trimmed.slice(3);
+    if (digitsAfterCode.length !== 9) {
+      return 'Phone number must be 10 digits.';
+    }
+    if (!/^\+94[0-9]{9}$/.test(trimmed)) {
+      return 'Please enter a valid Sri Lankan phone number.';
+    }
+  } else {
+    if (trimmed.length !== 10) {
+      return 'Phone number must be 10 digits.';
+    }
+    if (!trimmed.startsWith('0')) {
+      return 'Phone number must start with a valid Sri Lankan mobile or area code.';
+    }
+    if (!/^0[0-9]{9}$/.test(trimmed)) {
+      return 'Please enter a valid Sri Lankan phone number.';
+    }
+  }
+
+  return null; // valid
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -68,7 +135,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange, totalItems, itemsPe
   return (
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-4 py-3 border-t border-gray-100">
       <div className="text-xs text-gray-500 order-2 sm:order-1">
-        Showing <span className="font-medium text-gray-700">{((currentPage - 1) * itemsPerPage) + 1}</span> to{' '}
+        Showing <span className="font-medium text-gray-700">{totalItems === 0 ? 0 : ((currentPage - 1) * itemsPerPage) + 1}</span> to{' '}
         <span className="font-medium text-gray-700">
           {Math.min(currentPage * itemsPerPage, totalItems)}
         </span>{' '}
@@ -211,10 +278,14 @@ export default function Vendors() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState('');
 
+  // Filter states
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [companyFilter, setCompanyFilter] = useState('all');
+  const [supplyTypeFilter, setSupplyTypeFilter] = useState('all');
+
   // Pagination states
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(10);
-  const [totalItems, setTotalItems] = useState(0);
   const [paginatedVendors, setPaginatedVendors] = useState([]);
 
   // Modal states
@@ -236,6 +307,8 @@ export default function Vendors() {
     supplyType: '',
     status: 'active',
   });
+  const [companySelection, setCompanySelection] = useState('');
+  const [phoneError, setPhoneError] = useState('');
 
   // Fetch vendors
   const fetchVendors = async (searchTerm = '', showTableLoader = false) => {
@@ -247,7 +320,6 @@ export default function Vendors() {
       if (!res.ok) throw new Error('Failed to fetch vendors');
       const data = await res.json();
       setVendors(data);
-      setTotalItems(data.length);
       setError(null);
       // Reset to first page when new data loads
       setCurrentPage(1);
@@ -260,12 +332,53 @@ export default function Vendors() {
     }
   };
 
-  // Update paginated vendors when vendors or page changes
+  // Distinct vendor companies actually present in the data, so the
+  // filter dropdown only ever shows companies that have vendors.
+  const vendorCompanyFilterOptions = useMemo(() => {
+    const names = new Set(vendors.map((v) => v.name).filter(Boolean));
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [vendors]);
+
+  // Distinct supply types actually present in the data, combined with
+  // the standard list, so all standard types show up even before any
+  // vendor uses them, and any legacy/custom values still show too.
+  const supplyTypeFilterOptions = useMemo(() => {
+    const present = new Set(vendors.map((v) => v.supplyType).filter(Boolean));
+    const combined = new Set([...supplyTypeOptions, ...present]);
+    return Array.from(combined);
+  }, [vendors]);
+
+  // Apply status / company / supply type filters on top of the fetched vendors
+  const filteredVendors = useMemo(() => {
+    return vendors.filter((v) => {
+      if (statusFilter !== 'all' && v.status !== statusFilter) return false;
+      if (companyFilter !== 'all' && v.name !== companyFilter) return false;
+      if (supplyTypeFilter !== 'all' && v.supplyType !== supplyTypeFilter) return false;
+      return true;
+    });
+  }, [vendors, statusFilter, companyFilter, supplyTypeFilter]);
+
+  const totalItems = filteredVendors.length;
+  const hasActiveFilters = statusFilter !== 'all' || companyFilter !== 'all' || supplyTypeFilter !== 'all';
+
+  const clearFilters = () => {
+    setStatusFilter('all');
+    setCompanyFilter('all');
+    setSupplyTypeFilter('all');
+  };
+
+  // Reset to first page whenever a filter changes, so we don't land on
+  // an empty out-of-range page
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, companyFilter, supplyTypeFilter]);
+
+  // Update paginated vendors when the filtered list or page changes
   useEffect(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    setPaginatedVendors(vendors.slice(startIndex, endIndex));
-  }, [vendors, currentPage, itemsPerPage]);
+    setPaginatedVendors(filteredVendors.slice(startIndex, endIndex));
+  }, [filteredVendors, currentPage, itemsPerPage]);
 
   // Initial load
   useEffect(() => {
@@ -286,10 +399,41 @@ export default function Vendors() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Handle phone number input — only digits and a single leading "+" allowed
+  const handlePhoneChange = (e) => {
+    let value = e.target.value;
+
+    // Strip anything that isn't a digit or "+"
+    value = value.replace(/[^\d+]/g, '');
+
+    // Only allow "+" as the very first character
+    if (value.indexOf('+') > 0) {
+      value = value.replace(/\+/g, '');
+    }
+    // Only allow one "+"
+    value = value.replace(/(?!^)\+/g, '');
+
+    setFormData((prev) => ({ ...prev, phone: value }));
+    if (phoneError) setPhoneError('');
+  };
+
+  // Handle vendor company dropdown selection
+  const handleCompanySelectChange = (e) => {
+    const value = e.target.value;
+    setCompanySelection(value);
+    if (value === '__other__') {
+      setFormData((prev) => ({ ...prev, name: '' }));
+    } else {
+      setFormData((prev) => ({ ...prev, name: value }));
+    }
+  };
+
   // Open create modal
   const openCreateModal = () => {
     setEditingVendor(null);
     setFormData({ name: '', contact: '', phone: '', email: '', supplyType: '', status: 'active' });
+    setCompanySelection('');
+    setPhoneError('');
     setShowModal(true);
     setShowDeleteModal(false);
     setShowVendorDetails(false);
@@ -306,6 +450,10 @@ export default function Vendors() {
       supplyType: vendor.supplyType,
       status: vendor.status,
     });
+    setCompanySelection(
+      vendorCompanyOptions.includes(vendor.name) ? vendor.name : '__other__'
+    );
+    setPhoneError('');
     setShowModal(true);
     setShowDeleteModal(false);
     setShowVendorDetails(false);
@@ -328,6 +476,14 @@ export default function Vendors() {
   // Submit create/update
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const phoneValidationError = validatePhone(formData.phone);
+    if (phoneValidationError) {
+      setPhoneError(phoneValidationError);
+      toast.error(phoneValidationError);
+      return;
+    }
+
     const isEditing = !!editingVendor;
     const url = isEditing
       ? `${API_BASE}/vendors/${editingVendor.id}`
@@ -371,7 +527,7 @@ export default function Vendors() {
     }
   };
 
-  // Compute stats
+  // Compute stats (based on all fetched vendors, not the filtered view)
   const totalVendors = vendors.length;
   const activeVendors = vendors.filter((v) => v.status === 'active').length;
   const inactiveVendors = vendors.filter((v) => v.status === 'inactive').length;
@@ -430,16 +586,30 @@ export default function Vendors() {
             <form onSubmit={handleSubmit}>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Vendor Full Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    placeholder="Enter vendor full name"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Vendor Company</label>
+                  <select
+                    value={companySelection}
+                    onChange={handleCompanySelectChange}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                     required
-                  />
+                  >
+                    <option value="">Select vendor company</option>
+                    {vendorCompanyOptions.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                    <option value="__other__">Other (specify)</option>
+                  </select>
+                  {companySelection === '__other__' && (
+                    <input
+                      type="text"
+                      name="name"
+                      value={formData.name}
+                      onChange={handleChange}
+                      placeholder="Enter vendor company name"
+                      className="mt-2 w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                      required
+                    />
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Contact Person</label>
@@ -470,10 +640,19 @@ export default function Vendors() {
                     type="tel"
                     name="phone"
                     value={formData.phone}
-                    onChange={handleChange}
-                    placeholder="Enter Phone Number"
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+                    onChange={handlePhoneChange}
+                    placeholder="e.g., 0771234567 or +94771234567"
+                    inputMode="tel"
+                    className={`w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:ring-2 transition-all ${
+                      phoneError
+                        ? 'border-red-300 focus:ring-red-500/20 focus:border-red-400'
+                        : 'border-gray-200 focus:ring-blue-500/20 focus:border-blue-400'
+                    }`}
+                    required
                   />
+                  {phoneError && (
+                    <p className="text-xs text-red-600 mt-1">{phoneError}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Supply Type</label>
@@ -484,24 +663,28 @@ export default function Vendors() {
                     className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                   >
                     <option value="">Select supply type</option>
-                    <option value="Raw Materials">Raw Materials</option>
-                    <option value="Packaging">Packaging</option>
-                    <option value="Delivery">Delivery</option>
-                    <option value="Equipment">Equipment</option>
-                    <option value="Services">Services</option>
+                    {supplyTypeOptions.map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
-                  <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                  >
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
+                  {editingVendor ? (
+                    <select
+                      name="status"
+                      value={formData.status}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  ) : (
+                    <div className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 text-gray-500">
+                      Active
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center justify-end gap-3 mt-5 pt-4 border-t border-gray-100">
@@ -662,6 +845,56 @@ export default function Vendors() {
                 Add Vendor
               </motion.button>
             </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="px-6 py-3 border-b border-gray-100 bg-gray-50/60 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+              <Filter size={13} />
+              Filters
+            </div>
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+
+            <select
+              value={companyFilter}
+              onChange={(e) => setCompanyFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all max-w-[180px]"
+            >
+              <option value="all">All Vendor Companies</option>
+              {vendorCompanyFilterOptions.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+
+            <select
+              value={supplyTypeFilter}
+              onChange={(e) => setSupplyTypeFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
+            >
+              <option value="all">All Supply Types</option>
+              {supplyTypeFilterOptions.map((type) => (
+                <option key={type} value={type}>{type}</option>
+              ))}
+            </select>
+
+            {hasActiveFilters && (
+              <button
+                onClick={clearFilters}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <RotateCcw size={12} />
+                Clear filters
+              </button>
+            )}
           </div>
           
           <div className="relative">

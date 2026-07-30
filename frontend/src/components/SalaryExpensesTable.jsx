@@ -1,9 +1,9 @@
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, formatAmount } from '../utils/helpers';
 import PeriodSelector from './PeriodSelector';
 import { CheckCircle2 } from 'lucide-react';
 import LiveClock from './LiveClock';
 
-export default function SalaryExpensesTable({ salaries, filters, onFilterChange, onMarkPaid }) {
+export default function SalaryExpensesTable({ salaries, filters, onFilterChange }) {
   const updateFilter = (partial) => {
     onFilterChange((prev) => ({ ...prev, ...partial }));
   };
@@ -52,12 +52,11 @@ export default function SalaryExpensesTable({ salaries, filters, onFilterChange,
               <tr className="border-b border-gray-100">
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Employee</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Month</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">Base</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">OT</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">Bonus</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">Total</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">Base (LKR)</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">OT (LKR)</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">Bonus (LKR)</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">Total (LKR)</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -65,26 +64,14 @@ export default function SalaryExpensesTable({ salaries, filters, onFilterChange,
                 <tr key={s.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td className="py-3 px-4 font-medium text-gray-900">{s.employeeName}</td>
                   <td className="py-3 px-4 text-gray-700">{s.month}</td>
-                  <td className="py-3 px-4 text-right text-gray-700">{formatCurrency(s.baseSalary)}</td>
-                  <td className="py-3 px-4 text-right text-gray-700">{formatCurrency(s.otAmount)}</td>
-                  <td className="py-3 px-4 text-right text-gray-700">{formatCurrency(s.bonus)}</td>
-                  <td className="py-3 px-4 text-right font-medium text-gray-900">{formatCurrency(s.totalSalary)}</td>
+                  <td className="py-3 px-4 text-right text-gray-700">{formatAmount(s.baseSalary)}</td>
+                  <td className="py-3 px-4 text-right text-gray-700">{formatAmount(s.otAmount)}</td>
+                  <td className="py-3 px-4 text-right text-gray-700">{formatAmount(s.bonus)}</td>
+                  <td className="py-3 px-4 text-right font-medium text-gray-900">{formatAmount(s.totalSalary)}</td>
                   <td className="py-3 px-4">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${s.paid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
                       {s.paid ? 'Paid' : 'Pending'}
                     </span>
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    {!s.paid && onMarkPaid && (
-                      <button
-                        onClick={() => onMarkPaid(s.id)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 rounded-lg hover:bg-emerald-100 transition"
-                        title="Mark as paid"
-                      >
-                        <CheckCircle2 size={12} />
-                        Mark Paid
-                      </button>
-                    )}
                   </td>
                 </tr>
               ))}
