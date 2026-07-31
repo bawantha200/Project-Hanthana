@@ -292,7 +292,7 @@ const createOrder = async (orderData) => {
       order_type: orderType,
       payment_method: paymentMethod,
       payment_status: paymentStatus,
-      order_status: orderType === 'PICKUP' ? 'PLACED' : 'COMPLETED',
+      order_status: orderType === 'PICKUP' ? 'PLACED' : 'CANCELLED',
       total_amount: total,
       delivery_fee: deliveryFee,
       delivery_location: deliveryAddressText, // ✅ This should be the customer's address

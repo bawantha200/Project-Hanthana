@@ -101,7 +101,7 @@ export default function DemandForecasting() {
 
   // ─── State ───
   const [typeFilter, setTypeFilter] = useState('ALL');
-  const [selectedProductId, setSelectedProductId] = useState(null);
+  const [selectedProductId, setSelectedProductId] = useState(2);
   const [productionFilter, setProductionFilter] = useState('ALL');
   const [productionTypeFilter, setProductionTypeFilter] = useState('ALL');
   const [showCsvModal, setShowCsvModal] = useState(false);
@@ -402,7 +402,7 @@ export default function DemandForecasting() {
               )}
               Run Prediction Now
             </button>
-            <button
+            {/* <button
               onClick={() => {
                 setShowCsvModal(true);
                 setCsvStatus(null);
@@ -411,7 +411,7 @@ export default function DemandForecasting() {
             >
               <UploadCloud className="w-4 h-4" />
               Upload CSV Past Data
-            </button>
+            </button> */}
           </div>
         </div>
       </header>

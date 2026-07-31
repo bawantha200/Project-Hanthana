@@ -18,7 +18,8 @@ import {
   Calendar,
   BarChart3,
   XCircle,
-  RefreshCw
+  RefreshCw,
+  Ban
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -55,6 +56,7 @@ const filterTabs = [
   { key: 'PLACED', label: 'Pending', icon: Clock },
   { key: 'PROCESSING', label: 'Processing', icon: Package },
   { key: 'DELIVERED', label: 'Delivered', icon: CheckCircle },
+  { key: 'CANCELLED', label: 'Cancelled', icon: Ban },
 ];
 
 const filterTabsMain = [

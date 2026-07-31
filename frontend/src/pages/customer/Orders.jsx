@@ -29,12 +29,14 @@ const statusStyle = {
   Pending: 'bg-yellow-100 text-yellow-700 border-yellow-300',
   Preparing: 'bg-blue-100 text-blue-700 border-blue-300',
   Delivered: 'bg-emerald-100 text-emerald-700 border-emerald-300',
+  Cancelled: 'bg-red-100 text-red-700 border-red-300',
 };
 
 const statusDot = {
   Pending: 'bg-yellow-400',
   Preparing: 'bg-blue-500',
   Delivered: 'bg-emerald-500',
+  Cancelled: 'bg-red-500',
 };
 
 const Orders = () => {
@@ -90,7 +92,7 @@ const Orders = () => {
     ? orders
     : orders.filter(o => o.status === filter);
 
-  const filters = ['All', 'Pending', 'Preparing', 'Delivered'];
+  const filters = ['All', 'Pending', 'Preparing', 'Delivered', 'Cancelled'];
 
   // Reset to page 1 whenever the filter changes, so you don't land on an empty page
   useEffect(() => {

@@ -995,7 +995,7 @@ function DeliveryModal({
           </div>
 
           {/* View on Map Button */}
-          {selectedDelivery?.order?.deliveryLocation && (
+          {/* {selectedDelivery?.order?.deliveryLocation && (
             <button
               onClick={() => {
                 onClose();
@@ -1006,7 +1006,7 @@ function DeliveryModal({
               <Map size={18} />
               View Delivery Location on Map
             </button>
-          )}
+          )} */}
 
           {/* Order Items */}
           {items && items.length > 0 ? (
