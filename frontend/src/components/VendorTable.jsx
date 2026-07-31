@@ -17,7 +17,7 @@ export default function VendorTable({ vendors, onEdit, onDelete, onRowClick }) {
       <table className="w-full text-sm">
         <thead className="bg-gray-50">
           <tr>
-            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor</th>
+            <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Vendor Company</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Phone</th>
             <th className="text-left py-3 px-4 text-xs font-medium text-gray-500 uppercase tracking-wider">Supply Type</th>

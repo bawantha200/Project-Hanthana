@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   DollarSign, Search, Plus, X, User, Calendar, Edit, Trash2, 
   CheckCircle, AlertCircle, Loader, RefreshCw, History,
   ChevronDown, ChevronUp, Save, Briefcase, Clock, Award,
-  TrendingUp, Users
+  TrendingUp, Users, ChevronLeft, ChevronRight, CalendarDays,
+  Filter
 } from 'lucide-react';
 import { formatCurrency } from '../../utils/helpers';
 import axios from 'axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
 const SALARIES_API = `${API_BASE_URL}/salaries`;
+const DESIGNATIONS_API = `${API_BASE_URL}/designations`;
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -40,7 +43,6 @@ const getAuthHeaders = () => {
 const getOTRate = (designation, designations = []) => {
   if (!designation) return 500;
   
-  // First try to find in designations list
   if (designations && designations.length > 0) {
     const found = designations.find(d => 
       d.designation && designation.toLowerCase().includes(d.designation.toLowerCase())
@@ -50,12 +52,10 @@ const getOTRate = (designation, designations = []) => {
     }
   }
   
-  // Fallback: if designation object has ot_rate
   if (designation.ot_rate) {
     return parseFloat(designation.ot_rate);
   }
   
-  // Default fallback
   return 500;
 };
 
@@ -68,27 +68,93 @@ const calculateFinalSalary = (base, otHours, bonus, otRate) => {
   return baseNum + (otNum * rate) + bonusNum;
 };
 
+// ========== GET DESIGNATION NAME ==========
+const getDesignationName = (employee) => {
+  if (!employee) return '';
+  if (employee.designation && typeof employee.designation === 'object') {
+    return employee.designation.designation || '';
+  }
+  if (employee.designation && typeof employee.designation === 'string') {
+    return employee.designation;
+  }
+  return '';
+};
+
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchEmployees = async () => {
+  const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch employees');
+  return response.data.data || [];
+};
+
+const fetchDesignations = async () => {
+  const response = await axios.get(DESIGNATIONS_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch designations');
+  return response.data.data || [];
+};
+
+const fetchSalaries = async () => {
+  const response = await axios.get(SALARIES_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch salaries');
+  return response.data.data || [];
+};
+
+const createSalary = async (salaryData) => {
+  const response = await axios.post(SALARIES_API, salaryData, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to create salary');
+  return response.data.data;
+};
+
+const updateSalary = async ({ id, data }) => {
+  const response = await axios.put(`${SALARIES_API}/${id}`, data, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to update salary');
+  return response.data.data;
+};
+
+const deleteSalary = async (id) => {
+  const response = await axios.delete(`${SALARIES_API}/${id}`, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to delete salary');
+  return response.data;
+};
+
 export default function SalariesOT() {
+  const queryClient = useQueryClient();
+
   // ========== STATE ==========
   const [searchQuery, setSearchQuery] = useState('');
-  const [employees, setEmployees] = useState([]);
-  const [designations, setDesignations] = useState([]);
-  const [salaryData, setSalaryData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // ========== PAGINATION STATE ==========
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   // ========== PREVIOUS MONTHS STATE ==========
   const [showPreviousSalaries, setShowPreviousSalaries] = useState(false);
   const [previousSalaryData, setPreviousSalaryData] = useState([]);
   const [loadingPrevious, setLoadingPrevious] = useState(false);
+  
+  // ========== PREVIOUS MONTHS FILTERS ==========
+  const [prevSearchQuery, setPrevSearchQuery] = useState('');
+  const [prevFilterEmployeeId, setPrevFilterEmployeeId] = useState('');
+  const [prevFilterMonth, setPrevFilterMonth] = useState('');
+  const [prevFilterYear, setPrevFilterYear] = useState('');
+  
+  // ========== PREVIOUS MONTHS PAGINATION ==========
+  const [prevCurrentPage, setPrevCurrentPage] = useState(1);
+  const [prevItemsPerPage, setPrevItemsPerPage] = useState(10);
 
   // ========== FORM STATES ==========
   const [showSalaryForm, setShowSalaryForm] = useState(false);
   const [isEditingSalary, setIsEditingSalary] = useState(false);
   const [editingSalaryId, setEditingSalaryId] = useState(null);
+
+  // ========== EMPLOYEE SEARCH STATE FOR FORM ==========
+  const [employeeSearchQuery, setEmployeeSearchQuery] = useState('');
+  const [isEmployeeDropdownOpen, setIsEmployeeDropdownOpen] = useState(false);
+  const employeeSearchRef = useRef(null);
 
   // ========== DELETE CONFIRMATION ==========
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -104,51 +170,141 @@ export default function SalariesOT() {
     otHours: '',
     bonus: '',
     finalSalary: '',
-    otRate: 500
+    otRate: 500,
+    month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
   });
 
-  // ========== FETCH FUNCTIONS ==========
-  
-  const fetchDesignations = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/designations', getAuthHeaders());
-      if (response.data.success) {
-        setDesignations(response.data.data);
-        console.log('✅ Designations loaded:', response.data.data.length);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching designations:', err);
-    }
-  };
+  // ===== REACT QUERY HOOKS =====
 
-  const fetchEmployees = async () => {
-    try {
-      const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
-      if (response.data.success) {
-        setEmployees(response.data.data);
-        console.log('✅ Employees loaded:', response.data.data.length);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching employees:', err);
-      if (err.response?.status === 401) {
-        setError('Session expired. Please login again.');
-      }
-    }
-  };
+  // 1. Employees Query (cached 5 minutes)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+  } = useQuery({
+    queryKey: ['salary-employees'],
+    queryFn: fetchEmployees,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-  const fetchSalaries = async () => {
-    try {
-      const response = await axios.get(SALARIES_API, getAuthHeaders());
-      if (response.data.success) {
-        setSalaryData(response.data.data);
-        console.log('✅ Salaries loaded:', response.data.data.length);
+  // 2. Designations Query (cached 10 minutes)
+  const {
+    data: designations = [],
+    isLoading: designationsLoading,
+    error: designationsError,
+    refetch: refetchDesignations,
+  } = useQuery({
+    queryKey: ['salary-designations'],
+    queryFn: fetchDesignations,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 20 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 3. Salaries Query (poll every 10 seconds)
+  const {
+    data: salaryData = [],
+    isLoading: salariesLoading,
+    error: salariesError,
+    refetch: refetchSalaries,
+    isFetching: isSalariesFetching,
+    dataUpdatedAt: salariesUpdatedAt,
+  } = useQuery({
+    queryKey: ['salary-records'],
+    queryFn: fetchSalaries,
+    staleTime: 10 * 1000,
+    gcTime: 5 * 60 * 1000,
+    refetchInterval: 10000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  const loading = employeesLoading || designationsLoading || salariesLoading;
+  const anyError = employeesError || designationsError || salariesError;
+
+  // ===== MUTATIONS =====
+
+  // Create Salary
+  const createSalaryMutation = useMutation({
+    mutationFn: createSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+      showSuccessNotification('Salary added successfully!');
+      setShowSalaryForm(false);
+      resetSalaryForm();
+    },
+    onError: (err) => {
+      if (err.response?.status === 409) {
+        setError('Salary already recorded for this month.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to save salary.');
       }
-    } catch (err) {
-      console.error('❌ Error fetching salaries:', err);
-      if (err.response?.status === 401) {
-        setError('Session expired. Please login again.');
-      }
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Update Salary
+  const updateSalaryMutation = useMutation({
+    mutationFn: updateSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+      showSuccessNotification('Salary updated successfully!');
+      setShowSalaryForm(false);
+      resetSalaryForm();
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to update salary.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Delete Salary
+  const deleteSalaryMutation = useMutation({
+    mutationFn: deleteSalary,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+      showSuccessNotification('Salary record deleted successfully!');
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to delete salary record.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // ========== FILTER EMPLOYEES BY SEARCH ==========
+  const filteredEmployees = employees.filter(emp => 
+    emp.name?.toLowerCase().includes(employeeSearchQuery.toLowerCase())
+  );
+
+  // ========== SELECT EMPLOYEE ==========
+  const selectEmployee = (employee) => {
+    let designation = '';
+    if (employee.designation && typeof employee.designation === 'object') {
+      designation = employee.designation.designation || '';
+    } else {
+      designation = employee.designation || '';
     }
+    
+    const otRate = getOTRate(designation, designations);
+    setSalaryForm({
+      ...salaryForm,
+      employeeId: employee.id,
+      employeeName: employee.name,
+      designation: designation,
+      baseSalary: employee.base_salary || employee.baseSalary || '',
+      bonus: employee.bonus || '',
+      otRate: otRate
+    });
+    setEmployeeSearchQuery(employee.name);
+    setIsEmployeeDropdownOpen(false);
   };
 
   // ========== FETCH PREVIOUS MONTHS DATA ==========
@@ -159,62 +315,29 @@ export default function SalariesOT() {
       const currentMonth = currentDate.getMonth();
       const currentYear = currentDate.getFullYear();
       
-      const response = await axios.get(SALARIES_API, getAuthHeaders());
-      if (response.data.success) {
-        const allData = response.data.data;
-        const previousMonths = allData.filter(record => {
-          if (record.date) {
-            const recordDate = new Date(record.date);
-            return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
-          }
-          if (record.month) {
-            const monthYear = record.month.split(' ');
-            const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
-              .indexOf(monthYear[0]);
-            const year = parseInt(monthYear[1]);
-            return monthIndex !== currentMonth || year !== currentYear;
-          }
-          return true;
-        });
-        setPreviousSalaryData(previousMonths);
-        console.log('✅ Previous salaries loaded:', previousMonths.length);
-      }
+      const allData = salaryData;
+      const previousMonths = allData.filter(record => {
+        if (record.date) {
+          const recordDate = new Date(record.date);
+          return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
+        }
+        if (record.month) {
+          const monthYear = record.month.split(' ');
+          const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
+            .indexOf(monthYear[0]);
+          const year = parseInt(monthYear[1]);
+          return monthIndex !== currentMonth || year !== currentYear;
+        }
+        return true;
+      });
+      setPreviousSalaryData(previousMonths);
     } catch (err) {
-      console.error('❌ Error fetching previous salaries:', err);
+      console.error('Error fetching previous salaries:', err);
       setError('Failed to load previous salary data.');
     } finally {
       setLoadingPrevious(false);
     }
   };
-
-  // ========== LOAD DATA ==========
-  useEffect(() => {
-    const loadData = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please login to access salary data');
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      
-      try {
-        await Promise.all([
-          fetchEmployees(),
-          fetchDesignations(),
-          fetchSalaries()
-        ]);
-      } catch (err) {
-        console.error('Error loading data:', err);
-        setError('Failed to load data. Please refresh the page.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     if (showSuccess) {
@@ -227,7 +350,6 @@ export default function SalariesOT() {
 
   // ========== AUTO-CALCULATE FUNCTIONS ==========
   
-  // Auto-calculate final salary with OT rate based on designation
   useEffect(() => {
     if (salaryForm.baseSalary || salaryForm.otHours || salaryForm.bonus) {
       const otRate = getOTRate(salaryForm.designation, designations);
@@ -245,7 +367,6 @@ export default function SalariesOT() {
     }
   }, [salaryForm.baseSalary, salaryForm.otHours, salaryForm.bonus, salaryForm.designation, designations]);
 
-  // Update OT rate when designation changes
   useEffect(() => {
     if (salaryForm.designation) {
       const otRate = getOTRate(salaryForm.designation, designations);
@@ -267,7 +388,7 @@ export default function SalariesOT() {
         employeeId: parseInt(salaryForm.employeeId),
         employeeName: salaryForm.employeeName,
         designation: salaryForm.designation,
-        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' }),
+        month: salaryForm.month,
         baseSalary: parseFloat(salaryForm.baseSalary) || 0,
         otHours: parseFloat(salaryForm.otHours) || 0,
         otRate: otRate,
@@ -275,74 +396,41 @@ export default function SalariesOT() {
         totalSalary: parseFloat(salaryForm.finalSalary) || 0
       };
 
-      let response;
       if (isEditingSalary && editingSalaryId) {
-        response = await axios.put(`${SALARIES_API}/${editingSalaryId}`, data, getAuthHeaders());
-        if (response.data.success) {
-          await fetchSalaries();
-          setShowSalaryForm(false);
-          resetSalaryForm();
-          showSuccessNotification('Salary updated successfully!');
-        }
+        updateSalaryMutation.mutate({ id: editingSalaryId, data });
       } else {
-        response = await axios.post(SALARIES_API, data, getAuthHeaders());
-        if (response.data.success) {
-          await fetchSalaries();
-          setShowSalaryForm(false);
-          resetSalaryForm();
-          showSuccessNotification('Salary added successfully!');
-        }
+        createSalaryMutation.mutate(data);
       }
     } catch (err) {
       console.error('Error:', err);
-      if (err.response?.status === 401) {
+      if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
-      } else if (err.response?.status === 409) {
-        setError('Salary already recorded for this month.');
       } else {
         setError(err.response?.data?.message || 'Failed to save salary.');
       }
-    } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteSalary = async () => {
     if (!deleteId) return;
-    
-    try {
-      setSubmitting(true);
-      await axios.delete(`${SALARIES_API}/${deleteId}`, getAuthHeaders());
-      await fetchSalaries();
-      setShowDeleteConfirm(false);
-      setDeleteId(null);
-      showSuccessNotification('Salary record deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting salary:', err);
-      if (err.response?.status === 401) {
-        setError('Session expired. Please login again.');
-      } else {
-        setError('Failed to delete salary record.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    setSubmitting(true);
+    deleteSalaryMutation.mutate(deleteId);
   };
 
   const editSalary = (record) => {
     setIsEditingSalary(true);
     setEditingSalaryId(record.id);
-    // Get designation from record or from employee data
     let designation = record.designation || '';
     if (!designation) {
       const employee = employees.find(emp => emp.id === record.employee_id || emp.id === record.employeeId);
       if (employee) {
-        // Get designation name from employee.designation object or string
         designation = employee.designation?.designation || employee.designation || '';
       }
     }
     const otRate = record.ot_rate || getOTRate(designation, designations) || 500;
     
+    setEmployeeSearchQuery(record.employee_name || record.name || '');
     setSalaryForm({
       employeeId: record.employee_id || record.employeeId || '',
       employeeName: record.employee_name || record.name || '',
@@ -351,7 +439,8 @@ export default function SalariesOT() {
       otHours: record.ot_hours || record.otHours || '',
       bonus: record.bonus || '',
       finalSalary: record.total_salary || record.total || '',
-      otRate: otRate
+      otRate: otRate,
+      month: record.month || new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
     });
     setShowSalaryForm(true);
   };
@@ -367,10 +456,13 @@ export default function SalariesOT() {
       otHours: '',
       bonus: '',
       finalSalary: '',
-      otRate: 500
+      otRate: 500,
+      month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
     });
+    setEmployeeSearchQuery('');
     setIsEditingSalary(false);
     setEditingSalaryId(null);
+    setIsEmployeeDropdownOpen(false);
   };
 
   const showSuccessNotification = (message) => {
@@ -382,7 +474,6 @@ export default function SalariesOT() {
 
   const openSalaryForm = (employee = null) => {
     if (employee) {
-      // Get designation name from employee.designation object or string
       let designation = '';
       if (employee.designation && typeof employee.designation === 'object') {
         designation = employee.designation.designation || '';
@@ -391,6 +482,7 @@ export default function SalariesOT() {
       }
       
       const otRate = getOTRate(designation, designations);
+      setEmployeeSearchQuery(employee.name);
       setSalaryForm({
         employeeId: employee.id,
         employeeName: employee.name,
@@ -399,9 +491,11 @@ export default function SalariesOT() {
         otHours: '',
         bonus: employee.bonus || '',
         finalSalary: '',
-        otRate: otRate
+        otRate: otRate,
+        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
       });
     } else {
+      setEmployeeSearchQuery('');
       setSalaryForm({
         employeeId: '',
         employeeName: '',
@@ -410,7 +504,8 @@ export default function SalariesOT() {
         otHours: '',
         bonus: '',
         finalSalary: '',
-        otRate: 500
+        otRate: 500,
+        month: new Date().toLocaleString('default', { month: 'long', year: 'numeric' })
       });
     }
     setShowSalaryForm(true);
@@ -431,6 +526,7 @@ export default function SalariesOT() {
     setShowPreviousSalaries(newState);
     if (newState) {
       fetchPreviousSalaries();
+      setPrevCurrentPage(1);
     }
   };
 
@@ -463,9 +559,150 @@ export default function SalariesOT() {
     (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const filteredPreviousSalary = previousSalaryData.filter((rec) =>
-    (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // ========== FILTER PREVIOUS MONTHS DATA ==========
+  const applyPrevFilters = (data) => {
+    let filtered = [...data];
+
+    if (prevSearchQuery) {
+      filtered = filtered.filter(rec =>
+        (rec.employee_name || rec.name || '').toLowerCase().includes(prevSearchQuery.toLowerCase())
+      );
+    }
+
+    if (prevFilterEmployeeId) {
+      filtered = filtered.filter(rec => 
+        (rec.employee_id || rec.employeeId) === parseInt(prevFilterEmployeeId)
+      );
+    }
+
+    if (prevFilterMonth) {
+      filtered = filtered.filter(rec => {
+        const monthYear = rec.month ? rec.month.split(' ') : [];
+        const monthIndex = ['January','February','March','April','May','June','July','August','September','October','November','December']
+          .indexOf(monthYear[0]);
+        return monthIndex === parseInt(prevFilterMonth);
+      });
+    }
+
+    if (prevFilterYear) {
+      filtered = filtered.filter(rec => {
+        const monthYear = rec.month ? rec.month.split(' ') : [];
+        const year = parseInt(monthYear[1]);
+        return year === parseInt(prevFilterYear);
+      });
+    }
+
+    return filtered;
+  };
+
+  const filteredPreviousSalary = applyPrevFilters(previousSalaryData);
+
+  // ========== PREVIOUS MONTHS PAGINATION ==========
+  const prevTotalItems = filteredPreviousSalary.length;
+  const prevTotalPages = Math.ceil(prevTotalItems / prevItemsPerPage);
+  const prevStartIndex = (prevCurrentPage - 1) * prevItemsPerPage;
+  const prevEndIndex = prevStartIndex + prevItemsPerPage;
+  const paginatedPrevData = filteredPreviousSalary.slice(prevStartIndex, prevEndIndex);
+
+  useEffect(() => {
+    setPrevCurrentPage(1);
+  }, [prevSearchQuery, prevFilterEmployeeId, prevFilterMonth, prevFilterYear, prevItemsPerPage]);
+
+  // ========== PREVIOUS PAGINATION FUNCTIONS ==========
+  const getPrevPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (prevTotalPages <= maxPagesToShow) {
+      for (let i = 1; i <= prevTotalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, prevCurrentPage - 1);
+      let endPage = Math.min(prevTotalPages - 1, prevCurrentPage + 1);
+      
+      if (prevCurrentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (prevCurrentPage >= prevTotalPages - 2) {
+        startPage = prevTotalPages - 3;
+        endPage = prevTotalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < prevTotalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(prevTotalPages);
+    }
+    
+    return pages;
+  };
+
+  // ========== PAGINATION ==========
+  const totalItems = filteredSalary.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedData = filteredSalary.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
+
+  const getPageNumbers = () => {
+    const pages = [];
+    const maxPagesToShow = 5;
+    
+    if (totalPages <= maxPagesToShow) {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      pages.push(1);
+      
+      let startPage = Math.max(2, currentPage - 1);
+      let endPage = Math.min(totalPages - 1, currentPage + 1);
+      
+      if (currentPage <= 3) {
+        startPage = 2;
+        endPage = 4;
+      }
+      
+      if (currentPage >= totalPages - 2) {
+        startPage = totalPages - 3;
+        endPage = totalPages - 1;
+      }
+      
+      if (startPage > 2) {
+        pages.push('...');
+      }
+      
+      for (let i = startPage; i <= endPage; i++) {
+        pages.push(i);
+      }
+      
+      if (endPage < totalPages - 1) {
+        pages.push('...');
+      }
+      
+      pages.push(totalPages);
+    }
+    
+    return pages;
+  };
 
   // ========== SUMMARY STATISTICS ==========
 
@@ -489,7 +726,7 @@ export default function SalariesOT() {
   const summaryCards = [
     { 
       key: 'staff', 
-      label: 'Total Staff', 
+      label: 'Staff', 
       value: totalStaff, 
       icon: Users,
       bgClass: 'bg-blue-50', 
@@ -497,7 +734,7 @@ export default function SalariesOT() {
     },
     { 
       key: 'ot_hours', 
-      label: 'Total OT Hours', 
+      label: 'OT Hours', 
       value: `${totalOTHours}h`, 
       icon: Clock,
       bgClass: 'bg-blue-50', 
@@ -521,7 +758,7 @@ export default function SalariesOT() {
     },
     { 
       key: 'bonus', 
-      label: 'Total Bonus', 
+      label: 'Bonus', 
       value: formatCurrency(totalBonus), 
       icon: Award,
       bgClass: 'bg-blue-50', 
@@ -537,6 +774,9 @@ export default function SalariesOT() {
     },
   ];
 
+  // ========== GET LAST UPDATED TIME ==========
+  const lastUpdated = salariesUpdatedAt ? new Date(salariesUpdatedAt).toLocaleTimeString() : 'Never';
+
   // ========== LOADING ==========
 
   if (loading) {
@@ -546,6 +786,26 @@ export default function SalariesOT() {
           <Loader size={48} className="text-blue-600 animate-spin mx-auto" />
           <p className="mt-4 text-gray-500">Loading salary data...</p>
         </div>
+      </div>
+    );
+  }
+
+  // ========== ERROR STATE ==========
+  if (anyError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <AlertCircle size={48} className="text-red-500" />
+        <p className="text-gray-600">Failed to load data: {anyError.message}</p>
+        <button
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+            queryClient.invalidateQueries({ queryKey: ['salary-employees'] });
+            queryClient.invalidateQueries({ queryKey: ['salary-designations'] });
+          }}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -596,24 +856,32 @@ export default function SalariesOT() {
             <p className="text-sm text-gray-500 mt-1">
               Manage employee salaries, overtime calculations, and bonus payments
             </p>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${isSalariesFetching ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+                <span className="text-xs text-gray-400">{isSalariesFetching ? 'Updating...' : 'Live'}</span>
+              </div>
+              <span className="text-xs text-gray-400">•</span>
+              <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            {isSalariesFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Syncing...
+              </span>
+            )}
             <button
-              onClick={async () => {
-                setLoading(true);
-                setError(null);
-                try {
-                  await fetchSalaries();
-                  showSuccessNotification('Salaries refreshed successfully!');
-                } catch (err) {
-                  setError('Failed to refresh salary data.');
-                } finally {
-                  setLoading(false);
-                }
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['salary-records'] });
+                queryClient.invalidateQueries({ queryKey: ['salary-employees'] });
+                queryClient.invalidateQueries({ queryKey: ['salary-designations'] });
+                showSuccessNotification('Salaries refreshed successfully!');
               }}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={16} className={isSalariesFetching ? 'animate-spin' : ''} />
               Refresh
             </button>
             <button
@@ -657,7 +925,7 @@ export default function SalariesOT() {
         })}
       </motion.div>
 
-      {/* ========== SEARCH ========== */}
+      {/* ========== SEARCH & ITEMS PER PAGE ========== */}
       <motion.div
         variants={itemVariants}
         className="flex items-center gap-4 flex-wrap"
@@ -672,7 +940,23 @@ export default function SalariesOT() {
             className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
           />
         </div>
-        <div className="text-sm text-gray-400">
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400">Show:</span>
+          <select
+            value={itemsPerPage}
+            onChange={(e) => {
+              setItemsPerPage(parseInt(e.target.value));
+              setCurrentPage(1);
+            }}
+            className="px-2 py-1 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+          >
+            <option value={5}>5</option>
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+        <div className="text-sm text-gray-400 ml-auto">
           {filteredSalary.length} records found
         </div>
       </motion.div>
@@ -701,110 +985,163 @@ export default function SalariesOT() {
             </div>
           </div>
           
-          {filteredSalary.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Base Salary</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Hours</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Rate</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Amount</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Bonus</th>
-                    <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Total Salary</th>
-                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSalary.map((salary) => {
-                    // Get designation from salary record or from employee data
-                    let designation = salary.designation || 'N/A';
-                    let otRate = salary.ot_rate || 500;
-                    
-                    if (!salary.designation) {
-                      const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
-                      if (employee) {
-                        designation = employee.designation?.designation || employee.designation || 'N/A';
-                        otRate = getOTRate(designation, designations);
-                      }
-                    }
-                    
-                    const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
-                    const totalSalary = salary.total_salary || salary.total || 0;
-                    
-                    return (
-                      <tr key={salary.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                        <td className="py-3 px-6 font-medium text-gray-900">{salary.employee_name || salary.name}</td>
-                        <td className="py-3 px-6">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                            {designation}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otAmount)}</td>
-                        <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
-                        <td className="py-3 px-6 text-right font-semibold text-blue-700">{formatCurrency(totalSalary)}</td>
-                        <td className="py-3 px-6">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => editSalary(salary)}
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Edit"
-                            >
-                              <Edit size={15} />
-                            </button>
-                            <button
-                              onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
-                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200 bg-gray-50/50">
-                    <td className="py-3 px-6 font-semibold text-gray-900">Total</td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {formatCurrency(filteredSalary.reduce((s, r) => s + (r.base_salary || r.base || 0), 0))}
-                    </td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {filteredSalary.reduce((s, r) => s + (r.ot_hours || r.otHours || 0), 0)}h
-                    </td>
-                    <td className="py-3 px-6"></td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {formatCurrency(filteredSalary.reduce((s, r) => {
-                        let designation = r.designation || '';
-                        if (!designation) {
-                          const employee = employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId);
-                          if (employee) {
-                            designation = employee.designation?.designation || employee.designation || '';
-                          }
+          {paginatedData.length > 0 ? (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                      <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Designation</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Base Salary</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Hours</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Rate</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">OT Amount</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Bonus</th>
+                      <th className="text-right py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Total Salary</th>
+                      <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedData.map((salary) => {
+                      let designation = salary.designation || 'N/A';
+                      let otRate = salary.ot_rate || 500;
+                      
+                      if (!salary.designation) {
+                        const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
+                        if (employee) {
+                          designation = employee.designation?.designation || employee.designation || 'N/A';
+                          otRate = getOTRate(designation, designations);
                         }
-                        const rate = r.ot_rate || getOTRate(designation, designations) || 500;
-                        return s + ((r.ot_hours || r.otHours || 0) * rate);
-                      }, 0))}
-                    </td>
-                    <td className="py-3 px-6 text-right font-semibold text-gray-900">
-                      {formatCurrency(filteredSalary.reduce((s, r) => s + (r.bonus || 0), 0))}
-                    </td>
-                    <td className="py-3 px-6 text-right font-semibold text-blue-700">
-                      {formatCurrency(filteredSalary.reduce((s, r) => s + (r.total_salary || r.total || 0), 0))}
-                    </td>
-                    <td className="py-3 px-6"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+                      }
+                      
+                      const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
+                      const totalSalary = salary.total_salary || salary.total || 0;
+                      
+                      return (
+                        <tr key={salary.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                          <td className="py-3 px-6 font-medium text-gray-900">{salary.employee_name || salary.name}</td>
+                          <td className="py-3 px-6">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                              {designation}
+                            </span>
+                          </td>
+                          <td className="py-3 px-6 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(otAmount)}</td>
+                          <td className="py-3 px-6 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
+                          <td className="py-3 px-6 text-right font-semibold text-blue-700">{formatCurrency(totalSalary)}</td>
+                          <td className="py-3 px-6">
+                            <div className="flex items-center justify-center gap-2">
+                              <button
+                                onClick={() => editSalary(salary)}
+                                className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                title="Edit"
+                              >
+                                <Edit size={15} />
+                              </button>
+                              <button
+                                onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
+                                className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-gray-200 bg-gray-50/50">
+                      <td className="py-3 px-6 font-semibold text-gray-900">Total</td>
+                      <td className="py-3 px-6"></td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {formatCurrency(paginatedData.reduce((s, r) => s + (r.base_salary || r.base || 0), 0))}
+                      </td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {paginatedData.reduce((s, r) => s + (r.ot_hours || r.otHours || 0), 0)}h
+                      </td>
+                      <td className="py-3 px-6"></td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {formatCurrency(paginatedData.reduce((s, r) => {
+                          let designation = r.designation || '';
+                          if (!designation) {
+                            const employee = employees.find(emp => emp.id === r.employee_id || emp.id === r.employeeId);
+                            if (employee) {
+                              designation = employee.designation?.designation || employee.designation || '';
+                            }
+                          }
+                          const rate = r.ot_rate || getOTRate(designation, designations) || 500;
+                          return s + ((r.ot_hours || r.otHours || 0) * rate);
+                        }, 0))}
+                      </td>
+                      <td className="py-3 px-6 text-right font-semibold text-gray-900">
+                        {formatCurrency(paginatedData.reduce((s, r) => s + (r.bonus || 0), 0))}
+                      </td>
+                      <td className="py-3 px-6 text-right font-semibold text-blue-700">
+                        {formatCurrency(paginatedData.reduce((s, r) => s + (r.total_salary || r.total || 0), 0))}
+                      </td>
+                      <td className="py-3 px-6"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* ========== PAGINATION ========== */}
+              {totalPages > 1 && (
+                <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-sm text-gray-500">
+                    Showing <span className="font-medium">{startIndex + 1}</span> to{' '}
+                    <span className="font-medium">{Math.min(endIndex, totalItems)}</span> of{' '}
+                    <span className="font-medium">{totalItems}</span> results
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                      className={`p-2 rounded-lg border transition-colors ${
+                        currentPage === 1
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                      }`}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    {getPageNumbers().map((page, index) => (
+                      typeof page === 'number' ? (
+                        <button
+                          key={index}
+                          onClick={() => setCurrentPage(page)}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                            currentPage === page
+                              ? 'bg-blue-600 text-white shadow-sm'
+                              : 'border border-gray-200 text-gray-600 hover:bg-gray-100'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      ) : (
+                        <span key={index} className="px-1 text-gray-400">…</span>
+                      )
+                    ))}
+                    <button
+                      onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                      disabled={currentPage === totalPages}
+                      className={`p-2 rounded-lg border transition-colors ${
+                        currentPage === totalPages
+                          ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                      }`}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-center py-12">
               <DollarSign size={48} className="mx-auto mb-4 text-gray-300" />
@@ -890,89 +1227,227 @@ export default function SalariesOT() {
                     </div>
                   </div>
                   
+                  {/* ========== PREVIOUS MONTHS FILTERS ========== */}
+                  <div className="p-4 border-b border-blue-50 bg-blue-50/20">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Filter size={14} className="text-blue-500" />
+                      <span className="text-xs font-medium text-gray-600">Filters</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      {/* Search */}
+                      <div className="relative">
+                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Search employee..."
+                          value={prevSearchQuery}
+                          onChange={(e) => setPrevSearchQuery(e.target.value)}
+                          className="w-full pl-8 pr-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        />
+                      </div>
+
+                      {/* Employee Filter */}
+                      <select
+                        value={prevFilterEmployeeId}
+                        onChange={(e) => setPrevFilterEmployeeId(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                      >
+                        <option value="">All Employees</option>
+                        {employees.map((emp) => {
+                          const desName = getDesignationName(emp);
+                          return (
+                            <option key={emp.id} value={emp.id}>
+                              {emp.name} {desName ? `- ${desName}` : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+
+                      {/* Month Filter */}
+                      <select
+                        value={prevFilterMonth}
+                        onChange={(e) => setPrevFilterMonth(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                      >
+                        <option value="">All Months</option>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <option key={i} value={i}>
+                            {new Date(2000, i, 1).toLocaleString('default', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+
+                      {/* Year Filter */}
+                      <select
+                        value={prevFilterYear}
+                        onChange={(e) => setPrevFilterYear(e.target.value)}
+                        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                      >
+                        <option value="">All Years</option>
+                        {Array.from({ length: 6 }, (_, i) => {
+                          const year = new Date().getFullYear() - i;
+                          return (
+                            <option key={year} value={year}>{year}</option>
+                          );
+                        })}
+                      </select>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between">
+                      <span className="text-xs text-gray-400">{filteredPreviousSalary.length} records found</span>
+                      {(prevSearchQuery || prevFilterEmployeeId || prevFilterMonth || prevFilterYear) && (
+                        <button
+                          onClick={() => {
+                            setPrevSearchQuery('');
+                            setPrevFilterEmployeeId('');
+                            setPrevFilterMonth('');
+                            setPrevFilterYear('');
+                          }}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+                        >
+                          <X size={12} />
+                          Clear Filters
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  
                   {loadingPrevious ? (
                     <div className="text-center py-8">
                       <Loader size={24} className="animate-spin text-blue-600 mx-auto" />
                       <p className="text-xs text-gray-400 mt-2">Loading previous records...</p>
                     </div>
-                  ) : filteredPreviousSalary.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-blue-50">
-                          <tr>
-                            <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Employee</th>
-                            <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Designation</th>
-                            <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Month</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Base Salary</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Hours</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Rate</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Amount</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Bonus</th>
-                            <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Total Salary</th>
-                            <th className="text-center py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredPreviousSalary.map((salary) => {
-                            let designation = salary.designation || 'N/A';
-                            let otRate = salary.ot_rate || 500;
-                            
-                            if (!salary.designation) {
-                              const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
-                              if (employee) {
-                                designation = employee.designation?.designation || employee.designation || 'N/A';
-                                otRate = getOTRate(designation, designations);
+                  ) : paginatedPrevData.length > 0 ? (
+                    <>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-blue-50">
+                            <tr>
+                              <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Employee</th>
+                              <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Designation</th>
+                              <th className="text-left py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Month</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Base Salary</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Hours</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Rate</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">OT Amount</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Bonus</th>
+                              <th className="text-right py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Total Salary</th>
+                              <th className="text-center py-2.5 px-4 text-xs font-medium text-blue-700 uppercase tracking-wider">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginatedPrevData.map((salary) => {
+                              let designation = salary.designation || 'N/A';
+                              let otRate = salary.ot_rate || 500;
+                              
+                              if (!salary.designation) {
+                                const employee = employees.find(emp => emp.id === salary.employee_id || emp.id === salary.employeeId);
+                                if (employee) {
+                                  designation = employee.designation?.designation || employee.designation || 'N/A';
+                                  otRate = getOTRate(designation, designations);
+                                }
                               }
-                            }
-                            
-                            const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
-                            
-                            return (
-                              <tr key={salary.id} className="border-b border-blue-50 hover:bg-blue-50/30 transition-colors">
-                                <td className="py-2.5 px-4 font-medium text-gray-800">{salary.employee_name || salary.name}</td>
-                                <td className="py-2.5 px-4">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                                    {designation}
-                                  </span>
-                                </td>
-                                <td className="py-2.5 px-4 text-gray-600">{salary.month || 'N/A'}</td>
-                                <td className="py-2.5 px-4 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otAmount)}</td>
-                                <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
-                                <td className="py-2.5 px-4 text-right font-semibold text-blue-700">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
-                                <td className="py-2.5 px-4">
-                                  <div className="flex items-center justify-center gap-2">
-                                    <button
-                                      onClick={() => editSalary(salary)}
-                                      className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                                      title="Edit"
-                                    >
-                                      <Edit size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
-                                      className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                                      title="Delete"
-                                    >
-                                      <Trash2 size={14} />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                        <tfoot className="bg-blue-50/50">
-                          <tr>
-                            <td colSpan="10" className="py-2 px-4 text-xs text-blue-600 font-medium">
-                              Total: {filteredPreviousSalary.length} records
-                            </td>
-                          </tr>
-                        </tfoot>
-                      </table>
-                    </div>
+                              
+                              const otAmount = (salary.ot_hours || salary.otHours || 0) * otRate;
+                              
+                              return (
+                                <tr key={salary.id} className="border-b border-blue-50 hover:bg-blue-50/30 transition-colors">
+                                  <td className="py-2.5 px-4 font-medium text-gray-800">{salary.employee_name || salary.name}</td>
+                                  <td className="py-2.5 px-4">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                                      {designation}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-4 text-gray-600">{salary.month || 'N/A'}</td>
+                                  <td className="py-2.5 px-4 text-right font-medium text-gray-700">{formatCurrency(salary.base_salary || salary.base || 0)}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{salary.ot_hours || salary.otHours || 0}h</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otRate)}/hr</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(otAmount)}</td>
+                                  <td className="py-2.5 px-4 text-right text-gray-600">{formatCurrency(salary.bonus || 0)}</td>
+                                  <td className="py-2.5 px-4 text-right font-semibold text-blue-700">{formatCurrency(salary.total_salary || salary.total || 0)}</td>
+                                  <td className="py-2.5 px-4">
+                                    <div className="flex items-center justify-center gap-2">
+                                      <button
+                                        onClick={() => editSalary(salary)}
+                                        className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="Edit"
+                                      >
+                                        <Edit size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => confirmDelete(salary.id, salary.employee_name || salary.name)}
+                                        className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                                        title="Delete"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot className="bg-blue-50/50">
+                            <tr>
+                              <td colSpan="10" className="py-2 px-4 text-xs text-blue-600 font-medium">
+                                Total: {paginatedPrevData.length} records
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+
+                      {/* ========== PREVIOUS MONTHS PAGINATION ========== */}
+                      {prevTotalPages > 1 && (
+                        <div className="px-4 py-3 border-t border-blue-100 flex items-center justify-between flex-wrap gap-2">
+                          <div className="text-xs text-gray-500">
+                            Showing <span className="font-medium">{prevStartIndex + 1}</span> to{' '}
+                            <span className="font-medium">{Math.min(prevEndIndex, prevTotalItems)}</span> of{' '}
+                            <span className="font-medium">{prevTotalItems}</span> results
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setPrevCurrentPage(prev => Math.max(1, prev - 1))}
+                              disabled={prevCurrentPage === 1}
+                              className={`p-1.5 rounded-lg border transition-colors ${
+                                prevCurrentPage === 1
+                                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                                  : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                              }`}
+                            >
+                              <ChevronLeft size={14} />
+                            </button>
+                            {getPrevPageNumbers().map((page, index) => (
+                              typeof page === 'number' ? (
+                                <button
+                                  key={index}
+                                  onClick={() => setPrevCurrentPage(page)}
+                                  className={`w-7 h-7 text-xs font-medium rounded-lg transition-colors ${
+                                    prevCurrentPage === page
+                                      ? 'bg-blue-600 text-white shadow-sm'
+                                      : 'border border-gray-200 text-gray-600 hover:bg-gray-100'
+                                  }`}
+                                >
+                                  {page}
+                                </button>
+                              ) : (
+                                <span key={index} className="px-1 text-gray-400 text-xs">…</span>
+                              )
+                            ))}
+                            <button
+                              onClick={() => setPrevCurrentPage(prev => Math.min(prevTotalPages, prev + 1))}
+                              disabled={prevCurrentPage === prevTotalPages}
+                              className={`p-1.5 rounded-lg border transition-colors ${
+                                prevCurrentPage === prevTotalPages
+                                  ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                                  : 'border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                              }`}
+                            >
+                              <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <div className="text-center py-8 text-gray-500">
                       <DollarSign size={28} className="mx-auto mb-2 text-gray-300" />
@@ -997,7 +1472,7 @@ export default function SalariesOT() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
               onClick={() => {
-                if (!submitting) {
+                if (!submitting && !createSalaryMutation.isPending && !updateSalaryMutation.isPending) {
                   setShowSalaryForm(false);
                   resetSalaryForm();
                 }
@@ -1012,13 +1487,13 @@ export default function SalariesOT() {
               <div className="relative p-6 md:p-8">
                 <button
                   onClick={() => {
-                    if (!submitting) {
+                    if (!submitting && !createSalaryMutation.isPending && !updateSalaryMutation.isPending) {
                       setShowSalaryForm(false);
                       resetSalaryForm();
                     }
                   }}
                   className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
-                  disabled={submitting}
+                  disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                 >
                   <X size={24} className="text-gray-400" />
                 </button>
@@ -1034,62 +1509,65 @@ export default function SalariesOT() {
 
                 <form onSubmit={handleSalarySubmit}>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    {/* ========== EMPLOYEE SELECT WITH SEARCH ========== */}
+                    <div className="relative" ref={employeeSearchRef}>
                       <label className="block text-xs font-medium text-gray-600 mb-1.5">
                         <User size={14} className="inline mr-1" /> Employee *
                       </label>
-                      <select
-                        value={salaryForm.employeeId}
-                        onChange={(e) => {
-                          const emp = employees.find(emp => emp.id === parseInt(e.target.value));
-                          if (emp) {
-                            // Get designation name from employee.designation object or string
-                            let designation = '';
-                            if (emp.designation && typeof emp.designation === 'object') {
-                              designation = emp.designation.designation || '';
-                            } else {
-                              designation = emp.designation || '';
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Search employee..."
+                          value={employeeSearchQuery}
+                          onChange={(e) => {
+                            setEmployeeSearchQuery(e.target.value);
+                            setIsEmployeeDropdownOpen(true);
+                            if (e.target.value === '') {
+                              setSalaryForm({ ...salaryForm, employeeId: '', employeeName: '' });
                             }
-                            
-                            const otRate = getOTRate(designation, designations);
-                            setSalaryForm({
-                              ...salaryForm,
-                              employeeId: e.target.value,
-                              employeeName: emp.name,
-                              designation: designation,
-                              baseSalary: emp.base_salary || emp.baseSalary || '',
-                              bonus: emp.bonus || '',
-                              otRate: otRate
-                            });
-                          } else {
-                            setSalaryForm({
-                              ...salaryForm,
-                              employeeId: e.target.value,
-                              employeeName: '',
-                              designation: '',
-                              baseSalary: '',
-                              bonus: '',
-                              otRate: 500
-                            });
-                          }
-                        }}
-                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
-                        required
-                        disabled={submitting || isEditingSalary}
-                      >
-                        <option value="">Select Employee</option>
-                        {employees.map((emp) => {
-                          const des = emp.designation?.designation || emp.designation || '';
-                          return (
-                            <option key={emp.id} value={emp.id}>
-                              {emp.name} {des ? `- ${des}` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                          }}
+                          onFocus={() => setIsEmployeeDropdownOpen(true)}
+                          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white pr-8"
+                          disabled={submitting || isEditingSalary || createSalaryMutation.isPending || updateSalaryMutation.isPending}
+                        />
+                        <Search size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                      </div>
+                      
                       {isEditingSalary && (
                         <p className="text-xs text-gray-400 mt-1">Employee cannot be changed while editing</p>
                       )}
+
+                      {/* ========== DROPDOWN ========== */}
+                      {isEmployeeDropdownOpen && !isEditingSalary && (
+                        <div className="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {filteredEmployees.length > 0 ? (
+                            filteredEmployees.map((emp) => {
+                              const desName = getDesignationName(emp);
+                              return (
+                                <button
+                                  key={emp.id}
+                                  type="button"
+                                  className="w-full px-4 py-2 text-left text-sm hover:bg-blue-50 transition-colors flex items-center gap-2 border-b border-gray-50 last:border-0"
+                                  onClick={() => selectEmployee(emp)}
+                                >
+                                  <div className="w-7 h-7 rounded-full bg-blue-100 flex items-center justify-center text-xs font-medium text-blue-600 flex-shrink-0">
+                                    {emp.name?.charAt(0).toUpperCase() || 'U'}
+                                  </div>
+                                  <span className="text-gray-700">{emp.name}</span>
+                                  {desName && (
+                                    <span className="text-xs text-gray-400 ml-auto">{desName}</span>
+                                  )}
+                                </button>
+                              );
+                            })
+                          ) : (
+                            <div className="px-4 py-3 text-sm text-gray-500 text-center">
+                              {employeeSearchQuery ? 'No employees found' : 'Type to search employees'}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {employees.length === 0 && (
                         <p className="text-xs text-amber-600 mt-1">⚠️ No employees found. Please add employees first.</p>
                       )}
@@ -1145,7 +1623,7 @@ export default function SalariesOT() {
                         onChange={(e) => setSalaryForm({ ...salaryForm, otHours: e.target.value })}
                         placeholder="Enter OT hours"
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        disabled={submitting}
+                        disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                       />
                       <p className="text-xs text-gray-400 mt-1">
                         OT Rate: {formatCurrency(salaryForm.otRate || 500)}/hr (from designation)
@@ -1163,6 +1641,32 @@ export default function SalariesOT() {
                         disabled
                       />
                       <p className="text-xs text-purple-600 mt-1">✓ Auto-set from designation OT rate</p>
+                    </div>
+
+                    {/* ========== MONTH SELECTION ========== */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                        <CalendarDays size={14} className="inline mr-1" /> Month *
+                      </label>
+                      <select
+                        value={salaryForm.month}
+                        onChange={(e) => setSalaryForm({ ...salaryForm, month: e.target.value })}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
+                        required
+                        disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
+                      >
+                        {Array.from({ length: 12 }, (_, i) => {
+                          const month = new Date(2000, i, 1).toLocaleString('default', { month: 'long' });
+                          const year = new Date().getFullYear();
+                          const value = `${month} ${year}`;
+                          return (
+                            <option key={i} value={value}>
+                              {month} {year}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <p className="text-xs text-gray-400 mt-1">Select the month for this salary record</p>
                     </div>
 
                     <div className="md:col-span-2">
@@ -1187,13 +1691,13 @@ export default function SalariesOT() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (!submitting) {
+                        if (!submitting && !createSalaryMutation.isPending && !updateSalaryMutation.isPending) {
                           setShowSalaryForm(false);
                           resetSalaryForm();
                         }
                       }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
+                      disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                     >
                       Cancel
                     </button>
@@ -1202,9 +1706,9 @@ export default function SalariesOT() {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
+                      disabled={submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || createSalaryMutation.isPending || updateSalaryMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           {isEditingSalary ? 'Updating...' : 'Saving...'}
@@ -1234,7 +1738,7 @@ export default function SalariesOT() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
               onClick={() => {
-                if (!submitting) {
+                if (!submitting && !deleteSalaryMutation.isPending) {
                   setShowDeleteConfirm(false);
                   setDeleteId(null);
                 }
@@ -1262,22 +1766,22 @@ export default function SalariesOT() {
                   <div className="flex items-center justify-center gap-3">
                     <button
                       onClick={() => {
-                        if (!submitting) {
+                        if (!submitting && !deleteSalaryMutation.isPending) {
                           setShowDeleteConfirm(false);
                           setDeleteId(null);
                         }
                       }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
+                      disabled={submitting || deleteSalaryMutation.isPending}
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleDeleteSalary}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                      disabled={submitting}
+                      disabled={submitting || deleteSalaryMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || deleteSalaryMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           Deleting...
@@ -1296,5 +1800,3 @@ export default function SalariesOT() {
     </motion.div>
   );
 }
-
-

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, Search, Filter, Phone, Mail, Plus, MapPin, Award, Briefcase, Calendar, 
@@ -8,7 +8,7 @@ import {
   Circle, CheckCircle, AlertCircle, Loader, Shield, BarChart, Package, 
   Calculator, Truck, Bike, Headphones, Crown, ChevronDown, Wallet, Coins,
   Settings, List, PlusCircle, Pencil, Trash, Save, Users as UsersIcon,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, RefreshCw
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
@@ -35,7 +35,7 @@ const itemVariants = {
 const summaryCards = [
   {
     key: 'total',
-    label: 'Total Staff',
+    label: 'Staff',
     icon: Users,
     bgClass: 'bg-blue-50',
     textClass: 'text-blue-600',
@@ -54,23 +54,16 @@ const summaryCards = [
     bgClass: 'bg-amber-50',
     textClass: 'text-amber-600',
   },
-  {
-    key: 'managers',
-    label: 'Managers',
-    icon: Award,
-    bgClass: 'bg-blue-50',
-    textClass: 'text-blue-600',
-  },
 ];
 
-// ===== API FUNCTIONS =====
+// ===== API FUNCTIONS FOR REACT QUERY =====
 const fetchEmployees = async () => {
   const token = localStorage.getItem('token');
   const response = await axios.get(API_URL, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch employees');
-  return response.data.data || [];
+  return response.data.data;
 };
 
 const fetchDesignations = async () => {
@@ -217,63 +210,58 @@ export default function Employees() {
 
   // ===== REACT QUERY HOOKS =====
   
-  // ===== REACT QUERY HOOKS =====
+  // 1. Employees Query with Polling (3 seconds)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+    isFetching: isEmployeesFetching,
+    dataUpdatedAt: employeesUpdatedAt,
+  } = useQuery({
+    queryKey: ['employees'],
+    queryFn: fetchEmployees,
+    staleTime: 30 * 1000, // 30 seconds
+    gcTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 3000, // Poll every 3 seconds
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-// 1. Employees Query with Polling (3 seconds)
-const {
-  data: employees = [],
-  isLoading: employeesLoading,
-  error: employeesError,
-  refetch: refetchEmployees,
-} = useQuery({
-  queryKey: ['employees'],
-  queryFn: fetchEmployees,
-  staleTime: 30 * 1000,
-  gcTime: 5 * 60 * 1000,
-  refetchInterval: 3000,
-  refetchIntervalInBackground: true,
-  refetchOnWindowFocus: false,
-  retry: 2,
-});
+  // 2. Designations Query
+  const {
+    data: designations = [],
+    isLoading: designationsLoading,
+    refetch: refetchDesignations,
+  } = useQuery({
+    queryKey: ['designations'],
+    queryFn: fetchDesignations,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-// 2. Designations Query - ADD error: designationsError
-const {
-  data: designations = [],
-  isLoading: designationsLoading,
-  error: designationsError,  // <-- ADD THIS
-  refetch: refetchDesignations,
-} = useQuery({
-  queryKey: ['designations'],
-  queryFn: fetchDesignations,
-  staleTime: 5 * 60 * 1000,
-  gcTime: 10 * 60 * 1000,
-  refetchOnWindowFocus: false,
-  retry: 2,
-});
+  // 3. Roles Query
+  const {
+    data: roles = [],
+    isLoading: rolesLoading,
+    refetch: refetchRoles,
+  } = useQuery({
+    queryKey: ['roles'],
+    queryFn: fetchRoles,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
 
-// 3. Roles Query - ADD error: rolesError
-const {
-  data: roles = [],
-  isLoading: rolesLoading,
-  error: rolesError,  // <-- ADD THIS
-  refetch: refetchRoles,
-} = useQuery({
-  queryKey: ['roles'],
-  queryFn: fetchRoles,
-  staleTime: 5 * 60 * 1000,
-  gcTime: 10 * 60 * 1000,
-  refetchOnWindowFocus: false,
-  retry: 2,
-});
-
-  
-  
   // ===== MUTATIONS =====
   
-  // Create Employee Mutation
   const createEmployeeMutation = useMutation({
     mutationFn: createEmployee,
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['employees'] });
       showSuccessNotification('Employee added successfully!');
       setShowCreateForm(false);
@@ -291,7 +279,6 @@ const {
     onSettled: () => setSubmitting(false),
   });
 
-  // Update Employee Mutation
   const updateEmployeeMutation = useMutation({
     mutationFn: updateEmployee,
     onSuccess: (data, variables) => {
@@ -321,7 +308,6 @@ const {
     onSettled: () => setSubmitting(false),
   });
 
-  // Delete Employee Mutation
   const deleteEmployeeMutation = useMutation({
     mutationFn: deleteEmployee,
     onSuccess: () => {
@@ -338,11 +324,11 @@ const {
     onSettled: () => setSubmitting(false),
   });
 
-  // Create Designation Mutation
   const createDesignationMutation = useMutation({
     mutationFn: createDesignation,
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['designations'] });
+      queryClient.invalidateQueries({ queryKey: ['employees'] });
       showSuccessNotification('Designation added successfully!');
       setShowDesignationModal(false);
       setDesignationForm({ name: '', otRate: 500 });
@@ -357,7 +343,6 @@ const {
     onSettled: () => setSubmitting(false),
   });
 
-  // Update Designation Mutation
   const updateDesignationMutation = useMutation({
     mutationFn: updateDesignation,
     onSuccess: () => {
@@ -381,7 +366,6 @@ const {
     onSettled: () => setSubmitting(false),
   });
 
-  // Delete Designation Mutation
   const deleteDesignationMutation = useMutation({
     mutationFn: deleteDesignation,
     onSuccess: () => {
@@ -452,12 +436,6 @@ const {
     return employee.designation_id || null;
   };
 
-  const getRoleName = (roleId) => {
-    if (!roleId) return 'No Role';
-    const role = roles.find(r => r.id === roleId);
-    return role ? role.role_name : 'No Role';
-  };
-
   // ========== VALIDATION FUNCTIONS ==========
 
   const capitalizeWords = (str) => {
@@ -482,62 +460,6 @@ const {
     const oldRegex = /^[0-9]{9}[VX]$/;
     const newRegex = /^[0-9]{12}$/;
     return oldRegex.test(cleaned) || newRegex.test(cleaned);
-  };
-
-  const validateFullName = (name) => {
-    return name.trim().length >= 2;
-  };
-
-  const validateGender = (gender) => {
-    return gender && gender !== '';
-  };
-
-  const validateDesignation = (designation) => {
-    return designation && designation !== '';
-  };
-
-  const validateAddress = (address) => {
-    return address.trim().length >= 5;
-  };
-
-  const validateHiredDate = (date) => {
-    return date && date !== '';
-  };
-
-  const validateBirthday = (date) => {
-    if (!date) return true;
-    const today = new Date();
-    const birthDate = new Date(date);
-    const age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      return age - 1 >= 16;
-    }
-    return age >= 16;
-  };
-
-  const validateMarriageStatus = (status) => {
-    return status && status !== '';
-  };
-
-  const validateJobType = (type) => {
-    return type && type !== '';
-  };
-
-  const validateSalary = (salary) => {
-    if (!salary) return true;
-    const num = parseFloat(salary);
-    return !isNaN(num) && num >= 0;
-  };
-
-  const validateBonus = (bonus) => {
-    if (!bonus) return true;
-    const num = parseFloat(bonus);
-    return !isNaN(num) && num >= 0;
-  };
-
-  const validateStatus = (status) => {
-    return status && status !== '';
   };
 
   const validateField = (fieldName, value) => {
@@ -589,8 +511,16 @@ const {
         }
         break;
       case 'birthday':
-        if (value && !validateBirthday(value)) {
-          error = 'Employee must be at least 16 years old';
+        if (value) {
+          const today = new Date();
+          const birthDate = new Date(value);
+          const age = today.getFullYear() - birthDate.getFullYear();
+          const monthDiff = today.getMonth() - birthDate.getMonth();
+          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+            if (age - 1 < 16) error = 'Employee must be at least 16 years old';
+          } else if (age < 16) {
+            error = 'Employee must be at least 16 years old';
+          }
         }
         break;
       case 'marriageStatus':
@@ -604,13 +534,15 @@ const {
         }
         break;
       case 'baseSalary':
-        if (value && !validateSalary(value)) {
-          error = 'Please enter a valid salary amount';
+        if (value) {
+          const num = parseFloat(value);
+          if (isNaN(num) || num < 0) error = 'Please enter a valid salary amount';
         }
         break;
       case 'bonus':
-        if (value && !validateBonus(value)) {
-          error = 'Please enter a valid bonus amount';
+        if (value) {
+          const num = parseFloat(value);
+          if (isNaN(num) || num < 0) error = 'Please enter a valid bonus amount';
         }
         break;
       case 'status':
@@ -663,47 +595,7 @@ const {
     return isValid;
   };
 
-  const resetForm = () => {
-    setFormData({
-      fullName: '',
-      birthday: '',
-      email: '',
-      gender: '',
-      nic: '',
-      phoneNo: '',
-      designation: '',
-      designationId: '',
-      address: '',
-      marriageStatus: '',
-      hiredDate: new Date().toISOString().split('T')[0],
-      jobType: '',
-      profileImage: null,
-      baseSalary: '',
-      bonus: '',
-      status: 'active',
-      role: ''
-    });
-    setValidationErrors({
-      fullName: '',
-      email: '',
-      phoneNo: '',
-      nic: '',
-      gender: '',
-      designation: '',
-      address: '',
-      hiredDate: '',
-      birthday: '',
-      marriageStatus: '',
-      jobType: '',
-      baseSalary: '',
-      bonus: '',
-      status: '',
-      role: ''
-    });
-    setError(null);
-  };
-
-  // ========== HANDLER FUNCTIONS ==========
+  // ========== CRUD OPERATIONS FOR DESIGNATIONS ==========
 
   const handleAddDesignation = async (e) => {
     e.preventDefault();
@@ -791,6 +683,8 @@ const {
     setError(null);
   };
 
+  // ========== EMPLOYEE CRUD OPERATIONS ==========
+
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     if (!validateForm()) {
@@ -805,8 +699,13 @@ const {
       }
       return;
     }
+
     setSubmitting(true);
     setError(null);
+    
+    const birthdayValue = formData.birthday && formData.birthday.trim() !== '' 
+      ? formData.birthday 
+      : null;
     
     const employeeData = {
       name: formData.fullName,
@@ -814,7 +713,7 @@ const {
       phone: formData.phoneNo,
       email: formData.email,
       hireDate: formData.hiredDate,
-      birthday: formData.birthday || null,
+      birthday: birthdayValue,
       gender: formData.gender || null,
       nic: formData.nic || null,
       address: formData.address,
@@ -844,6 +743,7 @@ const {
       }
       return;
     }
+
     setSubmitting(true);
     setError(null);
 
@@ -871,7 +771,9 @@ const {
       role_id: formData.role || null
     };
     
-    if (formData.birthday) updateData.birthday = formData.birthday;
+    if (formData.birthday && formData.birthday.trim() !== '') {
+      updateData.birthday = formData.birthday;
+    }
     if (formData.gender) updateData.gender = formData.gender;
     if (formData.nic) updateData.nic = formData.nic;
     if (formData.marriageStatus) updateData.marriageStatus = formData.marriageStatus;
@@ -886,6 +788,46 @@ const {
       setSubmitting(true);
       deleteEmployeeMutation.mutate(employeeToDelete.id);
     }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      fullName: '',
+      birthday: '',
+      email: '',
+      gender: '',
+      nic: '',
+      phoneNo: '',
+      designation: '',
+      designationId: '',
+      address: '',
+      marriageStatus: '',
+      hiredDate: new Date().toISOString().split('T')[0],
+      jobType: '',
+      profileImage: null,
+      baseSalary: '',
+      bonus: '',
+      status: 'active',
+      role: ''
+    });
+    setValidationErrors({
+      fullName: '',
+      email: '',
+      phoneNo: '',
+      nic: '',
+      gender: '',
+      designation: '',
+      address: '',
+      hiredDate: '',
+      birthday: '',
+      marriageStatus: '',
+      jobType: '',
+      baseSalary: '',
+      bonus: '',
+      status: '',
+      role: ''
+    });
+    setError(null);
   };
 
   const openDetailModal = (employee) => {
@@ -961,20 +903,11 @@ const {
   const totalStaff = employees.length;
   const activeStaff = employees.filter((e) => e.status === 'active').length;
   const onLeaveStaff = employees.filter((e) => e.status === 'on_leave').length;
-  
-  const managers = employees.filter((e) => {
-    const desName = getDesignationName(e);
-    const roleName = e.role && typeof e.role === 'object' ? e.role.role_name : e.role || '';
-    return desName.toLowerCase().includes('manager') || 
-           roleName.toLowerCase().includes('manager') ||
-           e.role_id === 2;
-  }).length;
 
   const summaryValues = {
     total: totalStaff,
     active: activeStaff,
     onLeave: onLeaveStaff,
-    managers: managers,
   };
 
   // Build filter tabs from designations
@@ -1062,6 +995,7 @@ const {
   const currentTab = filterTabs.find(tab => tab.key === activeFilter) || filterTabs[0];
   const CurrentIcon = currentTab.icon;
   const isDesignationsLoaded = designations.length > 0;
+  const lastUpdated = employeesUpdatedAt ? new Date(employeesUpdatedAt).toLocaleTimeString() : 'Never';
 
   // ===== LOADING STATE =====
   if (employeesLoading || designationsLoading || rolesLoading) {
@@ -1076,19 +1010,14 @@ const {
   }
 
   // ===== ERROR STATE =====
-  if (employeesError || designationsError || rolesError) {
-    const errorMsg = employeesError?.message || designationsError?.message || rolesError?.message || 'Failed to load data';
+  if (employeesError) {
     return (
-      <div className="flex flex-col items-center justify-center h-96">
-        <AlertCircle size={48} className="text-red-500 mx-auto mb-4" />
-        <p className="text-gray-600">{errorMsg}</p>
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <AlertCircle size={40} className="text-red-500" />
+        <p className="text-sm text-gray-600">Failed to load employees</p>
         <button
-          onClick={() => {
-            refetchEmployees();
-            refetchDesignations();
-            refetchRoles();
-          }}
-          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          onClick={() => refetchEmployees()}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
         >
           Retry
         </button>
@@ -1125,8 +1054,25 @@ const {
           <div>
             <h1 className="text-xl font-bold text-gray-900">Employees</h1>
             <p className="text-sm text-gray-500">Manage staff, track performance, and monitor employee activity</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Last updated: {lastUpdated} • Auto-refresh every 3s
+            </p>
           </div>
           <div className="flex items-center gap-3">
+            {isEmployeesFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Updating...
+              </span>
+            )}
+            <button
+              onClick={() => refetchEmployees()}
+              disabled={isEmployeesFetching}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium bg-white rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={15} className={isEmployeesFetching ? 'animate-spin' : ''} />
+              Refresh
+            </button>
             <motion.button
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.97 }}
@@ -1468,9 +1414,6 @@ const {
                         required
                         disabled={submitting}
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        {isEditingDesignation ? 'Update the designation name' : 'Add a new designation for employees'}
-                      </p>
                     </div>
 
                     <div>
@@ -1488,12 +1431,9 @@ const {
                         required
                         disabled={submitting}
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        This rate will be used for OT calculations for employees with this designation
-                      </p>
                     </div>
 
-                    {/* Display existing designations with OT rates */}
+                    {/* Display existing designations */}
                     <div className="mt-4">
                       <label className="block text-xs font-medium text-gray-600 mb-2">
                         <List size={14} className="inline mr-1" /> Existing Designations ({designations.length})
@@ -1516,7 +1456,6 @@ const {
                                   type="button"
                                   onClick={() => openEditDesignationModal(d)}
                                   className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                                  title="Edit Designation"
                                   disabled={submitting}
                                 >
                                   <Pencil size={14} />
@@ -1525,7 +1464,6 @@ const {
                                   type="button"
                                   onClick={() => openDeleteDesignationConfirm(d)}
                                   className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                                  title="Delete Designation"
                                   disabled={submitting}
                                 >
                                   <Trash size={14} />
@@ -1712,6 +1650,7 @@ const {
                 </div>
 
                 <form onSubmit={selectedEmployee ? handleEditEmployee : handleAddEmployee}>
+                  {/* All your form fields remain the same */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     {/* Full Name */}
                     <div>

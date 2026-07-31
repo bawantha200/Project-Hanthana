@@ -1,5 +1,5 @@
 // frontend/src/components/inventory/StockLevels.jsx
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
@@ -7,7 +7,7 @@ import {
   Search, History, CheckCircle, X, Clipboard, FlaskConical, 
   RefreshCcw, ArrowLeftRight, ArrowRight, ArrowLeft, AlertCircle,
   RotateCcw, ArrowUp, ArrowDown, Layers, Box,
-  CirclePlus,
+  CirclePlus, Power,
   Undo2
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -344,8 +344,8 @@ const StockModal = ({ isOpen, onClose, onSave, products, mode, item }) => {
 
   const selectedProduct = products?.find(p => p.id === parseInt(formData.product_id));
 
-  // Reset form when modal opens
-  useState(() => {
+  // Reset form when modal opens - FIXED with proper dependency
+  useEffect(() => {
     if (isOpen && products?.length > 0) {
       setFormData({
         product_id: products[0]?.id || '',
@@ -486,15 +486,82 @@ const StockModal = ({ isOpen, onClose, onSave, products, mode, item }) => {
   );
 };
 
+// ─── Status Toggle Modal ───
+const StatusToggleModal = ({ isOpen, onClose, onConfirm, product, isSubmitting }) => {
+  if (!isOpen || !product) return null;
+
+  const isActive = product.is_active ?? true;
+  const actionText = isActive ? 'disable' : 'enable';
+  const titleText = isActive ? 'Disable Product' : 'Enable Product';
+  const descriptionText = isActive 
+    ? `This will deactivate "${product.name}". The product will no longer be available for use.`
+    : `This will activate "${product.name}". The product will be available for use again.`;
+  const confirmColor = isActive ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700';
+  const iconBg = isActive ? 'bg-red-100' : 'bg-emerald-100';
+  const iconColor = isActive ? 'text-red-600' : 'text-emerald-600';
+
+  const handleConfirm = () => {
+    onConfirm(product);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">{titleText}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="flex items-center gap-4 mb-4">
+          <div className={`w-12 h-12 rounded-xl ${iconBg} flex items-center justify-center flex-shrink-0`}>
+            <Power size={24} className={iconColor} />
+          </div>
+          <div>
+            <p className="font-medium text-gray-900">{product.name}</p>
+            <p className="text-sm text-gray-500">{descriptionText}</p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <button 
+            type="button" 
+            onClick={onClose} 
+            className="px-4 py-2 text-sm font-medium bg-gray-100 rounded-lg hover:bg-gray-200"
+            disabled={isSubmitting}
+          >
+            Cancel
+          </button>
+          <button 
+            type="button" 
+            onClick={handleConfirm} 
+            className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${confirmColor} ${
+              isSubmitting ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Processing...' : isActive ? 'Disable' : 'Enable'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Main Component ───
 export default function StockLevels({ products: propProducts = [], onRefresh, loading: parentLoading }) {
   const queryClient = useQueryClient();
+  const isInitialMount = useRef(true);
 
   // ─── State ───
   const [stockModal, setStockModal] = useState({ isOpen: false, mode: 'add', item: null });
   const [conversionModal, setConversionModal] = useState({ isOpen: false, type: null, product: null });
+  const [statusFilter, setStatusFilter] = useState('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [showTransactions, setShowTransactions] = useState(false);
+  const [localProducts, setLocalProducts] = useState([]);
+  const [statusToggleModal, setStatusToggleModal] = useState({ isOpen: false, product: null });
 
   // ─── React Query: Fetch Products ───
   const {
@@ -514,7 +581,7 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
     refetchOnWindowFocus: false,
     refetchInterval: 120000,
     placeholderData: (previousData) => previousData,
-    enabled: propProducts.length === 0, // Only fetch if not provided as prop
+    enabled: propProducts.length === 0,
   });
 
   // ─── React Query: Fetch Transactions ───
@@ -580,7 +647,6 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
         : 'Stock to Empty';
       toast.success(`${direction}: ${variables.quantity} units converted`);
       
-      // Invalidate all related queries
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PRODUCTS });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.STOCK_SUMMARY });
       queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TRANSACTIONS });
@@ -624,24 +690,85 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
     },
   });
 
+  // ─── React Query: Toggle Product Status Mutation ───
+  const toggleStatusMutation = useMutation({
+    mutationFn: async ({ id, is_active }) => {
+      const response = await inventoryAPI.toggleProductActive(id, is_active);
+      return response.data;
+    },
+    onSuccess: (data, variables) => {
+      const { id, is_active } = variables;
+      const actionText = is_active ? 'enabled' : 'disabled';
+      
+      setLocalProducts((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, is_active: is_active } : p
+        )
+      );
+      
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.PRODUCTS });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.STOCK_SUMMARY });
+      
+      toast.success(`Product ${actionText} successfully.`);
+      setStatusToggleModal({ isOpen: false, product: null });
+    },
+    onError: (error, variables) => {
+      const actionText = variables.is_active ? 'enable' : 'disable';
+      // Revert optimistic update on error
+      const { id, is_active } = variables;
+      setLocalProducts((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, is_active: !is_active } : p
+        )
+      );
+      toast.error(error.response?.data?.message || `Failed to ${actionText} product.`);
+      setStatusToggleModal({ isOpen: false, product: null });
+    },
+  });
+
   // ─── Memoized Data ───
   const products = useMemo(() => {
-    return propProducts.length > 0 ? propProducts : productsData;
+    const source = propProducts.length > 0 ? propProducts : productsData;
+    return source.map(p => ({
+      ...p,
+      is_active: p.is_active !== undefined ? p.is_active : true
+    }));
   }, [propProducts, productsData]);
 
+  // FIXED: Sync local products when products change - only on initial mount and when data changes
+  useEffect(() => {
+    // Only update if products have actually changed
+    const productsString = JSON.stringify(products);
+    const currentString = JSON.stringify(localProducts);
+    
+    if (productsString !== currentString) {
+      setLocalProducts(products);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
-    return products.filter(p => 
-      p.name?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [products, searchTerm]);
+    return localProducts.filter((p) => {
+      const matchesSearch = p.name?.toLowerCase().includes(searchTerm.toLowerCase());
+
+      let matchesStatus = true;
+      if (statusFilter === 'active') {
+        matchesStatus = p.is_active !== false;
+      } else if (statusFilter === 'inactive') {
+        matchesStatus = p.is_active === false;
+      }
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [localProducts, searchTerm, statusFilter]);
 
   const totalStock = useMemo(() => {
-    return products.reduce((sum, item) => sum + (item.stock || 0), 0);
-  }, [products]);
+    return localProducts.reduce((sum, item) => sum + (item.stock || 0), 0);
+  }, [localProducts]);
 
   const lowStockItems = useMemo(() => {
-    return products.filter((item) => item.status === 'low');
-  }, [products]);
+    return localProducts.filter((item) => item.status === 'low');
+  }, [localProducts]);
 
   // ─── Handlers ───
   const handleRefresh = useCallback(async () => {
@@ -661,6 +788,26 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
 
   const handleConvertStock = (payload) => {
     convertStockMutation.mutate(payload);
+  };
+
+  const handleToggleStatus = (item) => {
+    setStatusToggleModal({ isOpen: true, product: item });
+  };
+
+  const handleConfirmToggleStatus = (item) => {
+    const newStatus = !item.is_active;
+    
+    // Optimistic update
+    setLocalProducts((prev) =>
+      prev.map((p) =>
+        p.id === item.id ? { ...p, is_active: newStatus } : p
+      )
+    );
+
+    toggleStatusMutation.mutate({
+      id: item.id,
+      is_active: newStatus,
+    });
   };
 
   const handleStockSave = (formData) => {
@@ -704,7 +851,7 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
   }
 
   const isRefreshing = productsFetching || syncEmptyStockMutation.isPending;
-  const isSubmitting = convertStockMutation.isPending || addStockMutation.isPending;
+  const isSubmitting = convertStockMutation.isPending || addStockMutation.isPending || toggleStatusMutation.isPending;
 
   return (
     <>
@@ -738,6 +885,14 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
         onClose={() => setShowTransactions(false)}
         transactions={transactionsData}
         isFetching={transactionsFetching}
+      />
+
+      <StatusToggleModal
+        isOpen={statusToggleModal.isOpen}
+        onClose={() => setStatusToggleModal({ isOpen: false, product: null })}
+        onConfirm={handleConfirmToggleStatus}
+        product={statusToggleModal.product}
+        isSubmitting={toggleStatusMutation.isPending}
       />
 
       <div className="space-y-6">
@@ -800,6 +955,34 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {/* ─── Status Filter Tabs ─── */}
+              <div className="flex bg-gray-100 p-1 rounded-lg text-xs font-medium mr-2">
+                <button
+                  onClick={() => setStatusFilter('all')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    statusFilter === 'all' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  onClick={() => setStatusFilter('active')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    statusFilter === 'active' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Active
+                </button>
+                <button
+                  onClick={() => setStatusFilter('inactive')}
+                  className={`px-3 py-1 rounded-md transition-all ${
+                    statusFilter === 'inactive' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  Inactive
+                </button>
+              </div>
+
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
@@ -842,26 +1025,50 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Type</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Stock</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Empty</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Inventory Level</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Status</th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-gray-500">Price</th>
                     <th className="text-center py-3 px-4 text-xs font-medium text-gray-500">Actions</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-gray-50">
                   {filteredProducts.map((item) => {
                     const isLow = item.status === 'low';
                     const isRefill = item.type?.toLowerCase() === 'refill' || item.type?.toLowerCase() === 'empty';
-                    
+                    const isActive = item.is_active ?? true;
+
                     return (
-                      <tr key={item.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                        <td className="py-3 px-4 font-medium text-gray-900">{item.name}</td>
+                      <tr 
+                        key={item.id} 
+                        className={`transition-colors ${
+                          !isActive 
+                            ? 'bg-gray-50/80 text-gray-400 opacity-75' 
+                            : 'hover:bg-gray-50/50 text-gray-900'
+                        }`}
+                      >
+                        <td className="py-3 px-4 font-medium">
+                          <div className="flex items-center gap-2">
+                            <span>{item.name}</span>
+                            {!isActive && (
+                              <span className="text-[10px] font-normal px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">
+                                Disabled
+                              </span>
+                            )}
+                          </div>
+                        </td>
+
                         <td className="py-3 px-4">
-                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${isRefill ? 'bg-blue-100 text-blue-700' : 'bg-blue-100 text-blue-700'}`}>
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                            isRefill ? 'bg-blue-100 text-blue-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
                             {isRefill ? 'Refill' : 'Sealed'}
                           </span>
                         </td>
+
                         <td className="py-3 px-4 font-medium">{item.stock}</td>
+
                         <td className="py-3 px-4">{item.empty_bottle_stock || 0}</td>
+
                         <td className="py-3 px-4">
                           {isLow ? (
                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">Low</span>
@@ -869,24 +1076,45 @@ export default function StockLevels({ products: propProducts = [], onRefresh, lo
                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">OK</span>
                           )}
                         </td>
+
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium inline-flex items-center gap-1 ${
+                            isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-600 border border-red-200'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-red-400'}`} />
+                            {isActive ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+
                         <td className="py-3 px-4">{formatCurrency(item.unit_price)}</td>
+
                         <td className="py-3 px-4 text-center">
                           <div className="flex items-center justify-center gap-1">
                             <button 
                               onClick={() => setConversionModal({ isOpen: true, type: 'empty_to_stock', product: item })} 
-                              className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors disabled:opacity-30"
                               title="Empty to Stock"
-                              disabled={isSubmitting}
+                              disabled={isSubmitting || !isActive}
                             >
                               <CirclePlus size={14} />
                             </button>
                             <button 
                               onClick={() => setConversionModal({ isOpen: true, type: 'stock_to_empty', product: item })} 
-                              className="p-1 text-amber-600 hover:bg-amber-50 rounded transition-colors"
+                              className="p-1 text-amber-600 hover:bg-amber-50 rounded transition-colors disabled:opacity-30"
                               title="Stock to Empty"
-                              disabled={isSubmitting}
+                              disabled={isSubmitting || !isActive}
                             >
                               <Undo2 size={14} />
+                            </button>
+                            <button 
+                              onClick={() => handleToggleStatus(item)} 
+                              className={`p-1 rounded transition-colors ${
+                                isActive ? 'text-red-500 hover:bg-red-50' : 'text-emerald-600 hover:bg-emerald-50'
+                              }`}
+                              title={isActive ? 'Disable Item' : 'Enable Item'}
+                              disabled={toggleStatusMutation.isPending}
+                            >
+                              <Power size={14} />
                             </button>
                           </div>
                         </td>

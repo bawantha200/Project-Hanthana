@@ -24,6 +24,14 @@ const ATTENDANCE_API = `${API_BASE_URL}/attendance`;
 const SALARIES_API = `${API_BASE_URL}/salaries`;
 const LEAVE_API = `${API_BASE_URL}/leaves`;
 
+
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -42,7 +50,7 @@ const tabs = [
 ];
 
 const statsCards = [
-  { key: 'totalStaff', label: 'Total Staff', icon: Users, color: 'blue' },
+  { key: 'totalStaff', label: 'Staff', icon: Users, color: 'blue' },
   { key: 'presentToday', label: 'Present Today', icon: UserCheck, color: 'emerald' },
   { key: 'absentToday', label: 'Absent Today', icon: UserX, color: 'red' },
   { key: 'monthlyPayout', label: 'Monthly Payout', icon: Wallet, color: 'purple' },
@@ -116,7 +124,10 @@ const addSalary = async (salaryData) => {
 const createEmployee = async (employeeData) => {
   const token = localStorage.getItem('token');
   const response = await axios.post(EMPLOYEES_API, employeeData, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { 
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
   });
   if (!response.data.success) throw new Error(response.data.message || 'Failed to create employee');
   return response.data.data;
@@ -215,6 +226,8 @@ export default function HRMDashboard() {
     isLoading: employeesLoading,
     error: employeesError,
     refetch: refetchEmployees,
+    isFetching: isEmployeesFetching,
+    dataUpdatedAt: employeesUpdatedAt,
   } = useQuery({
     queryKey: ['hrm-employees'],
     queryFn: fetchEmployees,
@@ -232,6 +245,7 @@ export default function HRMDashboard() {
     isLoading: attendanceLoading,
     error: attendanceError,
     refetch: refetchAttendance,
+    isFetching: isAttendanceFetching,
   } = useQuery({
     queryKey: ['hrm-attendance'],
     queryFn: fetchAttendance,
@@ -282,6 +296,7 @@ export default function HRMDashboard() {
     data: roles = [],
     isLoading: rolesLoading,
     error: rolesError,
+    refetch: refetchRoles,
   } = useQuery({
     queryKey: ['hrm-roles'],
     queryFn: fetchRoles,
@@ -345,7 +360,7 @@ export default function HRMDashboard() {
     onSettled: () => setSubmitting(false),
   });
 
-  // Update Employee
+  // Update Employee Mutation
   const updateEmployeeMutation = useMutation({
     mutationFn: updateEmployee,
     onSuccess: () => {
@@ -353,9 +368,14 @@ export default function HRMDashboard() {
       showSuccessNotification('Employee updated successfully!');
       setShowEmployeeForm(false);
       resetEmployeeForm();
+      setEditingEmployee(null);
     },
     onError: (err) => {
-      setError(err.response?.data?.message || 'Failed to update employee.');
+      if (err.response?.status === 409) {
+        setError('Email already in use by another employee.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to update employee.');
+      }
     },
     onSettled: () => setSubmitting(false),
   });
@@ -439,7 +459,7 @@ export default function HRMDashboard() {
       role: '',
       address: '',
       marriageStatus: '',
-      hiredDate: new Date().toISOString().split('T')[0],
+      hiredDate: getLocalDateString(),
       jobType: '',
       profileImage: null
     });
@@ -536,7 +556,7 @@ export default function HRMDashboard() {
     setAttendanceForm({
       employeeId: employee.id,
       employeeName: employee.name,
-      date: new Date().toISOString().split('T')[0],
+      date: getLocalDateString(),
       checkIn: '',
       checkOut: '',
       status: 'present'
@@ -569,7 +589,7 @@ export default function HRMDashboard() {
         role: employee.position || '',
         address: employee.address || '',
         marriageStatus: employee.marriage_status || '',
-        hiredDate: employee.hire_date || new Date().toISOString().split('T')[0],
+        hiredDate: employee.hire_date || getLocalDateString(),
         jobType: employee.job_type || '',
         profileImage: employee.profile_image || null
       });
@@ -595,15 +615,30 @@ export default function HRMDashboard() {
     }
   };
 
+  const handleRefresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
+    queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
+    queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
+    queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
+  };
+
   // ===== DERIVED DATA =====
 
   const totalStaff = employees.length;
-  const presentToday = attendanceData.filter(a => a.status === 'present').length;
-  const absentToday = attendanceData.filter(a => a.status === 'absent').length;
-  const halfDayToday = attendanceData.filter(a => a.status === 'half_day').length;
+  const todayStr = getLocalDateString();
+
+  const todaysAttendance = attendanceData.filter((a) => (a.date || '').slice(0, 10) === todayStr);
+
+  const presentToday = todaysAttendance.filter(a => a.status === 'present').length;
+  const absentToday = todaysAttendance.filter(a => a.status === 'absent').length;
+  const halfDayToday = todaysAttendance.filter(a => a.status === 'half_day').length;
+
   const monthlyPayout = salaryData.reduce((sum, s) => sum + (s.total_salary || s.total || 0), 0);
   const totalOTHours = salaryData.reduce((sum, s) => sum + (s.ot_hours || s.otHours || 0), 0);
-  const todayAttendanceRate = totalStaff > 0 ? Math.round((presentToday / totalStaff) * 100) : 0;
+
+  const todayAttendanceRate = totalStaff > 0
+    ? Math.round((presentToday / totalStaff) * 100)
+    : 0;
 
   const pendingLeaves = leaveData.filter(l => l.status === 'pending').length;
   const approvedLeaves = leaveData.filter(l => l.status === 'approved').length;
@@ -616,6 +651,8 @@ export default function HRMDashboard() {
     absentToday,
     monthlyPayout
   };
+
+  const lastUpdated = employeesUpdatedAt ? new Date(employeesUpdatedAt).toLocaleTimeString() : 'Never';
 
   const filteredEmployees = employees.filter((employee) => {
     const matchesPosition = activeFilter === 'All' || employee.position === activeFilter;
@@ -665,12 +702,7 @@ export default function HRMDashboard() {
         <AlertCircle size={48} className="text-red-500 mb-4" />
         <p className="text-gray-600">Failed to load data: {anyError.message}</p>
         <button
-          onClick={() => {
-            queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
-            queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
-            queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
-            queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
-          }}
+          onClick={handleRefresh}
           className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
         >
           Retry
@@ -733,20 +765,26 @@ export default function HRMDashboard() {
             <p className="text-sm text-gray-500 mt-1">
               Comprehensive human resource management — Employees, attendance, and salaries
             </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
-              <span className="text-xs text-gray-400">{loading ? 'Updating...' : 'Live'}</span>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${loading ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+                <span className="text-xs text-gray-400">{loading ? 'Updating...' : 'Live'}</span>
+              </div>
+              <span className="text-xs text-gray-400">•</span>
+              <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {isEmployeesFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Syncing...
+              </span>
+            )}
             <button
-              onClick={() => {
-                queryClient.invalidateQueries({ queryKey: ['hrm-employees'] });
-                queryClient.invalidateQueries({ queryKey: ['hrm-attendance'] });
-                queryClient.invalidateQueries({ queryKey: ['hrm-salaries'] });
-                queryClient.invalidateQueries({ queryKey: ['hrm-leaves'] });
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
+              onClick={handleRefresh}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm disabled:opacity-50"
             >
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
               Refresh
@@ -841,7 +879,7 @@ export default function HRMDashboard() {
             <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Total Employees</p>
+                  <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Employees</p>
                   <p className="text-3xl font-bold text-gray-900 mt-1">{totalStaff}</p>
                 </div>
                 <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
@@ -1088,173 +1126,9 @@ export default function HRMDashboard() {
             </div>
           </div>
 
-          {/* Enlarged Employee Table */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-                  <Users size={18} className="text-blue-500" />
-                  Employee Directory
-                </h3>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {filteredEmployees.length} employees found
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <button
-                    onClick={() => setIsFilterDropdownOpen(!isFilterDropdownOpen)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                  >
-                    <Filter size={14} />
-                    {activeFilter === 'All' ? 'All Positions' : activeFilter.replace(/_/g, ' ')}
-                    <ChevronDown size={14} className={`transition-transform ${isFilterDropdownOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                  {isFilterDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-200 z-20 py-1 max-h-60 overflow-y-auto">
-                      {filterTabs.map((tab) => {
-                        const Icon = tab.icon;
-                        return (
-                          <button
-                            key={tab.key}
-                            onClick={() => {
-                              setActiveFilter(tab.key);
-                              setIsFilterDropdownOpen(false);
-                            }}
-                            className={`w-full flex items-center gap-2 px-4 py-2 text-sm hover:bg-gray-50 transition-colors ${
-                              activeFilter === tab.key ? 'bg-blue-50 text-blue-700' : 'text-gray-700'
-                            }`}
-                          >
-                            <Icon size={14} />
-                            {tab.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-                <button
-                  onClick={() => openEmployeeForm()}
-                  className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-                >
-                  <Plus size={14} />
-                  Add Employee
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Position</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Hire Date</th>
-                    <th className="text-left py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="text-center py-3 px-6 text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredEmployees.length > 0 ? (
-                    filteredEmployees.map((employee) => (
-                      <tr
-                        key={employee.id}
-                        className="border-b border-gray-100 hover:bg-gray-50/50 transition-colors cursor-pointer group"
-                      >
-                        <td className="py-3 px-6">
-                          <div className="flex items-center gap-3">
-                            {employee.profile_image ? (
-                              <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-transparent group-hover:ring-blue-400 transition-all flex-shrink-0">
-                                <img src={employee.profile_image} alt={employee.name} className="w-full h-full object-cover" />
-                              </div>
-                            ) : (
-                              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center font-semibold text-white shadow-sm flex-shrink-0">
-                                {employee.name?.charAt(0).toUpperCase() || 'U'}
-                              </div>
-                            )}
-                            <div>
-                              <p className="font-medium text-gray-900 group-hover:text-blue-600 transition-colors">
-                                {employee.name}
-                              </p>
-                              <p className="text-xs text-gray-400">{employee.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-3 px-6">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
-                            {employee.position || 'N/A'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-6">
-                          <div className="flex flex-col">
-                            <span className="text-gray-700">{employee.phone}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-6 text-gray-600">{employee.hire_date}</td>
-                        <td className="py-3 px-6">
-                          <StatusBadge status={employee.status} />
-                        </td>
-                        <td className="py-3 px-6">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => openDetailModal(employee)}
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="View Details"
-                            >
-                              <Eye size={15} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setShowDetailModal(false);
-                                openEmployeeForm(employee);
-                              }}
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="Edit"
-                            >
-                              <Edit size={15} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setEmployeeToDelete(employee);
-                                setShowDeleteConfirm(true);
-                              }}
-                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
-                              title="Delete"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                            <button
-                              onClick={() => openAttendanceForm(employee)}
-                              className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="Add Attendance"
-                            >
-                              <Clock size={15} />
-                            </button>
-                            <button
-                              onClick={() => openSalaryForm(employee)}
-                              className="p-1.5 text-purple-500 hover:bg-purple-50 rounded-lg transition-colors"
-                              title="Add Salary"
-                            >
-                              <DollarSign size={15} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="6" className="text-center py-12 text-gray-500">
-                        <Users size={36} className="mx-auto mb-3 text-gray-300" />
-                        <p className="font-medium">No employees found</p>
-                        <p className="text-xs text-gray-400 mt-1">Try adjusting your search or filter criteria</p>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          {/* ============================================ */}
+          {/* EMPLOYEE TABLE - FULL WIDTH */}
+          {/* ============================================ */}
         </motion.div>
       )}
 

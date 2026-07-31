@@ -16,9 +16,8 @@ import {
   voidExpense,
 } from '../../services/expenseService';
 import { getVendorOrders } from '../../services/vendorOrdersService';
-import { getSalaries, markSalaryAsPaid } from '../../services/salaryService';
+import { getSalaries } from '../../services/salaryService';
 import { getPeriodRange, getMonthLabelsInRange } from '../../services/reportService';
-import MarkPaidConfirmModal from '../../components/MarkPaidConfirmModal';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -140,24 +139,6 @@ export default function ExpenseManagement() {
     loadSalaries();
   }, [loadExpenses, loadVendorOrders, loadSalaries]);
 
-  const [confirmingSalary, setConfirmingSalary] = useState(null);
-
-  const requestMarkSalaryPaid = (id) => {
-    const record = salaries.find((s) => s.id === id);
-    setConfirmingSalary(record || { id });
-  };
-
-  const confirmMarkSalaryPaid = async () => {
-    if (!confirmingSalary) return;
-    try {
-      const updated = await markSalaryAsPaid(confirmingSalary.id);
-      setSalaries((prev) => prev.map((s) => (s.id === confirmingSalary.id ? updated : s)));
-    } catch (error) {
-      console.error('Failed to mark salary as paid:', error);
-    } finally {
-      setConfirmingSalary(null);
-    }
-  };
 
   // --- Filtered datasets ---
   const filteredExpenses = useMemo(() => {
@@ -375,7 +356,7 @@ export default function ExpenseManagement() {
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition"
           >
             <FileText size={16} />
-            Generate Report
+            Summary Report
           </button>
           <button
             onClick={() => setActiveReportType('other')}
@@ -476,7 +457,6 @@ export default function ExpenseManagement() {
             salaries={filteredSalaries}
             filters={salaryFilters}
             onFilterChange={setSalaryFilters}
-            onMarkPaid={requestMarkSalaryPaid}
           />
         )}
       </motion.div>
@@ -500,13 +480,6 @@ export default function ExpenseManagement() {
         }}
         onConfirm={handleVoidConfirm}
         expenseId={voidingExpenseId}
-      />
-      
-      <MarkPaidConfirmModal
-        isOpen={!!confirmingSalary}
-        onClose={() => setConfirmingSalary(null)}
-        onConfirm={confirmMarkSalaryPaid}
-        employeeName={confirmingSalary?.employeeName}
       />
 
       <GenerateReportModal

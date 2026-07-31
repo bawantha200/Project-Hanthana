@@ -7,10 +7,27 @@ import {
 } from 'lucide-react';
 import StatusBadge from '../../components/StatusBadge';
 import axios from 'axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const API_BASE_URL = 'http://localhost:5000/api';
 const EMPLOYEES_API = `${API_BASE_URL}/employees`;
 const ATTENDANCE_API = `${API_BASE_URL}/attendance`;
+
+
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getDatePartsFromString = (dateStr) => {
+  if (!dateStr) return null;
+  const datePart = String(dateStr).slice(0, 10);
+  const [year, month, day] = datePart.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return { year, month: month - 1, day };
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -95,12 +112,42 @@ const getDesignationName = (employee) => {
   return '';
 };
 
+// ===== API FUNCTIONS FOR REACT QUERY =====
+const fetchEmployees = async () => {
+  const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch employees');
+  return response.data.data || [];
+};
+
+const fetchAttendance = async () => {
+  const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to fetch attendance');
+  return response.data.data || [];
+};
+
+const createAttendance = async (attendanceData) => {
+  const response = await axios.post(ATTENDANCE_API, attendanceData, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to add attendance');
+  return response.data.data;
+};
+
+const updateAttendance = async ({ id, data }) => {
+  const response = await axios.put(`${ATTENDANCE_API}/${id}`, data, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to update attendance');
+  return response.data.data;
+};
+
+const deleteAttendance = async (id) => {
+  const response = await axios.delete(`${ATTENDANCE_API}/${id}`, getAuthHeaders());
+  if (!response.data.success) throw new Error(response.data.message || 'Failed to delete attendance');
+  return response.data;
+};
+
 export default function Attendance() {
+  const queryClient = useQueryClient();
+
   // ========== STATE ==========
   const [searchQuery, setSearchQuery] = useState('');
-  const [employees, setEmployees] = useState([]);
-  const [attendanceData, setAttendanceData] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
@@ -140,56 +187,111 @@ export default function Attendance() {
     status: 'present'
   });
 
-  // ========== FETCH FUNCTIONS ==========
-  
-  const fetchEmployees = async () => {
-    try {
-      const response = await axios.get(EMPLOYEES_API, getAuthHeaders());
-      if (response.data.success) {
-        setEmployees(response.data.data);
-        console.log('✅ Employees loaded:', response.data.data.length);
-      }
-    } catch (err) {
-      console.error('❌ Error fetching employees:', err);
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        setError('Session expired. Please login again.');
-      }
-    }
-  };
+  // ===== REACT QUERY HOOKS =====
 
-  const fetchAttendance = async () => {
-    try {
-      const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
-      if (response.data.success) {
-        setAttendanceData(response.data.data);
-        console.log('✅ Attendance loaded:', response.data.data.length);
+  // 1. Employees Query (cached 5 minutes)
+  const {
+    data: employees = [],
+    isLoading: employeesLoading,
+    error: employeesError,
+    refetch: refetchEmployees,
+  } = useQuery({
+    queryKey: ['attendance-employees'],
+    queryFn: fetchEmployees,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  // 2. Attendance Query (poll every 5 seconds)
+  const {
+    data: attendanceData = [],
+    isLoading: attendanceLoading,
+    error: attendanceError,
+    refetch: refetchAttendance,
+    isFetching: isAttendanceFetching,
+    dataUpdatedAt: attendanceUpdatedAt,
+  } = useQuery({
+    queryKey: ['attendance-records'],
+    queryFn: fetchAttendance,
+    staleTime: 5 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: false,
+    retry: 2,
+  });
+
+  const loading = employeesLoading || attendanceLoading;
+  const anyError = employeesError || attendanceError;
+
+  // ===== MUTATIONS =====
+
+  // Create Attendance
+  const createAttendanceMutation = useMutation({
+    mutationFn: createAttendance,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance-records'] });
+      showSuccessNotification('Attendance added successfully!');
+      setShowAttendanceForm(false);
+      resetAttendanceForm();
+    },
+    onError: (err) => {
+      if (err.response?.status === 409) {
+        setError('Attendance already recorded for this date.');
+      } else {
+        setError(err.response?.data?.message || 'Failed to add attendance.');
       }
-    } catch (err) {
-      console.error('❌ Error fetching attendance:', err);
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        setError('Session expired. Please login again.');
-      }
-    }
-  };
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Update Attendance
+  const updateAttendanceMutation = useMutation({
+    mutationFn: updateAttendance,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance-records'] });
+      showSuccessNotification('Attendance updated successfully!');
+      setShowAttendanceForm(false);
+      resetAttendanceForm();
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to update attendance.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
+
+  // Delete Attendance
+  const deleteAttendanceMutation = useMutation({
+    mutationFn: deleteAttendance,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['attendance-records'] });
+      showSuccessNotification('Attendance record deleted successfully!');
+      setShowDeleteConfirm(false);
+      setDeleteId(null);
+    },
+    onError: (err) => {
+      setError(err.response?.data?.message || 'Failed to delete attendance record.');
+    },
+    onSettled: () => setSubmitting(false),
+  });
 
   // ========== FETCH PREVIOUS MONTHS DATA ==========
   const fetchPreviousAttendance = async () => {
     setLoadingPrevious(true);
     try {
-      const currentDate = new Date();
-      const currentMonth = currentDate.getMonth();
-      const currentYear = currentDate.getFullYear();
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
       
-      const response = await axios.get(ATTENDANCE_API, getAuthHeaders());
-      if (response.data.success) {
-        const allData = response.data.data;
-        const previousMonths = allData.filter(record => {
-          const recordDate = new Date(record.date);
-          return recordDate.getMonth() !== currentMonth || recordDate.getFullYear() !== currentYear;
-        });
-        setPreviousAttendanceData(previousMonths);
-        console.log('✅ Previous attendance loaded:', previousMonths.length);
-      }
+      const allData = attendanceData;
+      const previousMonths = allData.filter(record => {
+        const parts = getDatePartsFromString(record.date);
+        if (!parts) return false;
+        return parts.month !== currentMonth || parts.year !== currentYear;
+      });
+      setPreviousAttendanceData(previousMonths);
     } catch (err) {
       console.error('❌ Error fetching previous attendance:', err);
       setError('Failed to load previous attendance data.');
@@ -197,34 +299,6 @@ export default function Attendance() {
       setLoadingPrevious(false);
     }
   };
-
-  // ========== LOAD DATA ==========
-  useEffect(() => {
-    const loadData = async () => {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Please login to access attendance data');
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      
-      try {
-        await Promise.all([
-          fetchEmployees(),
-          fetchAttendance()
-        ]);
-      } catch (err) {
-        console.error('Error loading data:', err);
-        setError('Failed to load data. Please refresh the page.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     if (showSuccess) {
@@ -262,58 +336,26 @@ export default function Attendance() {
         status: status
       };
 
-      let response;
       if (isEditingAttendance && editingAttendanceId) {
-        response = await axios.put(`${ATTENDANCE_API}/${editingAttendanceId}`, data, getAuthHeaders());
-        if (response.data.success) {
-          await fetchAttendance();
-          setShowAttendanceForm(false);
-          resetAttendanceForm();
-          showSuccessNotification('Attendance updated successfully!');
-        }
+        updateAttendanceMutation.mutate({ id: editingAttendanceId, data });
       } else {
-        response = await axios.post(ATTENDANCE_API, data, getAuthHeaders());
-        if (response.data.success) {
-          await fetchAttendance();
-          setShowAttendanceForm(false);
-          resetAttendanceForm();
-          showSuccessNotification(`Attendance added! Status: ${status}`);
-        }
+        createAttendanceMutation.mutate(data);
       }
     } catch (err) {
       console.error('Error:', err);
       if (err.response?.status === 401 || err.response?.status === 403) {
         setError('Session expired. Please login again.');
-      } else if (err.response?.status === 409) {
-        setError('Attendance already recorded for this date.');
       } else {
         setError(err.response?.data?.message || 'Failed to save attendance.');
       }
-    } finally {
       setSubmitting(false);
     }
   };
 
   const handleDeleteAttendance = async () => {
     if (!deleteId) return;
-    
-    try {
-      setSubmitting(true);
-      await axios.delete(`${ATTENDANCE_API}/${deleteId}`, getAuthHeaders());
-      await fetchAttendance();
-      setShowDeleteConfirm(false);
-      setDeleteId(null);
-      showSuccessNotification('Attendance record deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting attendance:', err);
-      if (err.response?.status === 401 || err.response?.status === 403) {
-        setError('Session expired. Please login again.');
-      } else {
-        setError('Failed to delete attendance record.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
+    setSubmitting(true);
+    deleteAttendanceMutation.mutate(deleteId);
   };
 
   const editAttendance = (record) => {
@@ -357,7 +399,7 @@ export default function Attendance() {
       setAttendanceForm({
         employeeId: employee.id,
         employeeName: employee.name,
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         checkIn: '',
         checkOut: '',
         status: 'present'
@@ -366,7 +408,7 @@ export default function Attendance() {
       setAttendanceForm({
         employeeId: '',
         employeeName: '',
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(),
         checkIn: '',
         checkOut: '',
         status: 'present'
@@ -396,47 +438,54 @@ export default function Attendance() {
   // ========== FILTER DATA ==========
 
   const getCurrentMonthData = () => {
-    const currentDate = new Date();
-    const currentMonth = currentDate.getMonth();
-    const currentYear = currentDate.getFullYear();
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
     
     return attendanceData.filter(record => {
       if (record.date) {
-        const recordDate = new Date(record.date);
-        return recordDate.getMonth() === currentMonth && recordDate.getFullYear() === currentYear;
+        const parts = getDatePartsFromString(record.date);
+        if (!parts) return true;
+        return parts.month === currentMonth && parts.year === currentYear;
       }
       return true;
     });
   };
 
+  // ========== TODAY'S DATA ==========
+  const todayStr = getLocalDateString();
+  const todaysAttendance = attendanceData.filter(
+    (rec) => (rec.date || '').slice(0, 10) === todayStr
+  );
+  const presentTodayCount = todaysAttendance.filter(r => r.status === 'present').length;
+  const absentTodayCount = todaysAttendance.filter(r => r.status === 'absent').length;
+  const halfDayTodayCount = todaysAttendance.filter(r => r.status === 'half_day').length;
+  const totalRecordsCount = attendanceData.length;
+
   // ========== APPLY FILTERS ==========
   const applyFilters = (data) => {
     let filtered = [...data];
 
-    // Filter by Employee
     if (filterEmployeeId) {
       filtered = filtered.filter(rec => 
         (rec.employee_id || rec.employeeId) === parseInt(filterEmployeeId)
       );
     }
 
-    // Filter by Month
     if (filterMonth) {
       filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getMonth() === parseInt(filterMonth);
+        const parts = getDatePartsFromString(rec.date);
+        return parts && parts.month === parseInt(filterMonth);
       });
     }
 
-    // Filter by Year
     if (filterYear) {
       filtered = filtered.filter(rec => {
-        const date = new Date(rec.date);
-        return date.getFullYear() === parseInt(filterYear);
+        const parts = getDatePartsFromString(rec.date);
+        return parts && parts.year === parseInt(filterYear);
       });
     }
 
-    // Search by employee name
     if (searchQuery) {
       filtered = filtered.filter(rec =>
         (rec.employee_name || rec.name || '').toLowerCase().includes(searchQuery.toLowerCase())
@@ -457,47 +506,44 @@ export default function Attendance() {
   const endIndex = startIndex + itemsPerPage;
   const paginatedData = filteredAttendance.slice(startIndex, endIndex);
 
-  // Reset to first page when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [filterEmployeeId, filterMonth, filterYear, searchQuery]);
 
   // ========== SUMMARY STATISTICS ==========
-  const totalAttendance = filteredAttendance.length;
-  const presentCount = filteredAttendance.filter(rec => rec.status === 'present').length;
-  const absentCount = filteredAttendance.filter(rec => rec.status === 'absent').length;
-  const halfDayCount = filteredAttendance.filter(rec => rec.status === 'half_day').length;
-
   const summaryCards = [
     { 
       key: 'total', 
-      label: 'Total Records', 
-      value: totalAttendance, 
+      label: 'Records', 
+      value: totalRecordsCount, 
       bgClass: 'bg-blue-50', 
       textClass: 'text-blue-600' 
     },
     { 
       key: 'present', 
-      label: 'Present', 
-      value: presentCount, 
+      label: 'Present Today', 
+      value: presentTodayCount, 
       bgClass: 'bg-emerald-50', 
       textClass: 'text-emerald-600' 
     },
     { 
       key: 'half_day', 
-      label: 'Half Day', 
-      value: halfDayCount, 
+      label: 'Half Day Today', 
+      value: halfDayTodayCount, 
       bgClass: 'bg-amber-50', 
       textClass: 'text-amber-600' 
     },
     { 
       key: 'absent', 
-      label: 'Absent', 
-      value: absentCount, 
+      label: 'Absent Today', 
+      value: absentTodayCount, 
       bgClass: 'bg-red-50', 
       textClass: 'text-red-600' 
     },
   ];
+
+  // ========== GET LAST UPDATED TIME ==========
+  const lastUpdated = attendanceUpdatedAt ? new Date(attendanceUpdatedAt).toLocaleTimeString() : 'Never';
 
   // ========== LOADING ==========
 
@@ -508,6 +554,25 @@ export default function Attendance() {
           <Loader size={48} className="text-blue-600 animate-spin mx-auto" />
           <p className="mt-4 text-gray-500">Loading attendance data...</p>
         </div>
+      </div>
+    );
+  }
+
+  // ========== ERROR STATE ==========
+  if (anyError) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 gap-4">
+        <AlertCircle size={48} className="text-red-500" />
+        <p className="text-gray-600">Failed to load data: {anyError.message}</p>
+        <button
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['attendance-records'] });
+            queryClient.invalidateQueries({ queryKey: ['attendance-employees'] });
+          }}
+          className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Retry
+        </button>
       </div>
     );
   }
@@ -558,24 +623,31 @@ export default function Attendance() {
             <p className="text-sm text-gray-500 mt-1">
               Track employee check-ins, check-outs, and attendance status
             </p>
+            <div className="flex items-center gap-3 mt-1">
+              <div className="flex items-center gap-2">
+                <span className={`inline-block w-2 h-2 rounded-full ${isAttendanceFetching ? 'bg-yellow-400' : 'bg-emerald-400'}`} />
+                <span className="text-xs text-gray-400">{isAttendanceFetching ? 'Updating...' : 'Live'}</span>
+              </div>
+              <span className="text-xs text-gray-400">•</span>
+              <span className="text-xs text-gray-400">Last updated: {lastUpdated}</span>
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            {isAttendanceFetching && (
+              <span className="text-xs text-gray-400 flex items-center gap-1">
+                <Loader size={12} className="animate-spin" />
+                Syncing...
+              </span>
+            )}
             <button
-              onClick={async () => {
-                setLoading(true);
-                setError(null);
-                try {
-                  await fetchAttendance();
-                  showSuccessNotification('Attendance refreshed successfully!');
-                } catch (err) {
-                  setError('Failed to refresh attendance data.');
-                } finally {
-                  setLoading(false);
-                }
+              onClick={() => {
+                queryClient.invalidateQueries({ queryKey: ['attendance-records'] });
+                queryClient.invalidateQueries({ queryKey: ['attendance-employees'] });
+                showSuccessNotification('Attendance refreshed successfully!');
               }}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors shadow-sm"
             >
-              <RefreshCw size={16} />
+              <RefreshCw size={16} className={isAttendanceFetching ? 'animate-spin' : ''} />
               Refresh
             </button>
             <button
@@ -614,8 +686,8 @@ export default function Attendance() {
                   <p className="text-xs text-gray-400 font-medium">{card.label}</p>
                   <p className="text-sm font-semibold text-gray-900">
                     {card.key === 'total' ? `${card.value} records` : 
-                     card.key === 'present' ? `${card.value} (${totalAttendance > 0 ? Math.round((card.value/totalAttendance)*100) : 0}%)` :
-                     card.key === 'half_day' ? `${card.value} (${totalAttendance > 0 ? Math.round((card.value/totalAttendance)*100) : 0}%)` :
+                     card.key === 'present' ? `${card.value} (${todaysAttendance.length > 0 ? Math.round((card.value/todaysAttendance.length)*100) : 0}%)` :
+                     card.key === 'half_day' ? `${card.value} (${todaysAttendance.length > 0 ? Math.round((card.value/todaysAttendance.length)*100) : 0}%)` :
                      card.value}
                   </p>
                 </div>
@@ -1030,7 +1102,7 @@ export default function Attendance() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
               onClick={() => {
-                if (!submitting) {
+                if (!submitting && !createAttendanceMutation.isPending && !updateAttendanceMutation.isPending) {
                   setShowAttendanceForm(false);
                   resetAttendanceForm();
                 }
@@ -1045,13 +1117,13 @@ export default function Attendance() {
               <div className="relative p-6 md:p-8">
                 <button
                   onClick={() => {
-                    if (!submitting) {
+                    if (!submitting && !createAttendanceMutation.isPending && !updateAttendanceMutation.isPending) {
                       setShowAttendanceForm(false);
                       resetAttendanceForm();
                     }
                   }}
                   className="absolute top-4 right-4 p-2 hover:bg-gray-100 rounded-lg transition-colors z-10"
-                  disabled={submitting}
+                  disabled={submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                 >
                   <X size={24} className="text-gray-400" />
                 </button>
@@ -1083,7 +1155,7 @@ export default function Attendance() {
                         }}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all bg-white"
                         required
-                        disabled={submitting || isEditingAttendance}
+                        disabled={submitting || isEditingAttendance || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                       >
                         <option value="">Select Employee</option>
                         {employees.map((emp) => {
@@ -1113,7 +1185,7 @@ export default function Attendance() {
                         onChange={(e) => setAttendanceForm({ ...attendanceForm, date: e.target.value })}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
                         required
-                        disabled={submitting}
+                        disabled={submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                       />
                     </div>
 
@@ -1126,7 +1198,7 @@ export default function Attendance() {
                         value={attendanceForm.checkIn}
                         onChange={(e) => setAttendanceForm({ ...attendanceForm, checkIn: e.target.value })}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        disabled={submitting}
+                        disabled={submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                       />
                       <p className="text-xs text-gray-400 mt-1">Default: 8:00 AM</p>
                     </div>
@@ -1140,7 +1212,7 @@ export default function Attendance() {
                         value={attendanceForm.checkOut}
                         onChange={(e) => setAttendanceForm({ ...attendanceForm, checkOut: e.target.value })}
                         className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
-                        disabled={submitting}
+                        disabled={submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                       />
                       <p className="text-xs text-gray-400 mt-1">Default: 5:00 PM</p>
                     </div>
@@ -1171,13 +1243,13 @@ export default function Attendance() {
                     <button
                       type="button"
                       onClick={() => {
-                        if (!submitting) {
+                        if (!submitting && !createAttendanceMutation.isPending && !updateAttendanceMutation.isPending) {
                           setShowAttendanceForm(false);
                           resetAttendanceForm();
                         }
                       }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
+                      disabled={submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                     >
                       Cancel
                     </button>
@@ -1186,9 +1258,9 @@ export default function Attendance() {
                       whileTap={{ scale: 0.97 }}
                       type="submit"
                       className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={submitting}
+                      disabled={submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || createAttendanceMutation.isPending || updateAttendanceMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           {isEditingAttendance ? 'Updating...' : 'Saving...'}
@@ -1218,7 +1290,7 @@ export default function Attendance() {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 backdrop-blur-md z-50"
               onClick={() => {
-                if (!submitting) {
+                if (!submitting && !deleteAttendanceMutation.isPending) {
                   setShowDeleteConfirm(false);
                   setDeleteId(null);
                 }
@@ -1246,22 +1318,22 @@ export default function Attendance() {
                   <div className="flex items-center justify-center gap-3">
                     <button
                       onClick={() => {
-                        if (!submitting) {
+                        if (!submitting && !deleteAttendanceMutation.isPending) {
                           setShowDeleteConfirm(false);
                           setDeleteId(null);
                         }
                       }}
                       className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                      disabled={submitting}
+                      disabled={submitting || deleteAttendanceMutation.isPending}
                     >
                       Cancel
                     </button>
                     <button
                       onClick={handleDeleteAttendance}
                       className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-red-500 rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
-                      disabled={submitting}
+                      disabled={submitting || deleteAttendanceMutation.isPending}
                     >
-                      {submitting ? (
+                      {submitting || deleteAttendanceMutation.isPending ? (
                         <>
                           <Loader size={16} className="animate-spin" />
                           Deleting...

@@ -1,15 +1,23 @@
 const supabase = require('../config/db');
-const { sendSMS } = require('../utils/smsService'); 
-
 
 class ProductService {
-  async getAllProducts() {
-    const { data, error } = await supabase
+  /**
+   * Fetch products.
+   * Pass includeInactive = true for Admin dashboard, false for Customer/POS catalog.
+   */
+  async getAllProducts(includeInactive = true) {
+    let query = supabase
       .from('products')
       .select('*')
-      .order('id', { ascending: true });
+      .order('created_at', { ascending: false });
+
+    if (!includeInactive) {
+      query = query.eq('is_active', true);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
-    return data;
+    return data || [];
   }
 
   async getProductById(id) {
@@ -17,7 +25,8 @@ class ProductService {
       .from('products')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
+
     if (error) throw error;
     return data;
   }
@@ -28,6 +37,7 @@ class ProductService {
       .insert([productData])
       .select()
       .single();
+
     if (error) throw error;
     return data;
   }
@@ -39,17 +49,24 @@ class ProductService {
       .eq('id', id)
       .select()
       .single();
+
     if (error) throw error;
     return data;
   }
 
+  /**
+   * Soft delete (Deactivate product) to preserve past order history
+   */
   async deleteProduct(id) {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('products')
-      .delete()
-      .eq('id', id);
+      .update({ is_active: false })
+      .eq('id', id)
+      .select()
+      .single();
+
     if (error) throw error;
-    return true;
+    return data;
   }
 }
 

@@ -522,7 +522,34 @@ const stockController = {
       console.error('getCacheStats error:', error.message);
       res.status(500).json({ success: false, message: 'Failed to get cache stats' });
     }
-  }
+  },
+
+  // ──────────────────────────────────────────────
+  // TOGGLE / UPDATE STOCK ACTIVE STATUS
+  // ──────────────────────────────────────────────
+  async toggleStockStatus(req, res) {
+    try {
+      const { id } = req.params;
+      const { is_active } = req.body; // Expecting boolean (true/false) from request body
+
+      // Pass the new status to the service method
+      const result = await stockService.updateStockStatus(Number(id), is_active);
+
+      // Invalidate caches since the stock status changed
+      invalidateStockCaches(Number(id));
+
+      return res.status(200).json({
+        ...result,
+        cacheInvalidated: true
+      });
+    } catch (error) {
+      console.error('toggleStockStatus controller error:', error.message);
+      return res.status(500).json({ 
+        success: false, 
+        message: 'Failed to update stock status' 
+      });
+    }
+  },
 };
 
 module.exports = stockController;

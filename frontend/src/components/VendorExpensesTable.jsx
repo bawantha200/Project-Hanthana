@@ -1,4 +1,4 @@
-import { formatCurrency } from '../utils/helpers';
+import { formatCurrency, formatAmount } from '../utils/helpers';
 import PeriodSelector from './PeriodSelector';
 
 const STATUS_STYLES = {
@@ -62,8 +62,8 @@ export default function VendorExpensesTable({ orders, filters, onFilterChange })
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Vendor</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Product</th>
                 <th className="text-right py-3 px-4 font-semibold text-gray-600">Qty</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">Unit Price</th>
-                <th className="text-right py-3 px-4 font-semibold text-gray-600">Total</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">Unit Price (LKR)</th>
+                <th className="text-right py-3 px-4 font-semibold text-gray-600">Total (LKR)</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Order Date</th>
                 <th className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
               </tr>
@@ -74,8 +74,8 @@ export default function VendorExpensesTable({ orders, filters, onFilterChange })
                   <td className="py-3 px-4 font-medium text-gray-900">{order.vendorName}</td>
                   <td className="py-3 px-4 text-gray-700">{order.productName}</td>
                   <td className="py-3 px-4 text-right text-gray-700">{order.quantity}</td>
-                  <td className="py-3 px-4 text-right text-gray-700">{formatCurrency(order.unitPrice)}</td>
-                  <td className="py-3 px-4 text-right font-medium text-gray-900">{formatCurrency(order.total)}</td>
+                  <td className="py-3 px-4 text-right text-gray-700">{formatAmount(order.unitPrice)}</td>
+                  <td className="py-3 px-4 text-right font-medium text-gray-900">{formatAmount(order.total)}</td>
                   <td className="py-3 px-4 text-gray-700">{order.orderDate}</td>
                   <td className="py-3 px-4">
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[order.status] || 'bg-gray-100 text-gray-500'}`}>

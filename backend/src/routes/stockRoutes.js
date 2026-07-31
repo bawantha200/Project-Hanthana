@@ -23,6 +23,7 @@ router.post('/reduce', stockController.reduceStock);
 router.post('/sync-empty-stock', stockController.syncEmptyStock);
 router.post('/process-vendor-order/:orderId', stockController.processVendorOrder);
 router.post('/convert', stockController.convertStock);
+router.patch('/stocks/:id/status', stockController.toggleStockStatus);
 
 // --- Generic /:id routes last (must stay below the static routes above) ---
 router.get('/:id', stockController.getStock);
