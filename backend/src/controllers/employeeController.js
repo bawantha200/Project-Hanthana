@@ -51,30 +51,36 @@ exports.getAllEmployees = async (req, res) => {
     }
 
     let query = supabase
-      .from('employees')
-      .select(`
-        id,
-        name,
-        email,
-        phone,
-        status,
-        hire_date,
-        profile_image,
-        base_salary,
-        role_id,  
-        bonus,
-        rejection_reason,
-        designation:designation_id (
-          id,
-          designation,
-          ot_rate
-        ),
-        role:role_id (
-          id,
-          role_name,
-          description
-        )
-      `);
+  .from('employees')
+  .select(`
+    id,
+    name,
+    email,
+    phone,
+    status,
+    hire_date,
+    birthday,
+    gender,
+    nic,
+    address,
+    marriage_status,
+    job_type,
+    profile_image,
+    base_salary,
+    role_id,  
+    bonus,
+    rejection_reason,
+    designation:designation_id (
+      id,
+      designation,
+      ot_rate
+    ),
+    role:role_id (
+      id,
+      role_name,
+      description
+    )
+  `);
 
     // Status filter
     if (status && status !== 'All') {
