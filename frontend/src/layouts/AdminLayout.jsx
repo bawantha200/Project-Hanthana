@@ -425,7 +425,7 @@ function ProfileDropdown({ isOpen, onClose, user }) {
           initial={{ opacity: 0, y: -10, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -10, scale: 0.95 }}
-          className="absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl overflow-hidden"
+          className="absolute right-0 top-full mt-2 z-[9999] w-64 rounded-2xl border border-slate-200/80 bg-white/95 backdrop-blur-xl shadow-xl overflow-hidden"
         >
           <div className="px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 to-slate-50/80">
             <div className="flex items-center gap-3">
@@ -784,7 +784,7 @@ export default function AdminLayout() {
                 </button>
 
                 {/* Role Switcher (only for ADMIN) */}
-                {isAdmin && allRoles.length > 0 && (
+                {/* {isAdmin && allRoles.length > 0 && (
                   <div className="relative">
                     <button
                       onClick={() => {
@@ -808,7 +808,7 @@ export default function AdminLayout() {
                       availableRoles={allRoles}
                     />
                   </div>
-                )}
+                )} */}
 
                 <div className="hidden md:flex items-center">
                   <div className="h-5 w-px bg-slate-200 mx-2" />

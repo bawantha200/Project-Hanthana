@@ -761,7 +761,7 @@ export default function HRMDashboard() {
       <motion.div variants={itemVariants}>
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">HRM Dashboard</h1>
+            <h1 className="text-2xl font-bold text-gray-900">HRM Dashboard GGGG</h1>
             <p className="text-sm text-gray-500 mt-1">
               Comprehensive human resource management — Employees, attendance, and salaries
             </p>

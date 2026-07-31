@@ -1316,7 +1316,7 @@ export default function Settings() {
                 <option value="10">10 attempts</option>
               </select>
             </div>
-            <div>
+            {/* <div>
               <label className="block text-xs font-medium text-gray-600 mb-1.5">IP Whitelist (comma separated)</label>
               <input
                 type="text"
@@ -1325,7 +1325,7 @@ export default function Settings() {
                 placeholder="e.g., 192.168.1.1, 10.0.0.1"
                 className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 transition-all"
               />
-            </div>
+            </div> */}
           </div>
         </motion.div>
       )}
