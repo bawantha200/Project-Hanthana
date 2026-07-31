@@ -100,19 +100,19 @@ function AdminRoutes() {
   const { user, permissions, loading } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect on root or unauthorized paths (safety net)
+  
   useEffect(() => {
     if (loading) return;
     if (!user) return;
 
     const currentPath = window.location.pathname;
 
-    // 1. Permission ලැයිස්තුවෙන් Allow කරපු Paths ගන්නවා
+    
     const allowedPaths = NAV_ITEMS
       .filter(item => permissions.includes(item.id))
       .map(item => item.path);
 
-    // 2. Dashboard sub-pages හෝ Internal pages සඳහා Exception ලබාදෙනවා
+   
     const internalAllowedPaths = [
       '/app/system-activity',
       '/app/recently-registered',
@@ -121,7 +121,7 @@ function AdminRoutes() {
 
     const isRoot = currentPath === '/app' || currentPath === '/app/';
     
-    // Check කරනවා allowedPaths වල තියෙනවද නැත්නම් Internal Allowed list එකේ තියෙනවද කියලා
+    
     const isAllowed = 
       allowedPaths.some(path => currentPath.startsWith(path)) ||
       internalAllowedPaths.some(path => currentPath.startsWith(path));
